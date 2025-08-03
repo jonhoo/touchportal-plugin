@@ -1,5 +1,6 @@
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// In Touch Portal the user can use States which can be used by IF statement and with Events for
 /// example but can also be used in button texts or most actions.
@@ -24,7 +25,7 @@ pub struct State {
     /// well with wrong data. Best practice is to create a unique prefix for all your states like
     /// in our case; `tp_sid_fruit`.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     /// This text describes the state and is used in the IF statement to let the user see what
     /// state it is changing.
@@ -42,7 +43,7 @@ pub struct State {
     initial: String,
 
     #[serde(flatten)]
-    kind: StateType,
+    pub(crate) kind: StateType,
 
     /// The name of the parent group of this state.
     ///
@@ -89,7 +90,7 @@ pub struct ChoiceState {
     /// These can also be dynamically changed if you use the dynamic actions.
     #[builder(setter(each(name = "choice", into)))]
     #[serde(rename = "valueChoices")]
-    choices: Vec<String>,
+    pub(crate) choices: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

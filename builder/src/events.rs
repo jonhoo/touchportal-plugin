@@ -1,6 +1,7 @@
 use super::PluginCategory;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// In Touch Portal there are events which will be triggered when a certain state changes.
 ///
@@ -18,11 +19,11 @@ pub struct Event {
     ///
     /// When the event is triggered, Touch Portal will send this information to the plugin with this id.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     /// This is the name in the action category list.
     #[builder(setter(into))]
-    name: String,
+    pub(crate) name: String,
 
     /// This is the text the action will show in the user generated action list.
     ///
@@ -38,14 +39,14 @@ pub struct Event {
     _type: EventType,
 
     #[serde(flatten)]
-    value: EventValueType,
+    pub(crate) value: EventValueType,
 
     /// Reference to a state.
     ///
     /// When this states changes, this event will be evaluated and possibly triggered if the
     /// condition is correct. Can be empty but is mandatory.
     #[builder(setter(into), default)]
-    value_state_id: String,
+    pub(crate) value_state_id: String,
 
     /// This attribute allows you to connect this event to a specified subcategory id.
     ///
@@ -64,7 +65,7 @@ pub struct Event {
     #[serde(rename = "localstates")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[builder(setter(each(name = "local_state")), default)]
-    local_states: Vec<LocalState>,
+    pub(crate) local_states: Vec<LocalState>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -93,7 +94,7 @@ pub struct EventChoiceValue {
     /// These are all the options the user can select in the event.
     #[builder(setter(each(name = "choice", into)))]
     #[serde(rename = "valueChoices")]
-    choices: Vec<String>,
+    pub(crate) choices: BTreeSet<String>,
 }
 
 /// The local states object represents the representation and visualisation within Touch Portal.

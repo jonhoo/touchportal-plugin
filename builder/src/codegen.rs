@@ -16,7 +16,7 @@ pub fn build(plugin: &PluginDescription) -> String {
     // crate?
     let settings = gen_settings(plugin);
     let connect = gen_connect(&plugin.id);
-    let outgoing = gen_outgoing();
+    let outgoing = gen_outgoing(&plugin);
     let incoming = gen_incoming(&plugin);
     let tokens = quote! {
         use ::touchportal_plugin::protocol;
@@ -42,7 +42,7 @@ impl crate::Setting {
     fn string_converter(&self) -> TokenStream {
         match self.kind {
             SettingType::Number(_) | SettingType::Switch(_) => {
-                quote! { #[serde(deserialize_with = "deserialize_with_fromstr")] }
+                quote! { #[serde(deserialize_with = "deserialize_with_unstring")] }
             }
             SettingType::Text(_)
             | SettingType::Multiline(_)
@@ -79,6 +79,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                 #enums
 
                 #[derive(Debug, Clone, Copy, serde::Deserialize)]
+                #[allow(non_camel_case_types)]
                 #[allow(non_snake_case)]
                 pub enum #name {
                     #(
@@ -87,9 +88,8 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                     ),*
                 }
 
-                impl ::std::str::FromStr for #name {
-                    type Err = ::eyre::Report;
-                    fn from_str(s: &str) -> Result<Self, Self::Err> {
+                impl protocol::Unstring for #name {
+                    fn unstring(s: &str) -> ::eyre::Result<Self> {
                         match s {
                             #(#choices => Ok(Self::#choice_variants2),)*
                             _ => eyre::bail!("'{s}' is not a valid setting value"),
@@ -118,7 +118,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         default_fn_defs.push(quote! {
             #[allow(non_snake_case)]
             fn #ident() -> #type_ {
-                #default.parse().expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
+                protocol::Unstring::unstring(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
             }
         });
     }
@@ -128,11 +128,10 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
 
         #( #default_fn_defs )*
 
-        fn deserialize_with_fromstr<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+        fn deserialize_with_unstring<'de, D, T>(deserializer: D) -> Result<T, D::Error>
         where
             D: ::serde::Deserializer<'de>,
-            T: ::std::str::FromStr,
-            T::Err: ::std::fmt::Display,
+            T: protocol::Unstring,
         {
             use ::serde::de::Visitor;
 
@@ -140,8 +139,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
 
             impl<'de, S> Visitor<'de> for V<S>
             where
-                S: ::std::str::FromStr,
-                S::Err: ::std::fmt::Display
+                S: protocol::Unstring,
             {
                 type Value = S;
 
@@ -153,7 +151,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                 where
                     E: ::serde::de::Error,
                 {
-                    ::std::str::FromStr::from_str(v).map_err(::serde::de::Error::custom)
+                    protocol::Unstring::unstring(v).map_err(::serde::de::Error::custom)
                 }
             }
 
@@ -190,7 +188,83 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
     }
 }
 
-fn gen_outgoing() -> TokenStream {
+fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
+    let mut state_stuff = Vec::new();
+    for state in plugin.categories.iter().flat_map(|c| &c.states) {
+        let id = &state.id;
+        let state_name = format_ident!("update_{}", state.id);
+        match &state.kind {
+            crate::StateType::Choice(choice_state) => {
+                let name = format_ident!("ValuesForState_{}", state.id);
+                let choices = &choice_state.choices;
+                let choice_variants1 = choices.iter().map(|c| format_ident!("{c}"));
+                let choice_variants2 = choices.iter().map(|c| format_ident!("{c}"));
+                state_stuff.push(quote! {
+                    #[derive(Debug, Clone, Copy)]
+                    #[allow(non_camel_case_types)]
+                    #[allow(non_snake_case)]
+                    pub enum #name {
+                        #(
+                            #choice_variants1
+                        ),*
+                    }
+
+                    impl ::std::fmt::Display for #name {
+                        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                            write!(f, "{}", match self {
+                                #(
+                                    Self::#choice_variants2 => #choices
+                                ),*
+                            })
+                        }
+                    }
+
+                    impl TouchPortalHandle {
+                        pub async fn #state_name(&mut self, value: #name) {
+                            let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
+                                protocol::UpdateStateCommandBuilder::default()
+                                  .state_id(#id)
+                                  .value(value.to_string())
+                                  .build()
+                                  .unwrap()
+                            )).await;
+                        }
+                    }
+                });
+            }
+            crate::StateType::Text(_) => state_stuff.push(quote! {
+                impl TouchPortalHandle {
+                    pub async fn #state_name(&mut self, value: impl Into<String>) {
+                        let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
+                            protocol::UpdateStateCommandBuilder::default()
+                              .state_id(#id)
+                              .value(value.into())
+                              .build()
+                              .unwrap()
+                        )).await;
+                    }
+                }
+            }),
+        }
+    }
+
+    let mut event_methods = Vec::new();
+    for event in plugin.categories.iter().flat_map(|c| &c.events) {
+        let id = &event.id;
+        let event_name = format_ident!("trigger_{}", event.id);
+        event_methods.push(quote! {
+            pub async fn #event_name(&mut self) {
+                // TODO: local state stuff
+                let _ = self.0.send(protocol::TouchPortalCommand::TriggerEvent(
+                    protocol::TriggerEventCommandBuilder::default()
+                      .event_id(#id)
+                      .build()
+                      .unwrap()
+                )).await;
+            }
+        });
+    }
+
     quote! {
         #[derive(Clone, Debug)]
         pub struct TouchPortalHandle(::tokio::sync::mpsc::Sender<protocol::TouchPortalCommand>);
@@ -199,7 +273,11 @@ fn gen_outgoing() -> TokenStream {
             pub async fn notify(&mut self, cmd: protocol::CreateNotificationCommand) {
                 let _ = self.0.send(protocol::TouchPortalCommand::CreateNotification(cmd)).await;
             }
+
+            #( #event_methods )*
         }
+
+        #( #state_stuff )*
     }
 }
 
@@ -226,10 +304,8 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                 DataFormat::Choice(choice_data) => {
                     let name = format_ident!("ChoicesFor_{id}");
                     let choices = &choice_data.value_choices;
-                    let choice_variants = choice_data
-                        .value_choices
-                        .iter()
-                        .map(|c| format_ident!("{c}"));
+                    let choice_variants1 = choices.iter().map(|c| format_ident!("{c}"));
+                    let choice_variants2 = choices.iter().map(|c| format_ident!("{c}"));
                     action_data_choices = quote! {
                         #action_data_choices
 
@@ -239,8 +315,17 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                         pub enum #name {
                             #(
                                 #[serde(rename = #choices)]
-                                #choice_variants
+                                #choice_variants1
                             ),*
+                        }
+
+                        impl protocol::Unstring for #name {
+                            fn unstring(s: &str) -> ::eyre::Result<Self> {
+                                match s {
+                                    #(#choices => Ok(Self::#choice_variants2),)*
+                                    _ => eyre::bail!("'{s}' is not a valid data choice value"),
+                                }
+                            }
                         }
                     };
                     args.insert(format_ident!("{id}"), name.into());
@@ -255,7 +340,13 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         }
         let arg_names = args.keys();
         let arg_types = args.values();
-        action_signatures.push(quote! { async fn #name(&mut self, #( #arg_names: #arg_types ),*) -> eyre::Result<()>; });
+        action_signatures.push(quote! {
+            async fn #name(
+                &mut self,
+                mode: protocol::ActionInteractionMode,
+                #( #arg_names: #arg_types ),*
+            ) -> eyre::Result<()>;
+        });
         let arg_names1 = args.keys();
         let arg_names2 = args.keys();
         let arg_names3 = args.keys();
@@ -263,24 +354,39 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         let arg_names5 = args.keys();
         let arg_types = args.values();
         action_arms.push(quote! {{
-            let mut args: ::std::collections::HashMap<_, _> = action.data.into_iter().flatten().collect();
+            let mut args: ::std::collections::HashMap<_, _> = action.data.into_iter().map(|idv| (idv.id, idv.value)).collect();
+            ::tracing::trace!(?args, concat!("action ", #id, " called"));
             #(
                 let #arg_names3: #arg_types = {
                     let arg = args
                       .remove(stringify!(#arg_names1))
                       .ok_or_else(|| eyre::eyre!(concat!("action ", #id, " called without argument ", stringify!(#arg_names2))))?;
-                    serde_json::from_str(&arg)
+                    protocol::Unstring::unstring(&arg)
                       .context(concat!("action ", #id, " called with incorrectly typed argument ", stringify!(#arg_names4)))?
                 };
             )*
-            self.#name(#( #arg_names5 ),*).await.context(concat!("handle ", #id, " action"))?
+            self.#name(
+                interaction_mode,
+                #( #arg_names5 ),*
+            ).await.context(concat!("handle ", #id, " action"))?
         }});
     }
 
     quote! {
         trait PluginMethods {
             #( #action_signatures )*
-            async fn on_close(&mut self, eof: bool) -> eyre::Result<()>;
+            async fn on_broadcast(&mut self, event: protocol::BroadcastEvent) -> eyre::Result<()> {
+                tracing::debug!(?event, "on_broadcast noop");
+                Ok(())
+            }
+            async fn on_close(&mut self, eof: bool) -> eyre::Result<()> {
+                tracing::debug!(?eof, "on_close noop");
+                Ok(())
+            }
+            async fn on_notification_clicked(&mut self, event: protocol::NotificationClickedMessage) -> eyre::Result<()> {
+                tracing::debug!(?event, "on_notification_clicked noop");
+                Ok(())
+            }
         }
 
         #action_data_choices
@@ -292,22 +398,42 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
                 match msg {
                     TouchPortalOutput::Info(_) => eyre::bail!("got unexpected late info"),
-                    TouchPortalOutput::Action(action) => match &*action.action_id {
-                        #(
-                            #action_ids => #action_arms
-                            id => eyre::bail!("called with unknown action id {id}"),
-                        ),*
+                    TouchPortalOutput::Action(_)
+                        | TouchPortalOutput::Up(_)
+                        | TouchPortalOutput::Down(_)
+                        => {
+                        let (interaction_mode, action) = match msg {
+                            TouchPortalOutput::Action(action) => (protocol::ActionInteractionMode::Execute, action),
+                            TouchPortalOutput::Down(action) => (protocol::ActionInteractionMode::HoldDown, action),
+                            TouchPortalOutput::Up(action) => (protocol::ActionInteractionMode::HoldUp, action),
+                            _ => unreachable!("we would not have entered this outer match arm otherwise"),
+                        };
+
+                        match &*action.action_id {
+                            #(
+                                #action_ids => #action_arms
+                                id => eyre::bail!("called with unknown action id {id}"),
+                            ),*
+                        }
                     },
-                    TouchPortalOutput::Up(hold_message) => todo!(),
-                    TouchPortalOutput::Down(hold_message) => todo!(),
-                    TouchPortalOutput::ConnectorChange(connector_change_message) => todo!(),
-                    TouchPortalOutput::ShortConnectorIdNotification(short_connector_id_message) => todo!(),
-                    TouchPortalOutput::ListChange(list_change_message) => todo!(),
+                    TouchPortalOutput::ConnectorChange(change) => {
+                        ::tracing::error!(?change, "connector changes are not yet implemented");
+                    },
+                    TouchPortalOutput::ShortConnectorIdNotification(assoc) => {
+                        ::tracing::error!(?assoc, "short connector id support are not yet implemented");
+                    }
+                    TouchPortalOutput::ListChange(change) => {
+                        ::tracing::error!(?change, "list changes are not yet implemented");
+                    }
                     TouchPortalOutput::ClosePlugin(close_plugin_message) => {
                         self.on_close(false).await.context("handle graceful plugin close")?;
+                    },
+                    TouchPortalOutput::Broadcast(event) => {
+                        self.on_broadcast(event).await.context("handle broadcast event")?;
+                    },
+                    TouchPortalOutput::NotificationOptionClicked(event) => {
+                        self.on_notification_clicked(event).await.context("handle notification click")?;
                     }
-                    TouchPortalOutput::Broadcast(broadcast_message) => todo!(),
-                    TouchPortalOutput::NotificationOptionClicked(notification_clicked_message) => todo!(),
                     _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
                 }
 
@@ -325,28 +451,29 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 use ::eyre::Context as _;
                 use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
-                eprintln!("connect to TouchPortal");
+                ::tracing::info!("connect to TouchPortal");
                 let mut connection = tokio::net::TcpStream::connect(addr)
                     .await
                     .context("connect to TouchPortal host")?;
-                eprintln!("connected to TouchPortal");
+                ::tracing::info!("connected to TouchPortal");
 
                 let (read, write) = connection.split();
                 let mut writer = tokio::io::BufWriter::new(write);
                 let mut reader = tokio::io::BufReader::new(read);
 
-                eprintln!("send pair command");
-                let mut pair = serde_json::to_string(
+                ::tracing::debug!("connected to TouchPortal");
+                let mut json = serde_json::to_string(
                     &TouchPortalCommand::Pair(PairCommand {
                         id: #plugin_id.to_string(),
                     }),
                 )
                 .context("write out pair command")?;
-                pair.push('\n');
-                writer.write_all(pair.as_bytes()).await.context("send trailing newline")?;
+                ::tracing::trace!(?json, "send");
+                json.push('\n');
+                writer.write_all(json.as_bytes()).await.context("send trailing newline")?;
                 writer.flush().await.context("flush pair command")?;
 
-                eprintln!("await info response");
+                ::tracing::debug!("await info response");
                 let mut line = String::new();
                 let n = reader
                     .read_line(&mut line)
@@ -358,20 +485,24 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 let json = serde_json::from_str(&line)
                     .context("parse plugin info from server")?;
 
+                ::tracing::trace!(?json, "recv");
                 let output: TouchPortalOutput =
-                    serde_json::from_value(dbg!(json)).context("parse as TouchPortalOutput")?;
+                    serde_json::from_value(json).context("parse as TouchPortalOutput")?;
 
                 let TouchPortalOutput::Info(mut info) = output else {
                     eyre::bail!("did not receive info in response to pair, got {output:?}");
                 };
 
                 let settings = if info.settings.is_empty() {
+                    ::tracing::debug!("use default settings");
                     PluginSettings::default()
                 } else {
+                    ::tracing::debug!("parse customized settings");
                     PluginSettings::from_info_settings(std::mem::take(&mut info.settings))
                         .context("parse settings from info")?
                 };
 
+                ::tracing::debug!("construct Plugin proper");
                 let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
                 let mut plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
                     .await
@@ -386,13 +517,14 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                         n = reader.read_line(&mut line) => {
                             let n = n.context("read incoming message from TouchPortal")?;
                             if n == 0 {
+                                ::tracing::warn!("incoming channel from TouchPortal terminated");
                                 plugin.on_close(true).await.context("handle server-side EOF")?;
                                 break;
                             }
                             let json: serde_json::Value = serde_json::from_str(&line)
                                 .context("parse JSON from TouchPortal")?;
                             let kind = json["type"].to_string();
-                            eprintln!("< {json}");
+                            ::tracing::trace!(?json, "recv");
                             let msg: TouchPortalOutput =
                                 serde_json::from_value(json)
                                 .context("parse as TouchPortalOutput")?;
@@ -405,14 +537,15 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                         cmd = outgoing.recv(), if !outgoing.is_closed() => {
                             let Some(cmd) = cmd else {
                                 // Plugin shutting down?
+                                ::tracing::warn!("outgoing channel to TouchPortal terminated");
                                 break;
                             };
 
                             serde_json::to_writer(&mut out_buf, &cmd)
                               .context("serialize outgoing command")?;
-                            out_buf.push(b'\n');
                             let json = std::str::from_utf8(&out_buf).expect("JSON is valid UTF-8");
-                            eprintln!("> {json}");
+                            ::tracing::trace!(?json, "send");
+                            out_buf.push(b'\n');
                             writer
                                 .write_all(&out_buf)
                                 .await

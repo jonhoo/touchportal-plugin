@@ -1,7 +1,9 @@
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct Setting {
     /// This is the name of the settings in the settings overview.
@@ -11,7 +13,6 @@ pub struct Setting {
     pub(crate) name: String,
 
     /// This will be the default value for your setting.
-    // TODO: validate this against SettingType
     #[builder(setter(into))]
     #[serde(rename = "default")]
     pub(crate) initial: String,
@@ -27,6 +28,60 @@ pub struct Setting {
     #[builder(setter(strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     tooltip: Option<Tooltip>,
+}
+
+impl SettingBuilder {
+    fn validate(&self) -> Result<(), String> {
+        let initial = &self.initial.as_ref().expect("required");
+        let kind = self.kind.as_ref().expect("required");
+        let max_length = match kind {
+            SettingType::Text(req) => req.max_length,
+            SettingType::Number(req) => req.max_length,
+            SettingType::Multiline(req) => req.max_length,
+            SettingType::File(_) => None,
+            SettingType::Folder(_) => None,
+            SettingType::Switch(_) => None,
+            SettingType::Choice(_) => None,
+        };
+        if let Some(max_length) = max_length
+            && initial.len() > max_length as usize
+        {
+            return Err(format!(
+                "initial value '{initial}' is longer \
+                    than allowed max length {max_length}"
+            ));
+        }
+
+        if let SettingType::Choice(c) = kind
+            && !c.choices.contains(initial.as_str())
+        {
+            return Err(format!(
+                "initial value '{initial}' is not among allowed choices"
+            ));
+        }
+
+        if let SettingType::Number(n) = kind {
+            match initial.parse::<f64>() {
+                Ok(v) if n.min_value.is_some_and(|min| v < min) => {
+                    return Err(format!("initial value '{initial}' is below minimum value"));
+                }
+                Ok(v) if n.max_value.is_some_and(|max| v > max) => {
+                    return Err(format!("initial value '{initial}' is above maximum value"));
+                }
+                Ok(_) => {}
+                Err(_) => return Err(format!("initial value '{initial}' is not numeric")),
+            }
+        }
+
+        if let SettingType::Switch(_) = kind {
+            match initial.as_str() {
+                "true" | "false" | "On" | "Off" => {}
+                _ => return Err(format!("initial value '{initial}' is not switch-y")),
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -70,7 +125,9 @@ pub enum SettingType {
 #[serde(rename_all = "camelCase")]
 pub struct TextSetting {
     /// This is the max amount of characters a text settings value can have.
-    max_length: u32,
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_length: Option<u32>,
 
     /// If set, will hide the characters from the input field.
     ///
@@ -94,7 +151,9 @@ pub struct TextSetting {
 #[serde(rename_all = "camelCase")]
 pub struct NumberSetting {
     /// This is the max amount of characters a text settings value can have.
-    max_length: u32,
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_length: Option<u32>,
 
     /// If set, will hide the characters from the input field.
     ///
@@ -114,10 +173,14 @@ pub struct NumberSetting {
     read_only: Option<bool>,
 
     /// The minimum number value allowed for a number type setting.
-    min_value: f64,
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_value: Option<f64>,
 
     /// The maximum number value allowed for a number type setting.
-    max_value: f64,
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_value: Option<f64>,
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -132,7 +195,9 @@ pub struct FolderSetting {}
 #[serde(rename_all = "camelCase")]
 pub struct MultilineSetting {
     /// This is the max amount of characters a text settings value can have.
-    max_length: u32,
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_length: Option<u32>,
 
     /// For some settings you do not want the user to edit them but you do want to share them.
     ///
@@ -152,7 +217,7 @@ pub struct SwitchSetting {}
 pub struct ChoiceSetting {
     /// These are all the options the user can select for the setting.
     #[builder(setter(each(name = "choice", into)))]
-    pub(crate) choices: Vec<String>,
+    pub(crate) choices: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

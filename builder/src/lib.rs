@@ -41,6 +41,7 @@ pub enum ApiVersion {
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDescription {
     /// The API version of Touch Portal this plugin is build for.
@@ -152,6 +153,56 @@ pub struct PluginDescription {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[builder(setter(into), default)]
     settings_description: String,
+}
+
+impl PluginDescriptionBuilder {
+    fn validate(&self) -> Result<(), String> {
+        let states = self.categories.iter().flatten().flat_map(|c| &c.states);
+        let states_by_id: HashMap<_, _> = states.map(|s| (&s.id, s)).collect();
+
+        let events = self.categories.iter().flatten().flat_map(|c| &c.events);
+        for event in events {
+            if event.value_state_id.is_empty() {
+                continue;
+            }
+
+            let Some(state) = states_by_id.get(&event.value_state_id) else {
+                return Err(format!(
+                    "event {} references unknown state {}",
+                    event.id, event.value_state_id
+                ));
+            };
+
+            match (&state.kind, &event.value) {
+                (StateType::Choice(state_choices), EventValueType::Choice(event_choices)) => {
+                    if state_choices.choices != event_choices.choices {
+                        return Err(format!(
+                            "event {} references state {}, \
+                            but they have diverging choice-sets",
+                            event.id, event.value_state_id
+                        ));
+                    }
+                }
+                (StateType::Choice(_), EventValueType::Text) => {
+                    return Err(format!(
+                        "event {} is of free-text type, \
+                        but references state {} which is of choice type",
+                        event.id, event.value_state_id
+                    ))
+                }
+                (StateType::Text(_), EventValueType::Choice(_)) => {
+                    return Err(format!(
+                        "event {} is of choice type, \
+                        but references state {} which is of free-text type",
+                        event.id, event.value_state_id
+                    ))
+                }
+                (StateType::Text(_), EventValueType::Text) => {}
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// A category in your plugin will be an action category in Touch Portal.
@@ -364,6 +415,7 @@ pub use states::*;
 
 mod settings;
 pub use settings::*;
+use std::collections::HashMap;
 
 #[test]
 fn serialize_tutorial_sdk_example() {

@@ -24,20 +24,20 @@ pub fn plugin() -> PluginDescription {
                         .is_password(true)
                         .read_only(true)
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 ))
-                .build().unwrap()
+                .build()
+                .unwrap(),
         )
         .setting(
             SettingBuilder::default()
                 .name("Switchy")
                 .initial("true")
                 .kind(SettingType::Switch(
-                    SwitchSettingBuilder::default()
-                        .build()
-                        .unwrap()
+                    SwitchSettingBuilder::default().build().unwrap(),
                 ))
-                .build().unwrap()
+                .build()
+                .unwrap(),
         )
         .setting(
             SettingBuilder::default()
@@ -45,12 +45,13 @@ pub fn plugin() -> PluginDescription {
                 .initial("B")
                 .kind(SettingType::Choice(
                     ChoiceSettingBuilder::default()
-                    .choice("A")
-                    .choice("B")
+                        .choice("A")
+                        .choice("B")
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 ))
-                .build().unwrap()
+                .build()
+                .unwrap(),
         )
         .setting(
             SettingBuilder::default()
@@ -64,24 +65,24 @@ pub fn plugin() -> PluginDescription {
                         .max_value(120.0)
                         .read_only(false)
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 ))
                 .tooltip(
                     TooltipBuilder::default()
                         .title("Toolstip")
-                        .body(
-                            "Learn more about how tooltips work in the Touch Portal API documentation."
-                        )
-                        .doc_url(
-                            "https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
-                        )
+                        .body("Learn more")
+                        .doc_url("https://www")
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .build()
-                .unwrap()
-            )
-        .plugin_start_cmd(format!("%TP_PLUGIN_FOLDER%YouTubeLive/{}{}", std::env::var("CARGO_PKG_NAME").unwrap(), std::env::consts::EXE_SUFFIX))
+                .unwrap(),
+        )
+        .plugin_start_cmd(format!(
+            "%TP_PLUGIN_FOLDER%YouTubeLive/{}{}",
+            std::env::var("CARGO_PKG_NAME").unwrap(),
+            std::env::consts::EXE_SUFFIX
+        ))
         .category(
             CategoryBuilder::default()
                 .id("tp_tut_001_cat_01")
@@ -122,7 +123,12 @@ pub fn plugin() -> PluginDescription {
                             DataBuilder::default()
                                 .id("tp_pl_002_choice")
                                 .format(DataFormat::Choice(
-                                    ChoiceDataBuilder::default().initial("X").choice("X").choice("Y").build().unwrap(),
+                                    ChoiceDataBuilder::default()
+                                        .initial("X")
+                                        .choice("X")
+                                        .choice("Y")
+                                        .build()
+                                        .unwrap(),
                                 ))
                                 .build()
                                 .unwrap(),
@@ -145,6 +151,73 @@ pub fn plugin() -> PluginDescription {
                                 .build()
                                 .unwrap(),
                         )
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    EventBuilder::default()
+                        .id("event002")
+                        .name("On breakfast eating")
+                        .format("When we eat $val as breakfast")
+                        .value(EventValueType::Choice(
+                            EventChoiceValueBuilder::default()
+                                .choice("Apple")
+                                .choice("Pears")
+                                .choice("Grapes")
+                                .choice("Bananas")
+                                .build()
+                                .unwrap(),
+                        ))
+                        .value_state_id("tp_sid_fruit")
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    EventBuilder::default()
+                        .id("ev_counter")
+                        .name("When counter changes")
+                        .format("When the counter hits $val")
+                        .value(EventValueType::Text)
+                        .value_state_id("tp_sid_count")
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    EventBuilder::default()
+                        .id("yoc")
+                        .name("Yoyoyo")
+                        .format("Yo")
+                        .value(EventValueType::Text)
+                        .value_state_id("")
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    StateBuilder::default()
+                        .id("tp_sid_fruit")
+                        .description("Fruit Kind description")
+                        .initial("Apple")
+                        .parent_group("Fruits")
+                        .kind(StateType::Choice(
+                            ChoiceStateBuilder::default()
+                                .choice("Apple")
+                                .choice("Pears")
+                                .choice("Grapes")
+                                .choice("Bananas")
+                                .build()
+                                .unwrap(),
+                        ))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    StateBuilder::default()
+                        .id("tp_sid_count")
+                        .description("It's a counter")
+                        .initial("0")
+                        .kind(StateType::Text(
+                            TextStateBuilder::default().build().unwrap(),
+                        ))
                         .build()
                         .unwrap(),
                 )

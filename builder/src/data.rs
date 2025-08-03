@@ -16,10 +16,10 @@ pub struct Data {
     /// Touch Portal will use this for communicating the values or to place the values in the
     /// result.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     #[serde(flatten)]
-    format: DataFormat,
+    pub(crate) format: DataFormat,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -142,10 +142,10 @@ pub struct ChoiceData {
     #[builder(setter(into))]
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: String,
+    pub(crate) initial: String,
 
     #[builder(setter(each(name = "choice", into)))]
-    value_choices: Vec<String>,
+    pub(crate) value_choices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

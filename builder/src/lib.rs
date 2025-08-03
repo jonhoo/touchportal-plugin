@@ -9,18 +9,18 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 //
 // cargo build --release
 
-// TODO:
-// defs probably go to lib, and so does the static (const?) construction of the instance.
-// then, this loads that to make entry.tp _and_ it's used to codegen (how?) action+event bindings.
-// maybe actually there is a crate that has these impls that's then used as a build dep of the main
-// crate?
+pub mod codegen;
+pub use codegen::build;
 
-/// Generates the binding code for your plugin into `$OUT_DIR/touch-portal.rs`.
-pub fn build(_plugin: &PluginDescription) {}
+pub mod reexport {
+    pub use hex_color::HexColor;
+}
 
 pub fn entry_tp(plugin: &PluginDescription) -> String {
     serde_json::to_string(plugin).expect("every PluginDescription serializes")
 }
+
+pub mod protocol;
 
 /// Mapping from TouchPortal version to API version.
 #[derive(Debug, Clone, Copy, Deserialize_repr, Serialize_repr)]
@@ -183,6 +183,7 @@ pub struct Category {
     ///
     /// Although colored icons are possible, they will be removed in the near future.
     #[builder(setter(into, strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     imagepath: Option<String>,
 
     /// This is the collection that holds all the actions.
@@ -243,6 +244,7 @@ pub struct SubCategory {
     ///
     /// Although colored icons are possible, they will be removed in the near future.
     #[builder(setter(into, strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     imagepath: Option<String>,
 }
 
@@ -288,7 +290,7 @@ pub struct PluginConfiguration {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
-enum PluginCategory {
+pub enum PluginCategory {
     /// For all audio, music and media related plug-ins.
     Audio,
 

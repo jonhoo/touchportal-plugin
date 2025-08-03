@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 /// (static). The action is set up to use powershell to create a beep sound when it is executed.
 ///
 /// ```
-/// use touchpad_plugin::{
+/// use touchportal_plugin::{
 ///   ActionBuilder,
 ///   ActionImplementation,
 ///   LineBuilder,
@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 /// and will present the user with the given control to allow for user input.
 ///
 /// ```
-/// use touchpad_plugin::{
+/// use touchportal_plugin::{
 ///   ActionBuilder,
 ///   ActionImplementation,
 ///   DataBuilder,
@@ -107,7 +107,7 @@ use serde::{Deserialize, Serialize};
 /// ## Multi-line action with multiple languages
 ///
 /// ```
-/// use touchpad_plugin::{
+/// use touchportal_plugin::{
 ///   ActionBuilder,
 ///   ActionImplementation,
 ///   DataBuilder,
@@ -178,6 +178,7 @@ use serde::{Deserialize, Serialize};
 /// action the users need to remove their instance of that action and re-add it to be able to use
 /// the new additions.
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
     /// This is the id of the action.
@@ -188,13 +189,13 @@ pub struct Action {
     /// well with wrong data. Best practice is to create a unique prefix for all your actions like
     /// in our case; `tp_pl_action_001`.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     /// This is the name of the action.
     ///
     /// This will be used as the action name in the action category list.
     #[builder(setter(into))]
-    name: String,
+    pub(crate) name: String,
 
     #[serde(flatten)]
     #[builder(default)]
@@ -203,7 +204,7 @@ pub struct Action {
     /// This is the attribute that specifies whether this is a static action "execute" or a dynamic
     /// action "communicate".
     #[serde(flatten)]
-    implementation: ActionImplementation,
+    pub(crate) implementation: ActionImplementation,
 
     /// This is a collection of action data (see definition further down this page) which can be
     /// specified by the user.
@@ -211,7 +212,7 @@ pub struct Action {
     /// These data id's can be used to fill up the `execution_cmd` text or the format (see example
     /// on the right side).
     #[builder(setter(each(name = "datum")), default)]
-    data: Vec<super::data::Data>,
+    pub(crate) data: Vec<super::data::Data>,
 
     /// This is the object for specifying the action and/or onhold lines.
     lines: Lines,
@@ -223,6 +224,23 @@ pub struct Action {
     #[builder(setter(into, strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     sub_category_id: Option<PluginCategory>,
+}
+
+impl ActionBuilder {
+    fn validate(&self) -> Result<(), String> {
+        for data in self.data.iter().flatten() {
+            if let crate::DataFormat::Choice(def) = &data.format
+                && !def.value_choices.contains(&def.initial)
+            {
+                return Err(format!(
+                    "initial value {} is not among valid choices {:?}",
+                    def.initial, def.value_choices
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

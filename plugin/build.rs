@@ -1,0 +1,172 @@
+use touchportal_plugin::{reexport::HexColor, *};
+
+pub fn plugin() -> PluginDescription {
+    PluginDescriptionBuilder::default()
+        .api(ApiVersion::V4_3)
+        .version(1)
+        .name("YouTube Live")
+        .id("com.thesquareplanet.touchportal.youtube")
+        .configuration(
+            PluginConfigurationBuilder::default()
+                .color_dark(HexColor::from_u24(0xFF0000))
+                .color_light(HexColor::from_u24(0x00FF00))
+                .parent_category(PluginCategory::Misc)
+                .build()
+                .unwrap(),
+        )
+        .setting(
+            SettingBuilder::default()
+                .name("Texty")
+                .initial("boil")
+                .kind(SettingType::Text(
+                    TextSettingBuilder::default()
+                        .max_length(20)
+                        .is_password(true)
+                        .read_only(true)
+                        .build()
+                        .unwrap()
+                ))
+                .build().unwrap()
+        )
+        .setting(
+            SettingBuilder::default()
+                .name("Switchy")
+                .initial("true")
+                .kind(SettingType::Switch(
+                    SwitchSettingBuilder::default()
+                        .build()
+                        .unwrap()
+                ))
+                .build().unwrap()
+        )
+        .setting(
+            SettingBuilder::default()
+                .name("Choicy")
+                .initial("B")
+                .kind(SettingType::Choice(
+                    ChoiceSettingBuilder::default()
+                    .choice("A")
+                    .choice("B")
+                        .build()
+                        .unwrap()
+                ))
+                .build().unwrap()
+        )
+        .setting(
+            SettingBuilder::default()
+                .name("Numbry")
+                .initial("23")
+                .kind(SettingType::Number(
+                    NumberSettingBuilder::default()
+                        .max_length(20)
+                        .is_password(false)
+                        .min_value(0.0)
+                        .max_value(120.0)
+                        .read_only(false)
+                        .build()
+                        .unwrap()
+                ))
+                .tooltip(
+                    TooltipBuilder::default()
+                        .title("Toolstip")
+                        .body(
+                            "Learn more about how tooltips work in the Touch Portal API documentation."
+                        )
+                        .doc_url(
+                            "https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
+                        )
+                        .build()
+                        .unwrap()
+                )
+                .build()
+                .unwrap()
+            )
+        .plugin_start_cmd(format!("%TP_PLUGIN_FOLDER%YouTubeLive/{}{}", std::env::var("CARGO_PKG_NAME").unwrap(), std::env::consts::EXE_SUFFIX))
+        .category(
+            CategoryBuilder::default()
+                .id("tp_tut_001_cat_01")
+                .name("Tools")
+                .action(
+                    ActionBuilder::default()
+                        .id("tp_pl_action_002")
+                        .name("Run that thing")
+                        .implementation(ActionImplementation::Dynamic)
+                        .datum(
+                            DataBuilder::default()
+                                .id("tp_pl_002_text")
+                                .format(DataFormat::Text(
+                                    TextDataBuilder::default().build().unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .datum(
+                            DataBuilder::default()
+                                .id("tp_pl_002_switch")
+                                .format(DataFormat::Switch(
+                                    SwitchDataBuilder::default().initial(true).build().unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .datum(
+                            DataBuilder::default()
+                                .id("tp_pl_002_num")
+                                .format(DataFormat::Number(
+                                    NumberDataBuilder::default().initial(42.).build().unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .datum(
+                            DataBuilder::default()
+                                .id("tp_pl_002_choice")
+                                .format(DataFormat::Choice(
+                                    ChoiceDataBuilder::default().initial("X").choice("X").choice("Y").build().unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .lines(
+                            LinesBuilder::default()
+                                .action(
+                                    LingualLineBuilder::default()
+                                        .datum(
+                                            LineBuilder::default()
+                                                .line_format(
+                                                    "Do something with value {$tp_pl_002_text$}",
+                                                )
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .build()
+                                        .unwrap(),
+                                )
+                                .build()
+                                .unwrap(),
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap()
+}
+
+fn main() {
+    let plugin = plugin();
+
+    std::fs::write(
+        format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
+        touchportal_plugin::codegen::build(&plugin),
+    )
+    .unwrap();
+
+    std::fs::write(
+        format!("{}/entry.tp", std::env::var("OUT_DIR").unwrap()),
+        serde_json::to_vec(&plugin).unwrap(),
+    )
+    .unwrap();
+}

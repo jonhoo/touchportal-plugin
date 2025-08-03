@@ -8,16 +8,17 @@ pub struct Setting {
     ///
     /// This is also the identifier.
     #[builder(setter(into))]
-    name: String,
+    pub(crate) name: String,
 
     /// This will be the default value for your setting.
+    // TODO: validate this against SettingType
     #[builder(setter(into))]
     #[serde(rename = "default")]
-    initial: String,
+    pub(crate) initial: String,
 
     /// This will specify what type of settings you can use. Currently you can only use "text" or "number".
     #[serde(flatten)]
-    kind: SettingType,
+    pub(crate) kind: SettingType,
 
     /// An optional tooltip object allowing you to explain more about the setting.
     ///
@@ -151,7 +152,7 @@ pub struct SwitchSetting {}
 pub struct ChoiceSetting {
     /// These are all the options the user can select for the setting.
     #[builder(setter(each(name = "choice", into)))]
-    choices: Vec<String>,
+    pub(crate) choices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

@@ -122,7 +122,5 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    let plugin = Plugin::run_dynamic("127.0.0.1:12136").await?;
-
-    Ok(())
+    Plugin::run_dynamic("127.0.0.1:12136").await
 }

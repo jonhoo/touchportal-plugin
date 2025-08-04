@@ -9,7 +9,93 @@ use quote::{format_ident, quote};
 use std::collections::BTreeSet;
 use syn::Ident;
 
-/// Generates the binding code for your plugin into `$OUT_DIR/touch-portal.rs`.
+#[allow(clippy::needless_doctest_main)]
+/// Generates the binding code for your plugin.
+///
+/// You'll into `$OUT_DIR/touch-portal.rs`.
+///
+/// You'll usually want to place this into a `.rs` file in `$OUT_DIR` so that you can then include
+/// it from your plugin's `main.rs`. That is, in `build.rs`, you'll want:
+///
+/// ```rust,no_run
+/// use touchportal_plugin::{PluginDescription, codegen};
+/// fn main() {
+///     let plugin = PluginDescription::builder()
+///       /* build your plugin manifest here */
+///       .build()
+///       .unwrap();
+///
+///     // write out generated code to somewhere your main.rs can include! it from:
+///     std::fs::write(
+///         format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
+///         codegen::build(&plugin),
+///     )
+///     .unwrap();
+///
+///     // also write out your serialized plugin manifest (`entry.tp`) to the same place:
+///     std::fs::write(
+///         format!("{}/entry.tp", std::env::var("OUT_DIR").unwrap()),
+///         serde_json::to_vec(&plugin).unwrap(),
+///     )
+///     .unwrap();
+/// }
+/// ```
+///
+/// Then, in `main.rs`, you'll want:
+///
+/// ```rust,ignore
+/// include!(concat!(env!("OUT_DIR"), "/entry.rs"));
+///
+/// #[derive(Debug)]
+/// struct Plugin(TouchPortalHandle);
+///
+/// impl Plugin {
+///     async fn new(
+///         settings: PluginSettings,
+///         outgoing: TouchPortalHandle,
+///         info: InfoMessage,
+///     ) -> eyre::Result<Self> {
+///         Ok(Self(outgoing))
+///     }
+/// }
+///
+/// impl PluginMethods for Plugin {
+///     // your IDE/the compiler errors will guide you here
+/// }
+///
+/// #[tokio::main]
+/// async fn main() -> eyre::Result<()> {
+///     Plugin::run_dynamic("127.0.0.1:12136").await
+/// }
+/// ```
+///
+/// To generate your manifest, you can use a bash script like what's below.
+/// It ain't pretty, but it works. There are probably nicer ways.
+///
+/// ```bash
+/// #!/bin/bash
+///
+/// set -euo pipefail
+///
+/// plugin_name=YouTubeLive
+/// crate_binary=touchportal-youtube-live
+///
+/// build=$(cargo build --release --bin "$crate_binary" -q --message-format=json)
+/// exe=$(jq -r "select(.reason == \"compiler-artifact\" and .target.name == \"$crate_binary\").executable" <<<"$build")
+/// out_dir="$(dirname "$(jq -r "select(.reason == \"build-script-executed\") | select(.package_id | contains(\"#$crate_binary@\")).out_dir" <<<"$build")")"/out/
+/// entry_tp="$out_dir"/entry.tp
+///
+/// tmp=$(mktemp -d)
+/// mkdir "$tmp/$plugin_name"
+/// cp "$exe" "$entry_tp" "$tmp/$plugin_name"
+/// here=$(pwd)
+/// pushd "$tmp"
+/// zip -r "$plugin_name.tpp" "$plugin_name"
+/// rsync -a "$plugin_name/" ~/.config/TouchPortal/plugins/"$plugin_name"/
+/// cp "$plugin_name.tpp" "$here"
+/// popd
+/// rm -r "$tmp"
+/// ```
 pub fn build(plugin: &PluginDescription) -> String {
     // also write out &'static PluginDescription
     // defs probably go to lib, and so does the static (const?) construction of the instance.

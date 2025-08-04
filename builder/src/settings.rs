@@ -1,4 +1,4 @@
-use crate::protocol::TouchPortalStringly;
+use crate::protocol::TouchPortalFromStr;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

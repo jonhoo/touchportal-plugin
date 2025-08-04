@@ -107,10 +107,12 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                     }
                 }
 
-                impl protocol::TouchPortalStringly for #name {
+                impl protocol::TouchPortalToString for #name {
                     fn stringify(&self) -> String {
                         self.to_string()
                     }
+                }
+                impl protocol::TouchPortalFromStr for #name {
                     fn destringify(s: &str) -> eyre::Result<Self> {
                         ::std::str::FromStr::from_str(s)
                     }
@@ -161,7 +163,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         default_fn_idents.push(ident.clone());
         default_fn_defs.push(quote! {
             fn #ident() -> #type_ {
-                protocol::TouchPortalStringly::destringify(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
+                protocol::TouchPortalFromStr::destringify(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
             }
         });
     }
@@ -274,6 +276,32 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
     for event in plugin.categories.iter().flat_map(|c| &c.events) {
         let id = &event.id;
         let format = event.format.replace("$val", "`$val`");
+        let mut args_signature = Vec::new();
+        let mut args_handle = quote! {};
+        let mut args_doc = if event.local_states.is_empty() {
+            quote! {}
+        } else {
+            // TODO: https://github.com/rust-lang/rust/issues/57525
+            quote! {
+                #[doc = ""]
+                #[doc = "Arguments:"]
+                #[doc = ""]
+            }
+        };
+        for local in &event.local_states {
+            let id = &local.id;
+            let arg = format_ident!("{}", id.to_snake_case());
+            let doc = format!("- `{}`: {}", arg, local.name);
+            args_signature.push(quote! { #arg: impl protocol::TouchPortalToString });
+            args_handle = quote! {
+                #args_handle
+                builder.state((String::from(#id), #arg.stringify()));
+            };
+            args_doc = quote! {
+                #args_doc
+                #[doc = #doc]
+            };
+        }
         let (event_name, doc) = if event.format.contains("$val") {
             let doc = quote! {
                 #[doc = #format]
@@ -294,10 +322,12 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
         };
         event_methods.push(quote! {
             #doc
-            pub async fn #event_name(&mut self) {
-                // TODO: local state stuff
+            #args_doc
+            pub async fn #event_name(&mut self, #( #args_signature ),*) {
+                let mut builder = protocol::TriggerEventCommand::builder();
+                #args_handle
                 let _ = self.0.send(protocol::TouchPortalCommand::TriggerEvent(
-                    protocol::TriggerEventCommand::builder()
+                    builder
                       .event_id(#id)
                       .build()
                       .unwrap()
@@ -455,10 +485,12 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             }
                         }
 
-                        impl protocol::TouchPortalStringly for #name {
+                        impl protocol::TouchPortalToString for #name {
                             fn stringify(&self) -> String {
                                 self.to_string()
                             }
+                        }
+                        impl protocol::TouchPortalFromStr for #name {
                             fn destringify(s: &str) -> eyre::Result<Self> {
                                 ::std::str::FromStr::from_str(s)
                             }
@@ -497,7 +529,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     let arg = args
                       .remove(stringify!(#arg_names1))
                       .ok_or_else(|| eyre::eyre!(concat!("action ", #id, " called without argument ", stringify!(#arg_names2))))?;
-                    protocol::TouchPortalStringly::destringify(&arg)
+                    protocol::TouchPortalFromStr::destringify(&arg)
                       .context(concat!("action ", #id, " called with incorrectly typed argument ", stringify!(#arg_names4)))?
                 };
             )*

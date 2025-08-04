@@ -50,7 +50,7 @@ impl Plugin {
                     outgoing.force_trigger_ev_counter().await;
                 }
                 if i > 20 {
-                    outgoing.trigger_yoc().await;
+                    outgoing.trigger_yoc("as_first", "On").await;
                 }
             }
         });

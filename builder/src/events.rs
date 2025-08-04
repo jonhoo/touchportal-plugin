@@ -122,11 +122,11 @@ impl EventChoiceValue {
 pub struct LocalState {
     /// This id of the local state.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     /// This name of the local state.
     #[builder(setter(into))]
-    name: String,
+    pub(crate) name: String,
 
     /// The parent category the local state belongs to.
     #[builder(setter(strip_option), default)]

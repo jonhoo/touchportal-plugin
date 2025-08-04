@@ -187,6 +187,20 @@ pub fn plugin() -> PluginDescription {
                         .format("Yo")
                         .value(EventValueType::Text)
                         .value_state_id("")
+                        .local_state(
+                            LocalState::builder()
+                                .id("ls_001")
+                                .name("First")
+                                .build()
+                                .unwrap(),
+                        )
+                        .local_state(
+                            LocalState::builder()
+                                .id("ls_002")
+                                .name("Second")
+                                .build()
+                                .unwrap(),
+                        )
                         .build()
                         .unwrap(),
                 )

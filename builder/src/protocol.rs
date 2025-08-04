@@ -1,36 +1,57 @@
-pub trait TouchPortalStringly: Sized {
+pub trait TouchPortalToString {
     fn stringify(&self) -> String;
-    fn destringify(s: &str) -> eyre::Result<Self>;
 }
 
-impl TouchPortalStringly for String {
+impl<T: TouchPortalToString + ?Sized> TouchPortalToString for &T {
+    fn stringify(&self) -> String {
+        T::stringify(*self)
+    }
+}
+
+impl TouchPortalToString for String {
     fn stringify(&self) -> String {
         self.clone()
     }
-
-    fn destringify(v: &str) -> eyre::Result<Self> {
-        Ok(v.to_string())
-    }
 }
 
-impl TouchPortalStringly for f64 {
+impl TouchPortalToString for str {
     fn stringify(&self) -> String {
         self.to_string()
     }
+}
 
-    fn destringify(v: &str) -> eyre::Result<Self> {
-        Ok(v.parse()?)
+impl TouchPortalToString for f64 {
+    fn stringify(&self) -> String {
+        self.to_string()
     }
 }
 
-impl TouchPortalStringly for bool {
+impl TouchPortalToString for bool {
     fn stringify(&self) -> String {
         match self {
             true => String::from("On"),
             false => String::from("Off"),
         }
     }
+}
 
+pub trait TouchPortalFromStr: Sized {
+    fn destringify(s: &str) -> eyre::Result<Self>;
+}
+
+impl TouchPortalFromStr for String {
+    fn destringify(v: &str) -> eyre::Result<Self> {
+        Ok(v.to_string())
+    }
+}
+
+impl TouchPortalFromStr for f64 {
+    fn destringify(v: &str) -> eyre::Result<Self> {
+        Ok(v.parse()?)
+    }
+}
+
+impl TouchPortalFromStr for bool {
     fn destringify(v: &str) -> eyre::Result<Self> {
         match v {
             "On" => Ok(true),
@@ -46,7 +67,7 @@ pub mod serde_tp_stringly {
     pub fn serialize<S, T>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        T: super::TouchPortalStringly,
+        T: super::TouchPortalToString,
     {
         T::stringify(t).serialize(serializer)
     }
@@ -54,7 +75,7 @@ pub mod serde_tp_stringly {
     pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
     where
         D: ::serde::Deserializer<'de>,
-        T: super::TouchPortalStringly,
+        T: super::TouchPortalFromStr,
     {
         use ::serde::de::Visitor;
 
@@ -62,7 +83,7 @@ pub mod serde_tp_stringly {
 
         impl<'de, S> Visitor<'de> for V<S>
         where
-            S: super::TouchPortalStringly,
+            S: super::TouchPortalFromStr,
         {
             type Value = S;
 

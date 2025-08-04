@@ -84,6 +84,7 @@ pub enum DataFormat {
     ///
     /// Only available in API version 10 and above.
     UpperBound(BoundData),
+    // TODO: valueStore
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

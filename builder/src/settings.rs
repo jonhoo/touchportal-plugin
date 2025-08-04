@@ -27,7 +27,7 @@ pub struct Setting {
     /// control in the plug-in settings. This is part of a redesign of the settings section.
     #[builder(setter(strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    tooltip: Option<Tooltip>,
+    pub(crate) tooltip: Option<Tooltip>,
 }
 
 impl SettingBuilder {
@@ -228,18 +228,18 @@ pub struct Tooltip {
     /// If this is not added or is left empty, the title will not be shown in the tooltip.
     #[builder(setter(into, strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
 
     /// This is the body for the tooltip.
     #[builder(setter(into))]
-    body: String,
+    pub(crate) body: String,
 
     /// This is the url to the documentation if this is available.
     ///
     /// If this is empty, no link to documentation is added in the tooltip.
     #[builder(setter(into, strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    doc_url: Option<String>,
+    pub(crate) doc_url: Option<String>,
 }
 
 #[test]

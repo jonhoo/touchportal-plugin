@@ -30,7 +30,7 @@ pub struct Event {
     /// The `$val` location will be changed with a dropdown holding the choices that the user can
     /// make for the status.
     #[builder(setter(into))]
-    format: String,
+    pub(crate) format: String,
 
     /// Currently the only option here is "communicate" which indicates that the value will be
     /// communicated through the sockets.

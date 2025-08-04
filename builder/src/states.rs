@@ -35,7 +35,7 @@ pub struct State {
     /// state value for logic execution.
     #[builder(setter(into))]
     #[serde(rename = "desc")]
-    description: String,
+    pub(crate) description: String,
 
     /// This is the value the state will have if it is not set already but is looked up.
     #[builder(setter(into))]

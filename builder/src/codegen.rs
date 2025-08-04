@@ -3,6 +3,7 @@ use crate::{
 };
 
 use indexmap::IndexMap;
+use inflector::Inflector;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Ident;
@@ -36,7 +37,7 @@ pub fn build(plugin: &PluginDescription) -> String {
 
 impl crate::Setting {
     fn choice_enum_name(&self) -> Ident {
-        format_ident!("{}SettingOptions", self.name)
+        format_ident!("{}SettingOptions", self.name.to_pascal_case())
     }
 
     fn string_converter(&self) -> TokenStream {
@@ -73,14 +74,21 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
     for setting in &plugin.settings {
         if let SettingType::Choice(ChoiceSetting { choices, .. }) = &setting.kind {
             let name = setting.choice_enum_name();
-            let choice_variants1 = choices.iter().map(|c| format_ident!("{c}"));
-            let choice_variants2 = choices.iter().map(|c| format_ident!("{c}"));
+            let choice_variants1 = choices
+                .iter()
+                .map(|c| format_ident!("{}", c.to_pascal_case()));
+            let choice_variants2 = choices
+                .iter()
+                .map(|c| format_ident!("{}", c.to_pascal_case()));
+            let choice_variants3 = choices
+                .iter()
+                .map(|c| format_ident!("{}", c.to_pascal_case()));
+            let help = format!("Valid choices for setting [`{}`]", setting.name);
             enums = quote! {
                 #enums
 
+                #[doc = #help]
                 #[derive(Debug, Clone, Copy, serde::Deserialize)]
-                #[allow(non_camel_case_types)]
-                #[allow(non_snake_case)]
                 pub enum #name {
                     #(
                         #[serde(rename = #choices)]
@@ -88,10 +96,20 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                     ),*
                 }
 
+                impl ::std::fmt::Display for #name {
+                    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                        write!(f, "{}", match self {
+                            #(
+                                Self::#choice_variants2 => #choices
+                            ),*
+                        })
+                    }
+                }
+
                 impl protocol::Unstring for #name {
                     fn unstring(s: &str) -> ::eyre::Result<Self> {
                         match s {
-                            #(#choices => Ok(Self::#choice_variants2),)*
+                            #(#choices => Ok(Self::#choice_variants3),)*
                             _ => eyre::bail!("'{s}' is not a valid setting value"),
                         }
                     }
@@ -100,8 +118,33 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         }
     }
 
-    let fields1 = plugin.settings.iter().map(|s| format_ident!("{}", s.name));
-    let fields2 = plugin.settings.iter().map(|s| format_ident!("{}", s.name));
+    let fields_raw = plugin.settings.iter().map(|s| &s.name);
+    let fields1 = plugin
+        .settings
+        .iter()
+        .map(|s| format_ident!("{}", s.name.to_snake_case()));
+    let fields2 = plugin
+        .settings
+        .iter()
+        .map(|s| format_ident!("{}", s.name.to_snake_case()));
+    let doc = plugin.settings.iter().map(|s| {
+        s.tooltip.as_ref().map(|tt| {
+            let title = tt
+                .title
+                .as_ref()
+                .map(|t| quote! { #[doc = #t] #[doc = ""] });
+            let body = &tt.body;
+            let url = tt
+                .doc_url
+                .as_ref()
+                .map(|u| quote! { #[doc = ""] #[doc = #u]  });
+            quote! {
+                #title
+                #[doc = #body]
+                #url
+            }
+        })
+    });
     let converters = plugin.settings.iter().map(|s| s.string_converter());
     let types = plugin.settings.iter().map(|s| s.to_rust_type());
     let mut default_fn_names = Vec::new();
@@ -109,14 +152,13 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
     let mut default_fn_defs = Vec::new();
     for s in &plugin.settings {
         let sname = &s.name;
-        let name = format!("defaults_for_setting_{sname}");
+        let name = format!("defaults_for_setting_{}", sname.to_snake_case());
         let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
         let type_ = s.to_rust_type();
         let default = &s.initial;
         default_fn_names.push(name);
         default_fn_idents.push(ident.clone());
         default_fn_defs.push(quote! {
-            #[allow(non_snake_case)]
             fn #ident() -> #type_ {
                 protocol::Unstring::unstring(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
             }
@@ -159,11 +201,11 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         }
 
         #[derive(Debug, Clone, serde::Deserialize)]
-        #[allow(non_snake_case)]
         pub struct PluginSettings {
             #(
+                #doc
                 #converters
-                #[serde(default = #default_fn_names)]
+                #[serde(rename = #fields_raw, default = #default_fn_names)]
                 #fields1: #types
             ),*
         }
@@ -192,17 +234,22 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
     let mut state_stuff = Vec::new();
     for state in plugin.categories.iter().flat_map(|c| &c.states) {
         let id = &state.id;
-        let state_name = format_ident!("update_{}", state.id);
+        let description = &state.description;
+        let state_name = format_ident!("update_{}", state.id.to_snake_case());
         match &state.kind {
             crate::StateType::Choice(choice_state) => {
-                let name = format_ident!("ValuesForState_{}", state.id);
+                let name = format_ident!("ValuesForState{}", state.id.to_pascal_case());
                 let choices = &choice_state.choices;
-                let choice_variants1 = choices.iter().map(|c| format_ident!("{c}"));
-                let choice_variants2 = choices.iter().map(|c| format_ident!("{c}"));
+                let choice_variants1 = choices
+                    .iter()
+                    .map(|c| format_ident!("{}", c.to_pascal_case()));
+                let choice_variants2 = choices
+                    .iter()
+                    .map(|c| format_ident!("{}", c.to_pascal_case()));
+                let help = format!("Valid choices for [`{state_name}`]");
                 state_stuff.push(quote! {
+                    #[doc = #help]
                     #[derive(Debug, Clone, Copy)]
-                    #[allow(non_camel_case_types)]
-                    #[allow(non_snake_case)]
                     pub enum #name {
                         #(
                             #choice_variants1
@@ -220,6 +267,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
                     }
 
                     impl TouchPortalHandle {
+                        #[doc = #description]
                         pub async fn #state_name(&mut self, value: #name) {
                             let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
                                 protocol::UpdateStateCommandBuilder::default()
@@ -234,6 +282,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
             }
             crate::StateType::Text(_) => state_stuff.push(quote! {
                 impl TouchPortalHandle {
+                    #[doc = #description]
                     pub async fn #state_name(&mut self, value: impl Into<String>) {
                         let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
                             protocol::UpdateStateCommandBuilder::default()
@@ -251,8 +300,10 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
     let mut event_methods = Vec::new();
     for event in plugin.categories.iter().flat_map(|c| &c.events) {
         let id = &event.id;
-        let event_name = format_ident!("trigger_{}", event.id);
+        let format = event.format.replace("$val", "`$val`");
+        let event_name = format_ident!("trigger_{}", event.id.to_snake_case());
         event_methods.push(quote! {
+            #[doc = #format]
             pub async fn #event_name(&mut self) {
                 // TODO: local state stuff
                 let _ = self.0.send(protocol::TouchPortalCommand::TriggerEvent(
@@ -265,16 +316,84 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
         });
     }
 
+    let mut setting_methods = Vec::new();
+    for setting in &plugin.settings {
+        let name = &setting.name;
+        let desc = setting.tooltip.as_ref().map(|tt| {
+            let title = tt
+                .title
+                .as_ref()
+                .map(|t| quote! { #[doc = #t] #[doc = ""] });
+            let body = &tt.body;
+            let url = tt
+                .doc_url
+                .as_ref()
+                .map(|u| quote! { #[doc = ""] #[doc = #u]  });
+            quote! {
+                #title
+                #[doc = #body]
+                #url
+            }
+        });
+        let arg_type = setting.to_rust_type();
+        let setter_name = format_ident!("set_{}", name.to_snake_case());
+        setting_methods.push(quote! {
+            #desc
+            pub async fn #setter_name(&mut self, value: #arg_type) {
+                let _ = self.0.send(protocol::TouchPortalCommand::SettingUpdate(
+                    protocol::UpdateSettingCommandBuilder::default()
+                      .name(#name)
+                      .value(value.to_string())
+                      .build()
+                      .unwrap()
+                )).await;
+            }
+        });
+    }
+
     quote! {
         #[derive(Clone, Debug)]
         pub struct TouchPortalHandle(::tokio::sync::mpsc::Sender<protocol::TouchPortalCommand>);
 
         impl TouchPortalHandle {
+            /// As a plug-in developer you can alert your users within Touch Portal for certain events.
+            ///
+            /// This system should only be used for important messages that the user has to act on. Examples
+            /// are new updates for the plugin or changing settings like credentials. Maybe your user has set
+            /// up the plug-in incorrectly which is also a good reason to send a notification to alert them to
+            /// the issue and propose a solution.
+            ///
+            /// <div class="warning">
+            ///
+            /// **Rules of notifications**
+            ///
+            /// You are only allowed to send user critical notifications to help them on their way.
+            /// Advertisements, donation request and all other non-essential messages are not allowed and may
+            /// result in your plug-in be blacklisted from the notification center.
+            ///
+            /// </div>
             pub async fn notify(&mut self, cmd: protocol::CreateNotificationCommand) {
                 let _ = self.0.send(protocol::TouchPortalCommand::CreateNotification(cmd)).await;
             }
 
+            /// Create a state at runtime.
+            pub async fn create_state(&mut self, cmd: protocol::CreateStateCommand) {
+                let _ = self.0.send(protocol::TouchPortalCommand::CreateState(cmd)).await;
+            }
+
+            /// Remove a state at runtime.
+            pub async fn remove_state(&mut self, id: impl Into<String>) {
+                let _ = self.0.send(protocol::TouchPortalCommand::RemoveState(
+                    protocol::RemoveStateCommandBuilder::default()
+                        .id(id)
+                        .build()
+                        .unwrap()
+                )).await;
+            }
+
             #( #event_methods )*
+
+            #( #setting_methods )*
         }
 
         #( #state_stuff )*
@@ -293,7 +412,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         }
 
         let id = &action.id;
-        let name = format_ident!("on_{}", action.id);
+        let name = format_ident!("on_{}", action.id.to_snake_case());
         action_ids.push(id);
         let mut args = IndexMap::new();
         for Data { id, format } in &action.data {
@@ -302,10 +421,14 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                 DataFormat::Number(_) => "f64",
                 DataFormat::Switch(_) => "bool",
                 DataFormat::Choice(choice_data) => {
-                    let name = format_ident!("ChoicesFor_{id}");
+                    let name = format_ident!("ChoicesFor{}", id.to_pascal_case());
                     let choices = &choice_data.value_choices;
-                    let choice_variants1 = choices.iter().map(|c| format_ident!("{c}"));
-                    let choice_variants2 = choices.iter().map(|c| format_ident!("{c}"));
+                    let choice_variants1 = choices
+                        .iter()
+                        .map(|c| format_ident!("{}", c.to_pascal_case()));
+                    let choice_variants2 = choices
+                        .iter()
+                        .map(|c| format_ident!("{}", c.to_pascal_case()));
                     action_data_choices = quote! {
                         #action_data_choices
 
@@ -328,7 +451,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             }
                         }
                     };
-                    args.insert(format_ident!("{id}"), name.into());
+                    args.insert(format_ident!("{}", id.to_snake_case()), name.into());
                     continue;
                 }
                 DataFormat::File(_) | DataFormat::Folder(_) => "::std::path::PathBuf",
@@ -336,7 +459,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                 DataFormat::LowerBound(_) | DataFormat::UpperBound(_) => "i64",
             };
             let path: syn::Path = syn::parse_str(path).unwrap();
-            args.insert(format_ident!("{id}"), path);
+            args.insert(format_ident!("{}", id.to_snake_case()), path);
         }
         let arg_names = args.keys();
         let arg_types = args.values();

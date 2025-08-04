@@ -18,7 +18,7 @@ impl PluginMethods for Plugin {
         tp_pl_002_text: String,
         tp_pl_002_switch: bool,
         tp_pl_002_num: f64,
-        tp_pl_002_choice: ChoicesFor_tp_pl_002_choice,
+        tp_pl_002_choice: ChoicesForTpPl002Choice,
     ) -> eyre::Result<()> {
         Ok(())
     }
@@ -37,16 +37,18 @@ impl Plugin {
             for i in 0.. {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 let value = match i % 4 {
-                    0 => ValuesForState_tp_sid_fruit::Apple,
-                    1 => ValuesForState_tp_sid_fruit::Pears,
-                    2 => ValuesForState_tp_sid_fruit::Bananas,
-                    3 => ValuesForState_tp_sid_fruit::Grapes,
+                    0 => ValuesForStateTpSidFruit::Apple,
+                    1 => ValuesForStateTpSidFruit::Pears,
+                    2 => ValuesForStateTpSidFruit::Bananas,
+                    3 => ValuesForStateTpSidFruit::Grapes,
                     _ => unreachable!(),
                 };
                 outgoing.update_tp_sid_fruit(value).await;
                 outgoing.update_tp_sid_count(format!("{i}")).await;
-                // outgoing.trigger_event002().await;
-                // outgoing.trigger_ev_counter().await;
+                if false {
+                    outgoing.trigger_event_002().await;
+                    outgoing.trigger_ev_counter().await;
+                }
                 if i > 20 {
                     outgoing.trigger_yoc().await;
                 }

@@ -11,7 +11,9 @@ pub enum TouchPortalCommand {
     CreateState(CreateStateCommand),
     CreateNotification(CreateNotificationCommand),
     StateUpdate(UpdateStateCommand),
+    SettingUpdate(UpdateSettingCommand),
     TriggerEvent(TriggerEventCommand),
+    RemoveState(RemoveStateCommand),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -57,22 +59,6 @@ pub struct CreateStateCommand {
     force_update: Option<bool>,
 }
 
-/// As a plug-in developer you can alert your users within Touch Portal for certain events.
-///
-/// This system should only be used for important messages that the user has to act on. Examples
-/// are new updates for the plugin or changing settings like credentials. Maybe your user has set
-/// up the plug-in incorrectly which is also a good reason to send a notification to alert them to
-/// the issue and propose a solution.
-///
-/// <div class="warning">
-///
-/// **Rules of notifications**
-///
-/// You are only allowed to send user critical notifications to help them on their way.
-/// Advertisements, donation request and all other non-essential messages are not allowed and may
-/// result in your plug-in be blacklisted from the notification center.
-///
-/// </div>
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNotificationCommand {
@@ -136,6 +122,21 @@ pub struct UpdateStateCommand {
     value: String,
 }
 
+/// With this option you can update a setting from your plug-in.
+///
+/// This will overwrite the user setting.
+#[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSettingCommand {
+    /// The name of the settings, should be case sensitive correct
+    #[builder(setter(into))]
+    name: String,
+
+    /// The new value the setting should hold
+    #[builder(setter(into))]
+    value: String,
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerEventCommand {
@@ -149,4 +150,12 @@ pub struct TriggerEventCommand {
     /// Only available on API version 10 and above.
     #[builder(setter(each(name = "state")), default)]
     states: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveStateCommand {
+    /// The id of the plug-in state to remove.
+    #[builder(setter(into))]
+    id: String,
 }

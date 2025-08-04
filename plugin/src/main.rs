@@ -46,8 +46,8 @@ impl Plugin {
                 outgoing.update_tp_sid_fruit(value).await;
                 outgoing.update_tp_sid_count(format!("{i}")).await;
                 if false {
-                    outgoing.trigger_event_002().await;
-                    outgoing.trigger_ev_counter().await;
+                    outgoing.force_trigger_event_002().await;
+                    outgoing.force_trigger_ev_counter().await;
                 }
                 if i > 20 {
                     outgoing.trigger_yoc().await;

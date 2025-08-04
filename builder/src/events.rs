@@ -38,6 +38,8 @@ pub struct Event {
     #[serde(rename = "type")]
     _type: EventType,
 
+    /// If you are not associated this event with a state (through `value_state_id`), it does not
+    /// matter what you set this to.
     #[serde(flatten)]
     pub(crate) value: EventValueType,
 
@@ -60,6 +62,8 @@ pub struct Event {
     ///
     /// These can be selected by the user only when the event is used and added. If not added, the
     /// local states will not be shown in the state selector popups.
+    ///
+    /// Note that local states are not dependent on the [`EventValueType`].
     ///
     /// Only available in API version 10 and above.
     #[serde(rename = "localstates")]

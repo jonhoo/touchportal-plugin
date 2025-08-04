@@ -274,9 +274,26 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
     for event in plugin.categories.iter().flat_map(|c| &c.events) {
         let id = &event.id;
         let format = event.format.replace("$val", "`$val`");
-        let event_name = format_ident!("trigger_{}", event.id.to_snake_case());
+        let (event_name, doc) = if event.format.contains("$val") {
+            let doc = quote! {
+                #[doc = #format]
+                #[doc = ""]
+                #[doc = "Since this value contains `$val`, you probably do not want "]
+                #[doc = "to trigger it manually as the current value of the associated "]
+                #[doc = "state may not match the user's set `$val` (and TouchPortal "]
+                #[doc = "won't check against `$val`)."]
+            };
+            let event_name = format_ident!("force_trigger_{}", event.id.to_snake_case());
+            (event_name, doc)
+        } else {
+            let doc = quote! {
+                #[doc = #format]
+            };
+            let event_name = format_ident!("trigger_{}", event.id.to_snake_case());
+            (event_name, doc)
+        };
         event_methods.push(quote! {
-            #[doc = #format]
+            #doc
             pub async fn #event_name(&mut self) {
                 // TODO: local state stuff
                 let _ = self.0.send(protocol::TouchPortalCommand::TriggerEvent(

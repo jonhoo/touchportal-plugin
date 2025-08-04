@@ -1,5 +1,6 @@
 use derive_builder::Builder;
 use hex_color::HexColor;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
 /// As a plug-in developer you can augment your actions with additional data that the user has to
@@ -94,7 +95,7 @@ pub struct TextData {
     #[builder(setter(into), default)]
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: String,
+    pub(crate) initial: String,
 }
 
 impl TextData {
@@ -113,14 +114,14 @@ pub struct NumberData {
     /// This is the default value the data object has.
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: f64,
+    pub(crate) initial: f64,
 
     /// This field tells the system whether this data field should allow decimals in the number.
     ///
     /// The default is `true`.
     #[builder(default = true)]
     #[serde(skip_serializing_if = "bool_is_true")]
-    allow_decimals: bool,
+    pub(crate) allow_decimals: bool,
 
     /// This is the lowest number that will be accepted.
     ///
@@ -128,7 +129,7 @@ pub struct NumberData {
     /// rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    min_value: Option<f64>,
+    pub(crate) min_value: Option<f64>,
 
     /// This is the highest number that will be accepted.
     ///
@@ -136,7 +137,7 @@ pub struct NumberData {
     /// rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    max_value: Option<f64>,
+    pub(crate) max_value: Option<f64>,
 }
 
 impl NumberData {
@@ -151,7 +152,7 @@ pub struct SwitchData {
     /// This is the default value the data object has.
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: bool,
+    pub(crate) initial: bool,
 }
 
 impl SwitchData {
@@ -186,14 +187,14 @@ pub struct FileData {
     #[builder(setter(into))]
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: String,
+    pub(crate) initial: String,
 
     /// This is a collection of extensions allowed to open.
     ///
     /// eg: `"extensions": ["*.jpg","*.png"]`
     #[builder(setter(each(name = "extension")), default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    extensions: Vec<String>,
+    #[serde(skip_serializing_if = "IndexSet::is_empty")]
+    pub(crate) extensions: IndexSet<String>,
 }
 
 impl FileData {
@@ -209,7 +210,7 @@ pub struct FolderData {
     #[builder(setter(into))]
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: String,
+    pub(crate) initial: String,
 }
 
 impl FolderData {
@@ -225,7 +226,7 @@ pub struct ColorData {
     #[builder(setter(into))]
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: HexColor,
+    pub(crate) initial: HexColor,
 }
 
 impl ColorData {
@@ -240,7 +241,7 @@ pub struct BoundData {
     /// This is the default value the data object has.
     #[serde(rename = "default")]
     #[doc(alias = "default")]
-    initial: i64,
+    pub(crate) initial: i64,
 
     /// This is the lowest number that will be accepted.
     ///
@@ -248,7 +249,7 @@ pub struct BoundData {
     /// rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    min_value: Option<i64>,
+    pub(crate) min_value: Option<i64>,
 
     /// This is the highest number that will be accepted.
     ///
@@ -256,7 +257,7 @@ pub struct BoundData {
     /// rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    max_value: Option<i64>,
+    pub(crate) max_value: Option<i64>,
 }
 
 impl BoundData {

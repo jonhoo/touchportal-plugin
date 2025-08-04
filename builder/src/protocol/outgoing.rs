@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -12,6 +13,7 @@ pub enum TouchPortalCommand {
     CreateNotification(CreateNotificationCommand),
     StateUpdate(UpdateStateCommand),
     SettingUpdate(UpdateSettingCommand),
+    ChoiceUpdate(ChoiceUpdateCommand),
     TriggerEvent(TriggerEventCommand),
     RemoveState(RemoveStateCommand),
 }
@@ -164,6 +166,38 @@ pub struct UpdateSettingCommand {
 impl UpdateSettingCommand {
     pub fn builder() -> UpdateSettingCommandBuilder {
         UpdateSettingCommandBuilder::default()
+    }
+}
+
+/// Update a choice list in Touch Portal.
+///
+/// If `instance_id` is set, this updates a _specific_ list, which is different from state lists as
+/// these will update the dropdown list associated. Still this is very handy when you want to fill
+/// in a list for the user based on changes in your plug-in.
+///
+/// Please note, this functionality only works for inline actions. Actions with a popup window do
+/// not support this functionality.
+#[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceUpdateCommand {
+    /// The state id to set/update
+    #[builder(setter(into))]
+    id: String,
+
+    /// The collection of texts that should be the new list to display for this given choice list id.
+    #[builder(setter(each(name = "choice", into)))]
+    #[serde(rename = "value")]
+    choices: IndexSet<String>,
+
+    /// This is the id of the instance that should be updated by this call.
+    #[builder(setter(strip_option, into), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_id: Option<String>,
+}
+
+impl ChoiceUpdateCommand {
+    pub fn builder() -> ChoiceUpdateCommandBuilder {
+        ChoiceUpdateCommandBuilder::default()
     }
 }
 

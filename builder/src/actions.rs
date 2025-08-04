@@ -1,6 +1,7 @@
 use super::PluginCategory;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Actions are one of the core components of Touch Portal. As a plug-in developer you can define
 /// actions for your plug-in that the user can add to their flow of actions in their buttons and
@@ -234,7 +235,10 @@ impl Action {
 
 impl ActionBuilder {
     fn validate(&self) -> Result<(), String> {
+        let mut data_ids = HashSet::new();
         for data in self.data.iter().flatten() {
+            data_ids.insert(format!("{{${}$}}", data.id));
+
             if let crate::DataFormat::Choice(def) = &data.format
                 && !def.value_choices.contains(&def.initial)
             {
@@ -242,6 +246,28 @@ impl ActionBuilder {
                     "initial value {} is not among valid choices {:?}",
                     def.initial, def.value_choices
                 ));
+            }
+        }
+
+        let mut languages = HashSet::new();
+        for line in &self.lines.as_ref().unwrap().actions {
+            if !languages.insert(&line.language) {
+                return Err(format!("found two lines for language '{}'", line.language));
+            }
+        }
+
+        for line in &self.lines.as_ref().unwrap().actions {
+            for data_id in &data_ids {
+                if !line
+                    .data
+                    .iter()
+                    .any(|line| line.line_format.contains(&**data_id))
+                {
+                    return Err(format!(
+                        "'{}' not found for language '{}'",
+                        data_id, line.language
+                    ));
+                }
             }
         }
 
@@ -566,9 +592,7 @@ mod tests {
                     .datum(
                         Data::builder()
                             .id("tp_pl_002_text")
-                            .format(DataFormat::Text(
-                                TextData::builder().build().unwrap()
-                            ))
+                            .format(DataFormat::Text(TextData::builder().build().unwrap()))
                             .build()
                             .unwrap()
                     )
@@ -628,19 +652,12 @@ mod tests {
                 Action::builder()
                     .id("tp_pl_action_002")
                     .name("Do something")
-                    .translated_names(
-                        I18nNames::builder()
-                            .dutch("Doe iets")
-                            .build()
-                            .unwrap()
-                    )
+                    .translated_names(I18nNames::builder().dutch("Doe iets").build().unwrap())
                     .implementation(ActionImplementation::Dynamic)
                     .datum(
                         Data::builder()
                             .id("tp_pl_002_text")
-                            .format(DataFormat::Text(
-                                TextData::builder().build().unwrap()
-                            ))
+                            .format(DataFormat::Text(TextData::builder().build().unwrap()))
                             .build()
                             .unwrap()
                     )

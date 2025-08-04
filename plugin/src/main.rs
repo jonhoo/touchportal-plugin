@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
 #[derive(Debug)]
-struct Plugin;
+struct Plugin(TouchPortalHandle);
 
 impl PluginMethods for Plugin {
     #[tracing::instrument(skip(self), ret)]
@@ -19,6 +19,56 @@ impl PluginMethods for Plugin {
         tp_pl_002_switch: bool,
         tp_pl_002_num: f64,
         tp_pl_002_choice: ChoicesForTpPl002Choice,
+        tp_pl_002_dependent: ChoicesForTpPl002Dependent,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_select_tp_pl_002_choice_in_tp_pl_action_002(
+        &mut self,
+        instance: String,
+        selected: ChoicesForTpPl002Choice,
+    ) -> eyre::Result<()> {
+        match selected {
+            ChoicesForTpPl002Choice::X => {
+                self.0
+                    .update_choices_in_specific_tp_pl_002_dependent(instance, vec!["X1", "X2"])
+                    .await
+            }
+            ChoicesForTpPl002Choice::Y => {
+                self.0
+                    .update_choices_in_specific_tp_pl_002_dependent(instance, vec!["Y1", "Y2"])
+                    .await
+            }
+            ChoicesForTpPl002Choice::Dynamic(_) => unreachable!(),
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_select_tp_pl_002_dependent_in_tp_pl_action_002(
+        &mut self,
+        instance: String,
+        selected: ChoicesForTpPl002Dependent,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_secondary(
+        &mut self,
+        mode: protocol::ActionInteractionMode,
+        tp_pl_002_choice: ChoicesForTpPl002Choice,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_select_tp_pl_002_choice_in_secondary(
+        &mut self,
+        instance: String,
+        selected: ChoicesForTpPl002Choice,
     ) -> eyre::Result<()> {
         Ok(())
     }
@@ -33,6 +83,7 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
+        let handle = outgoing.clone();
         tokio::spawn(async move {
             for i in 0.. {
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -55,7 +106,7 @@ impl Plugin {
             }
         });
 
-        Ok(Self)
+        Ok(Self(handle))
     }
 }
 

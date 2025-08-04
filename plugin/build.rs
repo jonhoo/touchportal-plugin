@@ -131,6 +131,19 @@ pub fn plugin() -> PluginDescription {
                                 .build()
                                 .unwrap(),
                         )
+                        .datum(
+                            Data::builder()
+                                .id("tp_pl_002_dependent")
+                                .format(DataFormat::Choice(
+                                    ChoiceData::builder()
+                                        .initial("<select choice first>")
+                                        .choice("<select choice first>")
+                                        .build()
+                                        .unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
                         .lines(
                             Lines::builder()
                                 .action(
@@ -140,6 +153,70 @@ pub fn plugin() -> PluginDescription {
                                                 .line_format(
                                                     "Do something with value {$tp_pl_002_text$}",
                                                 )
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .datum(
+                                            Line::builder()
+                                                .line_format("Then switch {$tp_pl_002_switch$}")
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .datum(
+                                            Line::builder()
+                                                .line_format("Then num {$tp_pl_002_num$}")
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .datum(
+                                            Line::builder()
+                                                .line_format("Then choice {$tp_pl_002_choice$}")
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .datum(
+                                            Line::builder()
+                                                .line_format(
+                                                    "And then choice {$tp_pl_002_dependent$}",
+                                                )
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .build()
+                                        .unwrap(),
+                                )
+                                .build()
+                                .unwrap(),
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .action(
+                    Action::builder()
+                        .id("secondary")
+                        .name("Run that other thing")
+                        .implementation(ActionImplementation::Dynamic)
+                        .datum(
+                            Data::builder()
+                                .id("tp_pl_002_choice")
+                                .format(DataFormat::Choice(
+                                    ChoiceData::builder()
+                                        .initial("X")
+                                        .choice("X")
+                                        .choice("Y")
+                                        .build()
+                                        .unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .lines(
+                            Lines::builder()
+                                .action(
+                                    LingualLine::builder()
+                                        .datum(
+                                            Line::builder()
+                                                .line_format("Just choice {$tp_pl_002_choice$}")
                                                 .build()
                                                 .unwrap(),
                                         )

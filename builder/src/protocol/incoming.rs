@@ -150,9 +150,15 @@ pub struct ShortConnectorIdMessage {
 #[non_exhaustive]
 pub struct ListChangeMessage {
     plugin_id: String,
-    action_id: String,
-    list_id: String,
-    instance_id: String,
+    #[doc(hidden = "handled transparently by codegen")]
+    pub action_id: String,
+    #[doc(hidden = "handled transparently by codegen")]
+    pub list_id: String,
+    #[doc(hidden = "handled transparently by codegen")]
+    pub instance_id: String,
+
+    #[doc(hidden = "handled transparently by codegen")]
+    pub value: String,
 
     /// Holds all user input in the action the list belongs to.
     ///

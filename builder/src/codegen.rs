@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use inflector::Inflector;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use std::collections::BTreeSet;
 use syn::Ident;
 
 /// Generates the binding code for your plugin into `$OUT_DIR/touch-portal.rs`.
@@ -17,8 +18,8 @@ pub fn build(plugin: &PluginDescription) -> String {
     // crate?
     let settings = gen_settings(plugin);
     let connect = gen_connect(&plugin.id);
-    let outgoing = gen_outgoing(&plugin);
-    let incoming = gen_incoming(&plugin);
+    let outgoing = gen_outgoing(plugin);
+    let incoming = gen_incoming(plugin);
     let tokens = quote! {
         use ::touchportal_plugin::protocol;
 
@@ -272,6 +273,58 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
         }
     }
 
+    let mut already_handled_data_ids = BTreeSet::new();
+    let mut action_list_methods = Vec::new();
+    for action in plugin.categories.iter().flat_map(|c| &c.actions) {
+        match action.implementation {
+            ActionImplementation::Static(_) => continue,
+            ActionImplementation::Dynamic => {}
+        }
+
+        for Data { id, format } in &action.data {
+            let DataFormat::Choice(_) = format else {
+                continue;
+            };
+            if !already_handled_data_ids.insert(id) {
+                // duplicate data id, but we know it has the same definition, so all is fine
+                continue;
+            }
+
+            let fn_name = format_ident!("update_choices_in_{}", id);
+            let doc = format!("Updates the choice list for the action data field {id}.");
+            let specific_fn_name = format_ident!("update_choices_in_specific_{}", id);
+            let specific_doc = format!(
+                "Updates the choice list for a particular instance of the action data field {id}."
+            );
+            action_list_methods.push(quote! {
+                #[doc = #doc]
+                pub async fn #fn_name(&mut self, choices: impl IntoIterator<Item = impl Into<String>>) {
+                    let _ = self.0.send(protocol::TouchPortalCommand::ChoiceUpdate(
+                        protocol::ChoiceUpdateCommand::builder()
+                          .id(#id)
+                          .choices(choices.into_iter().map(Into::into).collect())
+                          .build()
+                          .unwrap()
+                    )).await;
+                }
+                #[doc = #specific_doc]
+                #[doc = ""]
+                #[doc = "Specifically, this will only update the choice list in the given action instance."]
+                #[doc = "You will generally get the instance from a call to one of the `on_select` methods."]
+                pub async fn #specific_fn_name(&mut self, instance: impl Into<String>, choices: impl IntoIterator<Item = impl Into<String>>) {
+                    let _ = self.0.send(protocol::TouchPortalCommand::ChoiceUpdate(
+                        protocol::ChoiceUpdateCommand::builder()
+                          .id(#id)
+                          .choices(choices.into_iter().map(Into::into).collect())
+                          .instance_id(instance)
+                          .build()
+                          .unwrap()
+                    )).await;
+                }
+            });
+        }
+    }
+
     let mut event_methods = Vec::new();
     for event in plugin.categories.iter().flat_map(|c| &c.events) {
         let id = &event.id;
@@ -414,9 +467,17 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
             #( #event_methods )*
 
             #( #setting_methods )*
+
+            #( #action_list_methods )*
         }
 
         #( #state_stuff )*
+    }
+}
+
+impl Data {
+    fn choice_enum_name(&self) -> Ident {
+        format_ident!("ChoicesFor{}", self.id.to_pascal_case())
     }
 }
 
@@ -425,6 +486,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
     let mut action_ids = Vec::new();
     let mut action_signatures = Vec::new();
     let mut action_arms = Vec::new();
+    let mut handled_data_choice_ids = BTreeSet::new();
     for action in plugin.categories.iter().flat_map(|c| &c.actions) {
         match action.implementation {
             ActionImplementation::Static(_) => continue,
@@ -435,67 +497,75 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         let name = format_ident!("on_{}", action.id.to_snake_case());
         action_ids.push(id);
         let mut args = IndexMap::new();
-        for Data { id, format } in &action.data {
+        for data @ Data { id, format } in &action.data {
             let arg_type = match format {
                 DataFormat::Text(_) => quote! { String },
                 DataFormat::Number(_) => quote! { f64 },
                 DataFormat::Switch(_) => quote! { bool },
                 DataFormat::Choice(choice_data) => {
-                    let name = format_ident!("ChoicesFor{}", id.to_pascal_case());
-                    let choices = &choice_data.value_choices;
-                    let choice_variants1 = choices
-                        .iter()
-                        .map(|c| format_ident!("{}", c.to_pascal_case()));
-                    let choice_variants2 = choices
-                        .iter()
-                        .map(|c| format_ident!("{}", c.to_pascal_case()));
-                    let choice_variants3 = choices
-                        .iter()
-                        .map(|c| format_ident!("{}", c.to_pascal_case()));
-                    action_data_choices = quote! {
-                        #action_data_choices
+                    let name = data.choice_enum_name();
+                    if handled_data_choice_ids.insert(id) {
+                        let choices = &choice_data.value_choices;
+                        let choice_variants1 = choices
+                            .iter()
+                            .map(|c| format_ident!("{}", c.to_pascal_case()));
+                        let choice_variants2 = choices
+                            .iter()
+                            .map(|c| format_ident!("{}", c.to_pascal_case()));
+                        let choice_variants3 = choices
+                            .iter()
+                            .map(|c| format_ident!("{}", c.to_pascal_case()));
+                        action_data_choices = quote! {
+                            #action_data_choices
 
-                        #[derive(Debug, Clone, Copy, serde::Deserialize)]
-                        #[allow(non_camel_case_types)]
-                        #[allow(non_snake_case)]
-                        pub enum #name {
-                            #(
-                                #[serde(rename = #choices)]
-                                #choice_variants1
-                            ),*
-                        }
+                            #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+                            #[allow(non_camel_case_types)]
+                            #[allow(non_snake_case)]
+                            pub enum #name {
+                                #(
+                                    #[serde(rename = #choices)]
+                                    #choice_variants1,
+                                )*
 
-                        impl ::std::fmt::Display for #name {
-                            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                                write!(f, "{}", match self {
-                                    #(
-                                        Self::#choice_variants2 => #choices
-                                    ),*
-                                })
+                                /// Used when a choice value has been dynamically created at runtime
+                                /// using `update_choices_in*`.
+                                #[serde(untagged)]
+                                Dynamic(String)
                             }
-                        }
 
-                        impl ::std::str::FromStr for #name {
-                            type Err = eyre::Report;
-                            fn from_str(s: &str) -> ::eyre::Result<Self> {
-                                match s {
-                                    #(#choices => Ok(Self::#choice_variants3),)*
-                                    _ => eyre::bail!("'{s}' is not a valid data choice value"),
+                            impl ::std::fmt::Display for #name {
+                                fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                                    write!(f, "{}", match self {
+                                        #(
+                                            Self::#choice_variants2 => #choices,
+                                        )*
+                                        Self::Dynamic(other) => other,
+                                    })
                                 }
                             }
-                        }
 
-                        impl protocol::TouchPortalToString for #name {
-                            fn stringify(&self) -> String {
-                                self.to_string()
+                            impl ::std::str::FromStr for #name {
+                                type Err = eyre::Report;
+                                fn from_str(s: &str) -> ::eyre::Result<Self> {
+                                    match s {
+                                        #(#choices => Ok(Self::#choice_variants3),)*
+                                        _ => Ok(Self::Dynamic(s.to_string())),
+                                    }
+                                }
                             }
-                        }
-                        impl protocol::TouchPortalFromStr for #name {
-                            fn destringify(s: &str) -> eyre::Result<Self> {
-                                ::std::str::FromStr::from_str(s)
+
+                            impl protocol::TouchPortalToString for #name {
+                                fn stringify(&self) -> String {
+                                    self.to_string()
+                                }
                             }
-                        }
-                    };
+                            impl protocol::TouchPortalFromStr for #name {
+                                fn destringify(s: &str) -> eyre::Result<Self> {
+                                    ::std::str::FromStr::from_str(s)
+                                }
+                            }
+                        };
+                    }
                     quote! { #name }
                 }
                 DataFormat::File(_) | DataFormat::Folder(_) => quote! { ::std::path::PathBuf },
@@ -538,9 +608,51 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         }});
     }
 
+    let mut list_ids = Vec::new();
+    let mut list_id_for_actions = Vec::new();
+    let mut list_signatures = Vec::new();
+    let mut list_arms = Vec::new();
+    for action in plugin.categories.iter().flat_map(|c| &c.actions) {
+        match action.implementation {
+            ActionImplementation::Static(_) => continue,
+            ActionImplementation::Dynamic => {}
+        }
+
+        for data @ Data { id, format } in &action.data {
+            let DataFormat::Choice(_) = format else {
+                continue;
+            };
+
+            list_ids.push(id);
+            list_id_for_actions.push(&action.id);
+            let enum_type = data.choice_enum_name();
+
+            let name = format_ident!(
+                "on_select_{}_in_{}",
+                id.to_snake_case(),
+                action.id.to_snake_case()
+            );
+            list_signatures.push(quote! {
+                async fn #name(
+                    &mut self,
+                    instance: String,
+                    selected: #enum_type,
+                ) -> eyre::Result<()>;
+            });
+            list_arms.push(quote! {{
+                let value: #enum_type = protocol::TouchPortalFromStr::destringify(&change.value)
+                      .with_context(|| format!(concat!("list change for choice ", #id, " called with incorrectly typed select value '{}'"), change.value))?;
+                self.#name(change.instance_id, value).await.context(concat!("handle ", #id, " list change"))?;
+            }});
+        }
+    }
+    let unique_list_ids: BTreeSet<_> = list_ids.iter().collect();
+    let unique_list_actions: BTreeSet<_> = list_id_for_actions.iter().collect();
+
     quote! {
         trait PluginMethods {
             #( #action_signatures )*
+            #( #list_signatures )*
             async fn on_broadcast(&mut self, event: protocol::BroadcastEvent) -> eyre::Result<()> {
                 tracing::debug!(?event, "on_broadcast noop");
                 Ok(())
@@ -578,8 +690,8 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                         match &*action.action_id {
                             #(
                                 #action_ids => #action_arms
-                                id => eyre::bail!("called with unknown action id {id}"),
                             ),*
+                            id => eyre::bail!("action executed with unknown action id {id}"),
                         }
                     },
                     TouchPortalOutput::ConnectorChange(change) => {
@@ -589,7 +701,14 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                         ::tracing::error!(?assoc, "short connector id support are not yet implemented");
                     }
                     TouchPortalOutput::ListChange(change) => {
-                        ::tracing::error!(?change, "list changes are not yet implemented");
+                        match (&*change.list_id, &*change.action_id) {
+                            #(
+                                (#list_ids, #list_id_for_actions) => #list_arms,
+                            )*
+                            (#(#unique_list_ids)|*, aid) => eyre::bail!("list with known id '{}' changed, but with unexpected action id '{aid}'", change.list_id),
+                            (lid, #(#unique_list_actions)|*) => eyre::bail!("unknown list with id '{lid}' changed in known action '{}'", change.action_id),
+                            (lid, aid) => eyre::bail!("unknown list '{lid}' in unknown action '{aid}' changed"),
+                        }
                     }
                     TouchPortalOutput::ClosePlugin(close_plugin_message) => {
                         self.on_close(false).await.context("handle graceful plugin close")?;

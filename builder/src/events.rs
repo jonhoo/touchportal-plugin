@@ -96,6 +96,13 @@ pub enum EventValueType {
 
     /// This will check whether the state is the same as the user specified value in the text box.
     Text,
+    // TODO:
+    // In the format of the action line for the event, you can place the $compare token which will
+    // be changed to a context-depending dropdown list box that will compare the actual state with
+    // the set state by the user in the event. To get the correct options for the compare, you need
+    // to add the compareOptions to the json of the event definition, which has the options:
+    // none=old fashion string compare (also default), choice=is or is not, string=all string
+    // comparing, number=all number comparing.
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]

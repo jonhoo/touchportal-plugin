@@ -207,6 +207,106 @@ impl PluginDescriptionBuilder {
             }
         }
 
+        // data ids don't need to be unique, but they should not differ in their definition!
+        let mut data_by_id: HashMap<_, Vec<_>> = Default::default();
+        for action in self.categories.iter().flatten().flat_map(|c| &c.actions) {
+            for Data { id, format } in &action.data {
+                data_by_id.entry(id).or_default().push(format);
+            }
+        }
+        for (id, formats) in data_by_id {
+            if formats.len() == 1 {
+                continue;
+            }
+            for &format in &formats[1..] {
+                match (formats[0], format) {
+                    (DataFormat::Text(TextData { initial: _ }), DataFormat::Text(_)) => {}
+                    (
+                        DataFormat::Number(NumberData {
+                            allow_decimals,
+                            min_value,
+                            max_value,
+                            initial: _,
+                        }),
+                        DataFormat::Number(n2),
+                    ) => {
+                        if *allow_decimals != n2.allow_decimals
+                            || *min_value != n2.min_value
+                            || *max_value != n2.max_value
+                        {
+                            return Err(format!(
+                                "data field {id} appears multiple times with different numeric definitions"
+                            ));
+                        }
+                    }
+                    (
+                        DataFormat::Choice(ChoiceData {
+                            initial: _,
+                            value_choices,
+                        }),
+                        DataFormat::Choice(c2),
+                    ) => {
+                        if *value_choices != c2.value_choices {
+                            return Err(format!(
+                                "data field {id} appears multiple times with different choice definitions"
+                            ));
+                        }
+                    }
+                    (
+                        DataFormat::File(FileData {
+                            extensions,
+                            initial: _,
+                        }),
+                        DataFormat::File(f2),
+                    ) => {
+                        if *extensions != f2.extensions {
+                            return Err(format!(
+                                "data field {id} appears multiple times with different file definitions"
+                            ));
+                        }
+                    }
+                    (DataFormat::Switch(SwitchData { initial: _ }), DataFormat::Switch(_))
+                    | (DataFormat::Folder(FolderData { initial: _ }), DataFormat::Folder(_))
+                    | (DataFormat::Color(ColorData { initial: _ }), DataFormat::Color(_)) => {}
+                    (
+                        DataFormat::LowerBound(BoundData {
+                            initial: _,
+                            min_value,
+                            max_value,
+                        }),
+                        DataFormat::LowerBound(b2),
+                    )
+                    | (
+                        DataFormat::UpperBound(BoundData {
+                            initial: _,
+                            min_value,
+                            max_value,
+                        }),
+                        DataFormat::UpperBound(b2),
+                    ) => {
+                        if *min_value != b2.min_value || *max_value != b2.max_value {
+                            return Err(format!(
+                                "data field {id} appears multiple times with different bound definitions"
+                            ));
+                        }
+                    }
+                    (DataFormat::Text(_), _)
+                    | (DataFormat::Number(_), _)
+                    | (DataFormat::Switch(_), _)
+                    | (DataFormat::Choice(_), _)
+                    | (DataFormat::File(_), _)
+                    | (DataFormat::Folder(_), _)
+                    | (DataFormat::Color(_), _)
+                    | (DataFormat::LowerBound(_), _)
+                    | (DataFormat::UpperBound(_), _) => {
+                        return Err(format!(
+                            "data field {id} appears multiple times with different definitions"
+                        ));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }

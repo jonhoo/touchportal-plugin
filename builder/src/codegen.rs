@@ -270,7 +270,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
                         #[doc = #description]
                         pub async fn #state_name(&mut self, value: #name) {
                             let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
-                                protocol::UpdateStateCommandBuilder::default()
+                                protocol::UpdateStateCommand::builder()
                                   .state_id(#id)
                                   .value(value.to_string())
                                   .build()
@@ -285,7 +285,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
                     #[doc = #description]
                     pub async fn #state_name(&mut self, value: impl Into<String>) {
                         let _ = self.0.send(protocol::TouchPortalCommand::StateUpdate(
-                            protocol::UpdateStateCommandBuilder::default()
+                            protocol::UpdateStateCommand::builder()
                               .state_id(#id)
                               .value(value.into())
                               .build()
@@ -307,7 +307,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
             pub async fn #event_name(&mut self) {
                 // TODO: local state stuff
                 let _ = self.0.send(protocol::TouchPortalCommand::TriggerEvent(
-                    protocol::TriggerEventCommandBuilder::default()
+                    protocol::TriggerEventCommand::builder()
                       .event_id(#id)
                       .build()
                       .unwrap()
@@ -341,7 +341,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
             #desc
             pub async fn #setter_name(&mut self, value: #arg_type) {
                 let _ = self.0.send(protocol::TouchPortalCommand::SettingUpdate(
-                    protocol::UpdateSettingCommandBuilder::default()
+                    protocol::UpdateSettingCommand::builder()
                       .name(#name)
                       .value(value.to_string())
                       .build()
@@ -384,7 +384,7 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
             /// Remove a state at runtime.
             pub async fn remove_state(&mut self, id: impl Into<String>) {
                 let _ = self.0.send(protocol::TouchPortalCommand::RemoveState(
-                    protocol::RemoveStateCommandBuilder::default()
+                    protocol::RemoveStateCommand::builder()
                         .id(id)
                         .build()
                         .unwrap()

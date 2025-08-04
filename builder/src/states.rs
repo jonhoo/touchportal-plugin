@@ -55,6 +55,12 @@ pub struct State {
     parent_group: Option<String>,
 }
 
+impl State {
+    pub fn builder() -> StateBuilder {
+        StateBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]
@@ -93,21 +99,33 @@ pub struct ChoiceState {
     pub(crate) choices: BTreeSet<String>,
 }
 
+impl ChoiceState {
+    pub fn builder() -> ChoiceStateBuilder {
+        ChoiceStateBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextState {}
+
+impl TextState {
+    pub fn builder() -> TextStateBuilder {
+        TextStateBuilder::default()
+    }
+}
 
 #[test]
 fn serialize_example_state() {
     assert_eq!(
         serde_json::to_value(
-            StateBuilder::default()
+            State::builder()
                 .id("tp_sid_fruit")
                 .description("Fruit Kind description")
                 .initial("Apple")
                 .parent_group("Fruits")
                 .kind(StateType::Choice(
-                    ChoiceStateBuilder::default()
+                    ChoiceState::builder()
                         .choice("Apple")
                         .choice("Pears")
                         .choice("Grapes")

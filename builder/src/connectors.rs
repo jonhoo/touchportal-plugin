@@ -83,6 +83,12 @@ pub struct Connector {
     sub_category_id: Option<PluginCategory>,
 }
 
+impl Connector {
+    pub fn builder() -> ConnectorBuilder {
+        ConnectorBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]

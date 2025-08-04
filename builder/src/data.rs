@@ -22,6 +22,12 @@ pub struct Data {
     pub(crate) format: DataFormat,
 }
 
+impl Data {
+    pub fn builder() -> DataBuilder {
+        DataBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +96,12 @@ pub struct TextData {
     initial: String,
 }
 
+impl TextData {
+    pub fn builder() -> TextDataBuilder {
+        TextDataBuilder::default()
+    }
+}
+
 fn bool_is_true(b: &bool) -> bool {
     *b
 }
@@ -126,6 +138,12 @@ pub struct NumberData {
     max_value: Option<f64>,
 }
 
+impl NumberData {
+    pub fn builder() -> NumberDataBuilder {
+        NumberDataBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchData {
@@ -133,6 +151,12 @@ pub struct SwitchData {
     #[serde(rename = "default")]
     #[doc(alias = "default")]
     initial: bool,
+}
+
+impl SwitchData {
+    pub fn builder() -> SwitchDataBuilder {
+        SwitchDataBuilder::default()
+    }
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -146,6 +170,12 @@ pub struct ChoiceData {
 
     #[builder(setter(each(name = "choice", into)))]
     pub(crate) value_choices: Vec<String>,
+}
+
+impl ChoiceData {
+    pub fn builder() -> ChoiceDataBuilder {
+        ChoiceDataBuilder::default()
+    }
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -165,6 +195,12 @@ pub struct FileData {
     extensions: Vec<String>,
 }
 
+impl FileData {
+    pub fn builder() -> FileDataBuilder {
+        FileDataBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderData {
@@ -175,6 +211,12 @@ pub struct FolderData {
     initial: String,
 }
 
+impl FolderData {
+    pub fn builder() -> FolderDataBuilder {
+        FolderDataBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColorData {
@@ -183,6 +225,12 @@ pub struct ColorData {
     #[serde(rename = "default")]
     #[doc(alias = "default")]
     initial: HexColor,
+}
+
+impl ColorData {
+    pub fn builder() -> ColorDataBuilder {
+        ColorDataBuilder::default()
+    }
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -210,14 +258,20 @@ pub struct BoundData {
     max_value: Option<i64>,
 }
 
+impl BoundData {
+    pub fn builder() -> BoundDataBuilder {
+        BoundDataBuilder::default()
+    }
+}
+
 #[test]
 fn serialize_example_action_data_text() {
     assert_eq!(
         serde_json::to_value(
-            DataBuilder::default()
+            Data::builder()
                 .id("actiondata001")
                 .format(DataFormat::Text(
-                    TextDataBuilder::default()
+                    TextData::builder()
                         .initial("any text")
                         .build()
                         .unwrap()
@@ -238,10 +292,10 @@ fn serialize_example_action_data_text() {
 fn serialize_example_action_data_number() {
     assert_eq!(
         serde_json::to_value(
-            DataBuilder::default()
+            Data::builder()
                 .id("first")
                 .format(DataFormat::Number(
-                    NumberDataBuilder::default()
+                    NumberData::builder()
                         .initial(200.)
                         .min_value(100.)
                         .max_value(350.)
@@ -266,10 +320,10 @@ fn serialize_example_action_data_number() {
 fn serialize_example_action_data_choice() {
     assert_eq!(
         serde_json::to_value(
-            DataBuilder::default()
+            Data::builder()
                 .id("second")
                 .format(DataFormat::Choice(
-                    ChoiceDataBuilder::default()
+                    ChoiceData::builder()
                         .initial("200")
                         .choice("200")
                         .choice("400")
@@ -300,10 +354,10 @@ fn serialize_example_action_data_choice() {
 fn serialize_example_action_data_switch() {
     assert_eq!(
         serde_json::to_value(
-            DataBuilder::default()
+            Data::builder()
                 .id("actiondata003")
                 .format(DataFormat::Switch(
-                    SwitchDataBuilder::default().initial(true).build().unwrap()
+                    SwitchData::builder().initial(true).build().unwrap()
                 ))
                 .build()
                 .unwrap()

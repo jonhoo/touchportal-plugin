@@ -68,6 +68,12 @@ pub struct Event {
     pub(crate) local_states: Vec<LocalState>,
 }
 
+impl Event {
+    pub fn builder() -> EventBuilder {
+        EventBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]
@@ -97,6 +103,12 @@ pub struct EventChoiceValue {
     pub(crate) choices: BTreeSet<String>,
 }
 
+impl EventChoiceValue {
+    pub fn builder() -> EventChoiceValueBuilder {
+        EventChoiceValueBuilder::default()
+    }
+}
+
 /// The local states object represents the representation and visualisation within Touch Portal.
 ///
 /// The id is the reference when used as a tag in text. The actual setting of the local states
@@ -118,16 +130,22 @@ pub struct LocalState {
     parent_category: Option<PluginCategory>,
 }
 
+impl LocalState {
+    pub fn builder() -> LocalStateBuilder {
+        LocalStateBuilder::default()
+    }
+}
+
 #[test]
 fn serialize_example_event() {
     assert_eq!(
         serde_json::to_value(
-            EventBuilder::default()
+            Event::builder()
                 .id("event002")
                 .name("On breakfast eating")
                 .format("When we eat $val as breakfast")
                 .value(EventValueType::Choice(
-                    EventChoiceValueBuilder::default()
+                    EventChoiceValue::builder()
                         .choice("Apple")
                         .choice("Pears")
                         .choice("Grapes")

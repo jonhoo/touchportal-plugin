@@ -155,6 +155,12 @@ pub struct PluginDescription {
     settings_description: String,
 }
 
+impl PluginDescription {
+    pub fn builder() -> PluginDescriptionBuilder {
+        PluginDescriptionBuilder::default()
+    }
+}
+
 impl PluginDescriptionBuilder {
     fn validate(&self) -> Result<(), String> {
         let states = self.categories.iter().flatten().flat_map(|c| &c.states);
@@ -262,6 +268,12 @@ pub struct Category {
     sub_categories: Vec<SubCategory>,
 }
 
+impl Category {
+    pub fn builder() -> CategoryBuilder {
+        CategoryBuilder::default()
+    }
+}
+
 /// Plugin Categories can have sub categories which will be used to add structure to your list of
 /// actions, events and connectors.
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -299,6 +311,12 @@ pub struct SubCategory {
     imagepath: Option<String>,
 }
 
+impl SubCategory {
+    pub fn builder() -> SubCategoryBuilder {
+        SubCategoryBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginConfiguration {
@@ -332,6 +350,12 @@ pub struct PluginConfiguration {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
     parent_category: Option<PluginCategory>,
+}
+
+impl PluginConfiguration {
+    pub fn builder() -> PluginConfigurationBuilder {
+        PluginConfigurationBuilder::default()
+    }
 }
 
 /// You can add your plug-in in specific categories within Touch Portal.
@@ -421,13 +445,13 @@ use std::collections::HashMap;
 fn serialize_tutorial_sdk_example() {
     assert_eq!(
         serde_json::to_value(
-            PluginDescriptionBuilder::default()
+            PluginDescription::builder()
                 .api(ApiVersion::V4_3)
                 .version(1)
                 .name("Tutorial SDK Plugin")
                 .id("tp_tut_001")
                 .configuration(
-                    PluginConfigurationBuilder::default()
+                    PluginConfiguration::builder()
                         .color_dark(HexColor::from_u24(0xFF0000))
                         .color_light(HexColor::from_u24(0x00FF00))
                         .parent_category(PluginCategory::Misc)
@@ -460,7 +484,7 @@ fn serialize_tutorial_sdk_example() {
 fn serialize_tutorial_sdk_category_example() {
     assert_eq!(
         serde_json::to_value(
-            CategoryBuilder::default()
+            Category::builder()
                 .id("tp_tut_001_cat_01")
                 .name("Tools")
                 .imagepath("%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png")
@@ -484,13 +508,13 @@ fn serialize_tutorial_sdk_category_example() {
 fn serialize_tutorial_sdk_plugin_with_category_example() {
     assert_eq!(
         serde_json::to_value(
-            PluginDescriptionBuilder::default()
+            PluginDescription::builder()
                 .api(ApiVersion::V4_3)
                 .version(1)
                 .name("Tutorial SDK Plugin")
                 .id("tp_tut_001")
                 .configuration(
-                    PluginConfigurationBuilder::default()
+                    PluginConfiguration::builder()
                         .color_dark(HexColor::from_u24(0xFF0000))
                         .color_light(HexColor::from_u24(0x00FF00))
                         .parent_category(PluginCategory::Misc)
@@ -499,7 +523,7 @@ fn serialize_tutorial_sdk_plugin_with_category_example() {
                 )
                 .plugin_start_cmd("executable.exe -param")
                 .category(
-                    CategoryBuilder::default()
+                    Category::builder()
                         .id("tp_tut_001_cat_01")
                         .name("Tools")
                         .imagepath("%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png")

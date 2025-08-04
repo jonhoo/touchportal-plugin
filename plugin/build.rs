@@ -1,13 +1,13 @@
 use touchportal_plugin::{reexport::HexColor, *};
 
 pub fn plugin() -> PluginDescription {
-    PluginDescriptionBuilder::default()
+    PluginDescription::builder()
         .api(ApiVersion::V4_3)
         .version(1)
         .name("YouTube Live")
         .id("com.thesquareplanet.touchportal.youtube")
         .configuration(
-            PluginConfigurationBuilder::default()
+            PluginConfiguration::builder()
                 .color_dark(HexColor::from_u24(0xFF0000))
                 .color_light(HexColor::from_u24(0x00FF00))
                 .parent_category(PluginCategory::Misc)
@@ -15,11 +15,11 @@ pub fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         .setting(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Texty")
                 .initial("boil")
                 .kind(SettingType::Text(
-                    TextSettingBuilder::default()
+                    TextSetting::builder()
                         .max_length(20)
                         .is_password(true)
                         .read_only(true)
@@ -30,21 +30,21 @@ pub fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         .setting(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Switchy")
                 .initial("true")
                 .kind(SettingType::Switch(
-                    SwitchSettingBuilder::default().build().unwrap(),
+                    SwitchSetting::builder().build().unwrap(),
                 ))
                 .build()
                 .unwrap(),
         )
         .setting(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Choicy")
                 .initial("B")
                 .kind(SettingType::Choice(
-                    ChoiceSettingBuilder::default()
+                    ChoiceSetting::builder()
                         .choice("A")
                         .choice("B")
                         .build()
@@ -54,11 +54,11 @@ pub fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         .setting(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Numbry")
                 .initial("23")
                 .kind(SettingType::Number(
-                    NumberSettingBuilder::default()
+                    NumberSetting::builder()
                         .max_length(20)
                         .is_password(false)
                         .min_value(0.0)
@@ -68,7 +68,7 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 ))
                 .tooltip(
-                    TooltipBuilder::default()
+                    Tooltip::builder()
                         .title("Toolstip")
                         .body("Learn more")
                         .doc_url("https://www")
@@ -84,46 +84,46 @@ pub fn plugin() -> PluginDescription {
             std::env::consts::EXE_SUFFIX
         ))
         .category(
-            CategoryBuilder::default()
+            Category::builder()
                 .id("tp_tut_001_cat_01")
                 .name("Tools")
                 .action(
-                    ActionBuilder::default()
+                    Action::builder()
                         .id("tp_pl_action_002")
                         .name("Run that thing")
                         .implementation(ActionImplementation::Dynamic)
                         .datum(
-                            DataBuilder::default()
+                            Data::builder()
                                 .id("tp_pl_002_text")
                                 .format(DataFormat::Text(
-                                    TextDataBuilder::default().build().unwrap(),
+                                    TextData::builder().build().unwrap(),
                                 ))
                                 .build()
                                 .unwrap(),
                         )
                         .datum(
-                            DataBuilder::default()
+                            Data::builder()
                                 .id("tp_pl_002_switch")
                                 .format(DataFormat::Switch(
-                                    SwitchDataBuilder::default().initial(true).build().unwrap(),
+                                    SwitchData::builder().initial(true).build().unwrap(),
                                 ))
                                 .build()
                                 .unwrap(),
                         )
                         .datum(
-                            DataBuilder::default()
+                            Data::builder()
                                 .id("tp_pl_002_num")
                                 .format(DataFormat::Number(
-                                    NumberDataBuilder::default().initial(42.).build().unwrap(),
+                                    NumberData::builder().initial(42.).build().unwrap(),
                                 ))
                                 .build()
                                 .unwrap(),
                         )
                         .datum(
-                            DataBuilder::default()
+                            Data::builder()
                                 .id("tp_pl_002_choice")
                                 .format(DataFormat::Choice(
-                                    ChoiceDataBuilder::default()
+                                    ChoiceData::builder()
                                         .initial("X")
                                         .choice("X")
                                         .choice("Y")
@@ -134,11 +134,11 @@ pub fn plugin() -> PluginDescription {
                                 .unwrap(),
                         )
                         .lines(
-                            LinesBuilder::default()
+                            Lines::builder()
                                 .action(
-                                    LingualLineBuilder::default()
+                                    LingualLine::builder()
                                         .datum(
-                                            LineBuilder::default()
+                                            Line::builder()
                                                 .line_format(
                                                     "Do something with value {$tp_pl_002_text$}",
                                                 )
@@ -155,12 +155,12 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 .event(
-                    EventBuilder::default()
+                    Event::builder()
                         .id("event002")
                         .name("On breakfast eating")
                         .format("When we eat $val as breakfast")
                         .value(EventValueType::Choice(
-                            EventChoiceValueBuilder::default()
+                            EventChoiceValue::builder()
                                 .choice("Apple")
                                 .choice("Pears")
                                 .choice("Grapes")
@@ -173,7 +173,7 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 .event(
-                    EventBuilder::default()
+                    Event::builder()
                         .id("ev_counter")
                         .name("When counter changes")
                         .format("When the counter hits $val")
@@ -183,7 +183,7 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 .event(
-                    EventBuilder::default()
+                    Event::builder()
                         .id("yoc")
                         .name("Yoyoyo")
                         .format("Yo")
@@ -193,13 +193,13 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 .state(
-                    StateBuilder::default()
+                    State::builder()
                         .id("tp_sid_fruit")
                         .description("Fruit Kind description")
                         .initial("Apple")
                         .parent_group("Fruits")
                         .kind(StateType::Choice(
-                            ChoiceStateBuilder::default()
+                            ChoiceState::builder()
                                 .choice("Apple")
                                 .choice("Pears")
                                 .choice("Grapes")
@@ -211,12 +211,12 @@ pub fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 .state(
-                    StateBuilder::default()
+                    State::builder()
                         .id("tp_sid_count")
                         .description("It's a counter")
                         .initial("0")
                         .kind(StateType::Text(
-                            TextStateBuilder::default().build().unwrap(),
+                            TextState::builder().build().unwrap(),
                         ))
                         .build()
                         .unwrap(),

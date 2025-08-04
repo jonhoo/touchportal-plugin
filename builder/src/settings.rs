@@ -30,6 +30,12 @@ pub struct Setting {
     pub(crate) tooltip: Option<Tooltip>,
 }
 
+impl Setting {
+    pub fn builder() -> SettingBuilder {
+        SettingBuilder::default()
+    }
+}
+
 impl SettingBuilder {
     fn validate(&self) -> Result<(), String> {
         let initial = &self.initial.as_ref().expect("required");
@@ -147,6 +153,12 @@ pub struct TextSetting {
     read_only: Option<bool>,
 }
 
+impl TextSetting {
+    pub fn builder() -> TextSettingBuilder {
+        TextSettingBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NumberSetting {
@@ -183,13 +195,31 @@ pub struct NumberSetting {
     max_value: Option<f64>,
 }
 
+impl NumberSetting {
+    pub fn builder() -> NumberSettingBuilder {
+        NumberSettingBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileSetting {}
 
+impl FileSetting {
+    pub fn builder() -> FileSettingBuilder {
+        FileSettingBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderSetting {}
+
+impl FolderSetting {
+    pub fn builder() -> FolderSettingBuilder {
+        FolderSettingBuilder::default()
+    }
+}
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,9 +238,21 @@ pub struct MultilineSetting {
     read_only: Option<bool>,
 }
 
+impl MultilineSetting {
+    pub fn builder() -> MultilineSettingBuilder {
+        MultilineSettingBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchSetting {}
+
+impl SwitchSetting {
+    pub fn builder() -> SwitchSettingBuilder {
+        SwitchSettingBuilder::default()
+    }
+}
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,6 +260,12 @@ pub struct ChoiceSetting {
     /// These are all the options the user can select for the setting.
     #[builder(setter(each(name = "choice", into)))]
     pub(crate) choices: BTreeSet<String>,
+}
+
+impl ChoiceSetting {
+    pub fn builder() -> ChoiceSettingBuilder {
+        ChoiceSettingBuilder::default()
+    }
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -242,15 +290,21 @@ pub struct Tooltip {
     pub(crate) doc_url: Option<String>,
 }
 
+impl Tooltip {
+    pub fn builder() -> TooltipBuilder {
+        TooltipBuilder::default()
+    }
+}
+
 #[test]
 fn serialize_example_setting() {
     assert_eq!(
         serde_json::to_value(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Age")
                 .initial("23")
                 .kind(SettingType::Number(
-                    NumberSettingBuilder::default()
+                    NumberSetting::builder()
                         .max_length(20)
                         .is_password(false)
                         .min_value(0.0)
@@ -280,11 +334,11 @@ fn serialize_example_setting() {
 fn serialize_example_setting_with_tooltip() {
     assert_eq!(
         serde_json::to_value(
-            SettingBuilder::default()
+            Setting::builder()
                 .name("Age")
                 .initial("23")
                 .kind(SettingType::Number(
-                    NumberSettingBuilder::default()
+                    NumberSetting::builder()
                         .max_length(20)
                         .is_password(false)
                         .min_value(0.0)
@@ -294,7 +348,7 @@ fn serialize_example_setting_with_tooltip() {
                         .unwrap()
                 ))
                 .tooltip(
-                    TooltipBuilder::default()
+                    Tooltip::builder()
                         .title("Toolstip")
                         .body(
                             "Learn more about how tooltips work in the Touch Portal API documentation."

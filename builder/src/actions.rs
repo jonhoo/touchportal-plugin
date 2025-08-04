@@ -23,28 +23,28 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```
 /// use touchportal_plugin::{
-///   ActionBuilder,
+///   Action,
 ///   ActionImplementation,
-///   LineBuilder,
-///   LinesBuilder,
-///   LingualLineBuilder,
-///   StaticActionBuilder,
+///   Line,
+///   Lines,
+///   LingualLine,
+///   StaticAction,
 /// };
 ///
-/// ActionBuilder::default()
+/// Action::builder()
 ///     .id("tp_pl_action_001")
 ///     .name("Execute action")
 ///     .implementation(ActionImplementation::Static(
-///         StaticActionBuilder::default()
+///         StaticAction::builder()
 ///             .execution_cmd("powershell [console]::beep(200,500)")
 ///             .build()?
 ///     ))
 ///     .lines(
-///         LinesBuilder::default()
+///         Lines::builder()
 ///             .action(
-///                 LingualLineBuilder::default()
+///                 LingualLine::builder()
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("Play Beep Sound")
 ///                             .build()?
 ///                     )
@@ -65,34 +65,34 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```
 /// use touchportal_plugin::{
-///   ActionBuilder,
+///   Action,
 ///   ActionImplementation,
-///   DataBuilder,
+///   Data,
 ///   DataFormat,
-///   LineBuilder,
-///   LinesBuilder,
-///   LingualLineBuilder,
-///   TextDataBuilder,
+///   Line,
+///   Lines,
+///   LingualLine,
+///   TextData,
 /// };
 ///
-/// ActionBuilder::default()
+/// Action::builder()
 ///     .id("tp_pl_action_002")
 ///     .name("Execute Dynamic Action")
 ///     .implementation(ActionImplementation::Dynamic)
 ///     .datum(
-///         DataBuilder::default()
+///         Data::builder()
 ///             .id("tp_pl_002_text")
 ///             .format(DataFormat::Text(
-///                 TextDataBuilder::default().build()?
+///                 TextData::builder().build()?
 ///             ))
 ///             .build()?
 ///     )
 ///     .lines(
-///         LinesBuilder::default()
+///         Lines::builder()
 ///             .action(
-///                 LingualLineBuilder::default()
+///                 LingualLine::builder()
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("Do something with value {$tp_pl_002_text$}")
 ///                             .build()?
 ///                     )
@@ -108,60 +108,60 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```
 /// use touchportal_plugin::{
-///   ActionBuilder,
+///   Action,
 ///   ActionImplementation,
-///   DataBuilder,
+///   Data,
 ///   DataFormat,
-///   I18nNamesBuilder,
-///   LineBuilder,
-///   LinesBuilder,
-///   LingualLineBuilder,
-///   TextDataBuilder,
+///   I18nNames,
+///   Line,
+///   Lines,
+///   LingualLine,
+///   TextData,
 /// };
 ///
-/// ActionBuilder::default()
+/// Action::builder()
 ///     .id("tp_pl_action_002")
 ///     .name("Do something")
 ///     .translated_names(
-///         I18nNamesBuilder::default()
+///         I18nNames::builder()
 ///             .dutch("Doe iets")
 ///             .build()?
 ///     )
 ///     .implementation(ActionImplementation::Dynamic)
 ///     .datum(
-///         DataBuilder::default()
+///         Data::builder()
 ///             .id("tp_pl_002_text")
 ///             .format(DataFormat::Text(
-///                 TextDataBuilder::default().build()?
+///                 TextData::builder().build()?
 ///             ))
 ///             .build()?
 ///     )
 ///     .lines(
-///         LinesBuilder::default()
+///         Lines::builder()
 ///             .action(
-///                 LingualLineBuilder::default()
+///                 LingualLine::builder()
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("This actions shows multiple lines;")
 ///                             .build()?
 ///                     )
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("Do something with value {$tp_pl_002_text$}")
 ///                             .build()?
 ///                     )
 ///                     .build()?
 ///             )
 ///             .action(
-///                 LingualLineBuilder::default()
+///                 LingualLine::builder()
 ///                     .language("nl")
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("Deze actie bevat meerdere regels;")
 ///                             .build()?
 ///                     )
 ///                     .datum(
-///                         LineBuilder::default()
+///                         Line::builder()
 ///                             .line_format("Doe iets met waarde {$tp_pl_002_text$}")
 ///                             .build()?
 ///                     )
@@ -226,6 +226,12 @@ pub struct Action {
     sub_category_id: Option<PluginCategory>,
 }
 
+impl Action {
+    pub fn builder() -> ActionBuilder {
+        ActionBuilder::default()
+    }
+}
+
 impl ActionBuilder {
     fn validate(&self) -> Result<(), String> {
         for data in self.data.iter().flatten() {
@@ -279,6 +285,12 @@ pub struct StaticAction {
     execution_cmd: String,
 }
 
+impl StaticAction {
+    pub fn builder() -> StaticActionBuilder {
+        StaticActionBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[non_exhaustive]
 pub enum ExecutionType {
@@ -320,6 +332,12 @@ pub struct I18nNames {
     turkish: Option<String>,
 }
 
+impl I18nNames {
+    pub fn builder() -> I18nNamesBuilder {
+        I18nNamesBuilder::default()
+    }
+}
+
 /// The lines object consist of the parts; the action lines and the onhold lines.
 ///
 /// You can specify either or both.
@@ -338,6 +356,12 @@ pub struct Lines {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[builder(setter(each(name = "onhold")), default)]
     onholds: Vec<LingualLine>,
+}
+
+impl Lines {
+    pub fn builder() -> LinesBuilder {
+        LinesBuilder::default()
+    }
 }
 
 impl LinesBuilder {
@@ -399,6 +423,12 @@ pub struct LingualLine {
     suggestions: Option<Suggestions>,
 }
 
+impl LingualLine {
+    pub fn builder() -> LingualLineBuilder {
+        LingualLineBuilder::default()
+    }
+}
+
 impl LingualLineBuilder {
     fn validate(&self) -> Result<(), String> {
         if self.data.as_ref().is_none_or(|d| d.is_empty()) {
@@ -428,6 +458,12 @@ pub struct Line {
     line_format: String,
 }
 
+impl Line {
+    pub fn builder() -> LineBuilder {
+        LineBuilder::default()
+    }
+}
+
 /// This is a suggestions object where you can specify certain rendering behaviours of the action
 /// lines.
 ///
@@ -453,30 +489,36 @@ pub struct Suggestions {
     line_indentation: Option<u32>,
 }
 
+impl Suggestions {
+    pub fn builder() -> SuggestionsBuilder {
+        SuggestionsBuilder::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DataBuilder, DataFormat, TextDataBuilder};
+    use crate::{Data, DataFormat, TextData};
 
     #[test]
     fn serialize_tutorial_sdk_plugin_static_action() {
         assert_eq!(
             serde_json::to_value(
-                ActionBuilder::default()
+                Action::builder()
                     .id("tp_pl_action_001")
                     .name("Execute action")
                     .implementation(ActionImplementation::Static(
-                        StaticActionBuilder::default()
+                        StaticAction::builder()
                             .execution_cmd("powershell [console]::beep(200,500)")
                             .build()
                             .unwrap()
                     ))
                     .lines(
-                        LinesBuilder::default()
+                        Lines::builder()
                             .action(
-                                LingualLineBuilder::default()
+                                LingualLine::builder()
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format("Play Beep Sound")
                                             .build()
                                             .unwrap()
@@ -517,25 +559,25 @@ mod tests {
     fn serialize_tutorial_sdk_plugin_dynamic_action() {
         assert_eq!(
             serde_json::to_value(
-                ActionBuilder::default()
+                Action::builder()
                     .id("tp_pl_action_002")
                     .name("Execute Dynamic Action")
                     .implementation(ActionImplementation::Dynamic)
                     .datum(
-                        DataBuilder::default()
+                        Data::builder()
                             .id("tp_pl_002_text")
                             .format(DataFormat::Text(
-                                TextDataBuilder::default().build().unwrap()
+                                TextData::builder().build().unwrap()
                             ))
                             .build()
                             .unwrap()
                     )
                     .lines(
-                        LinesBuilder::default()
+                        Lines::builder()
                             .action(
-                                LingualLineBuilder::default()
+                                LingualLine::builder()
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format(
                                                 "Do something with value {$tp_pl_002_text$}"
                                             )
@@ -583,37 +625,37 @@ mod tests {
     fn serialize_tutorial_sdk_plugin_multi_lang_action() {
         assert_eq!(
             serde_json::to_value(
-                ActionBuilder::default()
+                Action::builder()
                     .id("tp_pl_action_002")
                     .name("Do something")
                     .translated_names(
-                        I18nNamesBuilder::default()
+                        I18nNames::builder()
                             .dutch("Doe iets")
                             .build()
                             .unwrap()
                     )
                     .implementation(ActionImplementation::Dynamic)
                     .datum(
-                        DataBuilder::default()
+                        Data::builder()
                             .id("tp_pl_002_text")
                             .format(DataFormat::Text(
-                                TextDataBuilder::default().build().unwrap()
+                                TextData::builder().build().unwrap()
                             ))
                             .build()
                             .unwrap()
                     )
                     .lines(
-                        LinesBuilder::default()
+                        Lines::builder()
                             .action(
-                                LingualLineBuilder::default()
+                                LingualLine::builder()
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format("This actions shows multiple lines;")
                                             .build()
                                             .unwrap()
                                     )
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format(
                                                 "Do something with value {$tp_pl_002_text$}"
                                             )
@@ -624,16 +666,16 @@ mod tests {
                                     .unwrap()
                             )
                             .action(
-                                LingualLineBuilder::default()
+                                LingualLine::builder()
                                     .language("nl")
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format("Deze actie bevat meerdere regels;")
                                             .build()
                                             .unwrap()
                                     )
                                     .datum(
-                                        LineBuilder::default()
+                                        Line::builder()
                                             .line_format("Doe iets met waarde {$tp_pl_002_text$}")
                                             .build()
                                             .unwrap()

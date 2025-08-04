@@ -59,6 +59,12 @@ pub struct CreateStateCommand {
     force_update: Option<bool>,
 }
 
+impl CreateStateCommand {
+    pub fn builder() -> CreateStateCommandBuilder {
+        CreateStateCommandBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNotificationCommand {
@@ -87,6 +93,12 @@ pub struct CreateNotificationCommand {
     options: Vec<NotificationOption>,
 }
 
+impl CreateNotificationCommand {
+    pub fn builder() -> CreateNotificationCommandBuilder {
+        CreateNotificationCommandBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -100,6 +112,12 @@ pub struct NotificationOption {
     /// This is the title of the notification option.
     #[builder(setter(into))]
     title: String,
+}
+
+impl NotificationOption {
+    pub fn builder() -> NotificationOptionBuilder {
+        NotificationOptionBuilder::default()
+    }
 }
 
 /// You can send state updates to Touch Portal.
@@ -122,6 +140,12 @@ pub struct UpdateStateCommand {
     value: String,
 }
 
+impl UpdateStateCommand {
+    pub fn builder() -> UpdateStateCommandBuilder {
+        UpdateStateCommandBuilder::default()
+    }
+}
+
 /// With this option you can update a setting from your plug-in.
 ///
 /// This will overwrite the user setting.
@@ -135,6 +159,12 @@ pub struct UpdateSettingCommand {
     /// The new value the setting should hold
     #[builder(setter(into))]
     value: String,
+}
+
+impl UpdateSettingCommand {
+    pub fn builder() -> UpdateSettingCommandBuilder {
+        UpdateSettingCommandBuilder::default()
+    }
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -152,10 +182,22 @@ pub struct TriggerEventCommand {
     states: HashMap<String, String>,
 }
 
+impl TriggerEventCommand {
+    pub fn builder() -> TriggerEventCommandBuilder {
+        TriggerEventCommandBuilder::default()
+    }
+}
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveStateCommand {
     /// The id of the plug-in state to remove.
     #[builder(setter(into))]
     id: String,
+}
+
+impl RemoveStateCommand {
+    pub fn builder() -> RemoveStateCommandBuilder {
+        RemoveStateCommandBuilder::default()
+    }
 }

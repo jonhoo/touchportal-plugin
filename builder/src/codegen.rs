@@ -436,10 +436,10 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         action_ids.push(id);
         let mut args = IndexMap::new();
         for Data { id, format } in &action.data {
-            let path = match format {
-                DataFormat::Text(_) => "String",
-                DataFormat::Number(_) => "f64",
-                DataFormat::Switch(_) => "bool",
+            let arg_type = match format {
+                DataFormat::Text(_) => quote! { String },
+                DataFormat::Number(_) => quote! { f64 },
+                DataFormat::Switch(_) => quote! { bool },
                 DataFormat::Choice(choice_data) => {
                     let name = format_ident!("ChoicesFor{}", id.to_pascal_case());
                     let choices = &choice_data.value_choices;
@@ -496,15 +496,13 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             }
                         }
                     };
-                    args.insert(format_ident!("{}", id.to_snake_case()), name.into());
-                    continue;
+                    quote! { #name }
                 }
-                DataFormat::File(_) | DataFormat::Folder(_) => "::std::path::PathBuf",
-                DataFormat::Color(_) => "::touchportal_plugin::reexports::HexColor",
-                DataFormat::LowerBound(_) | DataFormat::UpperBound(_) => "i64",
+                DataFormat::File(_) | DataFormat::Folder(_) => quote! { ::std::path::PathBuf },
+                DataFormat::Color(_) => quote! { ::touchportal_plugin::reexports::HexColor },
+                DataFormat::LowerBound(_) | DataFormat::UpperBound(_) => quote! { i64 },
             };
-            let path: syn::Path = syn::parse_str(path).unwrap();
-            args.insert(format_ident!("{}", id.to_snake_case()), path);
+            args.insert(format_ident!("{}", id.to_snake_case()), arg_type);
         }
         let arg_names = args.keys();
         let arg_types = args.values();

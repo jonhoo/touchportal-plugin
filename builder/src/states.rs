@@ -1,6 +1,6 @@
 use derive_builder::Builder;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 /// In Touch Portal the user can use States which can be used by IF statement and with Events for
 /// example but can also be used in button texts or most actions.
@@ -96,7 +96,7 @@ pub struct ChoiceState {
     /// These can also be dynamically changed if you use the dynamic actions.
     #[builder(setter(each(name = "choice", into)))]
     #[serde(rename = "valueChoices")]
-    pub(crate) choices: BTreeSet<String>,
+    pub(crate) choices: IndexSet<String>,
 }
 
 impl ChoiceState {

@@ -8,7 +8,7 @@ Inflector = "0.11.4"
 derive_builder = "0.20.2"
 eyre = "0.6.12"
 hex_color = { version = "3.0.0", features = ["serde"] }
-indexmap = "2.10.0"
+indexmap = { version = "2.10.0", features = ["serde"] }
 prettyplease = "0.2.36"
 proc-macro2 = "1.0.95"
 quote = "1.0.40"

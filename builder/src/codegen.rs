@@ -239,11 +239,13 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
         match &state.kind {
             crate::StateType::Choice(choice_state) => {
                 let name = format_ident!("ValuesForState{}", state.id.to_pascal_case());
-                let choices = &choice_state.choices;
-                let choice_variants1 = choices
+                let choices = choice_state.choices.iter();
+                let choice_variants1 = choice_state
+                    .choices
                     .iter()
                     .map(|c| format_ident!("{}", c.to_pascal_case()));
-                let choice_variants2 = choices
+                let choice_variants2 = choice_state
+                    .choices
                     .iter()
                     .map(|c| format_ident!("{}", c.to_pascal_case()));
                 let help = format!("Valid choices for [`{state_name}`]");

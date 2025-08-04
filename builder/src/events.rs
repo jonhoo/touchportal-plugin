@@ -1,7 +1,7 @@
 use super::PluginCategory;
 use derive_builder::Builder;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 /// In Touch Portal there are events which will be triggered when a certain state changes.
 ///
@@ -100,7 +100,7 @@ pub struct EventChoiceValue {
     /// These are all the options the user can select in the event.
     #[builder(setter(each(name = "choice", into)))]
     #[serde(rename = "valueChoices")]
-    pub(crate) choices: BTreeSet<String>,
+    pub(crate) choices: IndexSet<String>,
 }
 
 impl EventChoiceValue {

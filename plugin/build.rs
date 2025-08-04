@@ -32,7 +32,7 @@ pub fn plugin() -> PluginDescription {
         .setting(
             Setting::builder()
                 .name("Switchy")
-                .initial("true")
+                .initial("On")
                 .kind(SettingType::Switch(
                     SwitchSetting::builder().build().unwrap(),
                 ))
@@ -95,9 +95,7 @@ pub fn plugin() -> PluginDescription {
                         .datum(
                             Data::builder()
                                 .id("tp_pl_002_text")
-                                .format(DataFormat::Text(
-                                    TextData::builder().build().unwrap(),
-                                ))
+                                .format(DataFormat::Text(TextData::builder().build().unwrap()))
                                 .build()
                                 .unwrap(),
                         )
@@ -215,9 +213,7 @@ pub fn plugin() -> PluginDescription {
                         .id("tp_sid_count")
                         .description("It's a counter")
                         .initial("0")
-                        .kind(StateType::Text(
-                            TextState::builder().build().unwrap(),
-                        ))
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
                         .build()
                         .unwrap(),
                 )

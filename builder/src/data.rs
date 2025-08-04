@@ -271,10 +271,7 @@ fn serialize_example_action_data_text() {
             Data::builder()
                 .id("actiondata001")
                 .format(DataFormat::Text(
-                    TextData::builder()
-                        .initial("any text")
-                        .build()
-                        .unwrap()
+                    TextData::builder().initial("any text").build().unwrap()
                 ))
                 .build()
                 .unwrap()

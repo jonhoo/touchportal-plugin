@@ -41,16 +41,7 @@ impl crate::Setting {
     }
 
     fn string_converter(&self) -> TokenStream {
-        match self.kind {
-            SettingType::Number(_) | SettingType::Switch(_) => {
-                quote! { #[serde(deserialize_with = "deserialize_with_unstring")] }
-            }
-            SettingType::Text(_)
-            | SettingType::Multiline(_)
-            | SettingType::File(_)
-            | SettingType::Folder(_)
-            | SettingType::Choice(_) => quote! {},
-        }
+        quote! { #[serde(with = "protocol::serde_tp_stringly")] }
     }
 
     fn to_rust_type(&self) -> TokenStream {
@@ -106,12 +97,22 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                     }
                 }
 
-                impl protocol::Unstring for #name {
-                    fn unstring(s: &str) -> ::eyre::Result<Self> {
+                impl ::std::str::FromStr for #name {
+                    type Err = eyre::Report;
+                    fn from_str(s: &str) -> ::eyre::Result<Self> {
                         match s {
                             #(#choices => Ok(Self::#choice_variants3),)*
                             _ => eyre::bail!("'{s}' is not a valid setting value"),
                         }
+                    }
+                }
+
+                impl protocol::TouchPortalStringly for #name {
+                    fn stringify(&self) -> String {
+                        self.to_string()
+                    }
+                    fn destringify(s: &str) -> eyre::Result<Self> {
+                        ::std::str::FromStr::from_str(s)
                     }
                 }
             };
@@ -160,7 +161,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         default_fn_idents.push(ident.clone());
         default_fn_defs.push(quote! {
             fn #ident() -> #type_ {
-                protocol::Unstring::unstring(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
+                protocol::TouchPortalStringly::destringify(#default).expect(concat!("initial value '", #default , "' is valid for setting `", #sname, "`"))
             }
         });
     }
@@ -169,36 +170,6 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         #enums
 
         #( #default_fn_defs )*
-
-        fn deserialize_with_unstring<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-        where
-            D: ::serde::Deserializer<'de>,
-            T: protocol::Unstring,
-        {
-            use ::serde::de::Visitor;
-
-            struct V<S>(std::marker::PhantomData<fn() -> S>);
-
-            impl<'de, S> Visitor<'de> for V<S>
-            where
-                S: protocol::Unstring,
-            {
-                type Value = S;
-
-                fn expecting(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                    formatter.write_str("a string representing an S")
-                }
-
-                fn visit_str<E>(self, v: &str) -> Result<S, E>
-                where
-                    E: ::serde::de::Error,
-                {
-                    protocol::Unstring::unstring(v).map_err(::serde::de::Error::custom)
-                }
-            }
-
-            deserializer.deserialize_str(V::<T>(Default::default()))
-        }
 
         #[derive(Debug, Clone, serde::Deserialize)]
         pub struct PluginSettings {
@@ -431,6 +402,9 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     let choice_variants2 = choices
                         .iter()
                         .map(|c| format_ident!("{}", c.to_pascal_case()));
+                    let choice_variants3 = choices
+                        .iter()
+                        .map(|c| format_ident!("{}", c.to_pascal_case()));
                     action_data_choices = quote! {
                         #action_data_choices
 
@@ -444,12 +418,32 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             ),*
                         }
 
-                        impl protocol::Unstring for #name {
-                            fn unstring(s: &str) -> ::eyre::Result<Self> {
+                        impl ::std::fmt::Display for #name {
+                            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                                write!(f, "{}", match self {
+                                    #(
+                                        Self::#choice_variants2 => #choices
+                                    ),*
+                                })
+                            }
+                        }
+
+                        impl ::std::str::FromStr for #name {
+                            type Err = eyre::Report;
+                            fn from_str(s: &str) -> ::eyre::Result<Self> {
                                 match s {
-                                    #(#choices => Ok(Self::#choice_variants2),)*
+                                    #(#choices => Ok(Self::#choice_variants3),)*
                                     _ => eyre::bail!("'{s}' is not a valid data choice value"),
                                 }
+                            }
+                        }
+
+                        impl protocol::TouchPortalStringly for #name {
+                            fn stringify(&self) -> String {
+                                self.to_string()
+                            }
+                            fn destringify(s: &str) -> eyre::Result<Self> {
+                                ::std::str::FromStr::from_str(s)
                             }
                         }
                     };
@@ -486,7 +480,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     let arg = args
                       .remove(stringify!(#arg_names1))
                       .ok_or_else(|| eyre::eyre!(concat!("action ", #id, " called without argument ", stringify!(#arg_names2))))?;
-                    protocol::Unstring::unstring(&arg)
+                    protocol::TouchPortalStringly::destringify(&arg)
                       .context(concat!("action ", #id, " called with incorrectly typed argument ", stringify!(#arg_names4)))?
                 };
             )*

@@ -1,3 +1,4 @@
+use crate::protocol::TouchPortalStringly;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -67,7 +68,7 @@ impl SettingBuilder {
         }
 
         if let SettingType::Number(n) = kind {
-            match initial.parse::<f64>() {
+            match f64::destringify(initial) {
                 Ok(v) if n.min_value.is_some_and(|min| v < min) => {
                     return Err(format!("initial value '{initial}' is below minimum value"));
                 }
@@ -80,9 +81,13 @@ impl SettingBuilder {
         }
 
         if let SettingType::Switch(_) = kind {
-            match initial.as_str() {
-                "true" | "false" | "On" | "Off" => {}
-                _ => return Err(format!("initial value '{initial}' is not switch-y")),
+            match bool::destringify(initial) {
+                Ok(_) => {}
+                _ => {
+                    return Err(format!(
+                        "initial value '{initial}' is not switch-y (must be On or Off)"
+                    ))
+                }
             }
         }
 

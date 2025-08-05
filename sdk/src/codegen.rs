@@ -732,8 +732,14 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
             }});
         }
     }
-    let unique_list_ids: BTreeSet<_> = list_ids.iter().collect();
-    let unique_list_actions: BTreeSet<_> = list_id_for_actions.iter().collect();
+    let other_arms = (!list_ids.is_empty()).then(|| {
+        let unique_list_ids: BTreeSet<_> = list_ids.iter().collect();
+        let unique_list_actions: BTreeSet<_> = list_id_for_actions.iter().collect();
+        quote! {
+            (#(#unique_list_ids)|*, aid) => eyre::bail!("list with known id '{}' changed, but with unexpected action id '{aid}'", change.list_id),
+            (lid, #(#unique_list_actions)|*) => eyre::bail!("unknown list with id '{lid}' changed in known action '{}'", change.action_id),
+        }
+    });
 
     quote! {
         trait PluginMethods {
@@ -791,8 +797,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             #(
                                 (#list_ids, #list_id_for_actions) => #list_arms,
                             )*
-                            (#(#unique_list_ids)|*, aid) => eyre::bail!("list with known id '{}' changed, but with unexpected action id '{aid}'", change.list_id),
-                            (lid, #(#unique_list_actions)|*) => eyre::bail!("unknown list with id '{lid}' changed in known action '{}'", change.action_id),
+                            #other_arms
                             (lid, aid) => eyre::bail!("unknown list '{lid}' in unknown action '{aid}' changed"),
                         }
                     }

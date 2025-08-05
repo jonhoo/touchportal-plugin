@@ -775,6 +775,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                         | TouchPortalOutput::Up(_)
                         | TouchPortalOutput::Down(_)
                         => {
+                        #[allow(unused_variables)]
                         let (interaction_mode, action) = match msg {
                             TouchPortalOutput::Action(action) => (protocol::ActionInteractionMode::Execute, action),
                             TouchPortalOutput::Down(action) => (protocol::ActionInteractionMode::HoldDown, action),
@@ -804,7 +805,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             (lid, aid) => eyre::bail!("unknown list '{lid}' in unknown action '{aid}' changed"),
                         }
                     }
-                    TouchPortalOutput::ClosePlugin(close_plugin_message) => {
+                    TouchPortalOutput::ClosePlugin(_) => {
                         self.on_close(false).await.context("handle graceful plugin close")?;
                     },
                     TouchPortalOutput::Broadcast(event) => {

@@ -251,8 +251,13 @@ pub fn plugin() -> PluginDescription {
                     Event::builder()
                         .id("ev_counter")
                         .name("When counter changes")
-                        .format("When the counter hits $val")
-                        .value(EventValueType::Text)
+                        .format("When the counter $compare $val")
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder()
+                                .compare_with(CompareMethod::ExtendedString)
+                                .build()
+                                .unwrap(),
+                        ))
                         .value_state_id("tp_sid_count")
                         .build()
                         .unwrap(),
@@ -262,7 +267,9 @@ pub fn plugin() -> PluginDescription {
                         .id("yoc")
                         .name("Yoyoyo")
                         .format("Yo")
-                        .value(EventValueType::Text)
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
                         .value_state_id("")
                         .local_state(
                             LocalState::builder()

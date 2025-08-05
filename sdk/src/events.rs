@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 /// event the users need to remove their instance of that event and re-add it to be able to use the
 /// new additions.
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
     /// This is the id of the event.
@@ -29,6 +30,10 @@ pub struct Event {
     ///
     /// The `$val` location will be changed with a dropdown holding the choices that the user can
     /// make for the status.
+    ///
+    /// The `$compare` location will be changed depending on the value of
+    /// [`EventTextConfiguration::compare_with`], and only works for text fields (for now).
+    /// Requires `$val` to be included.
     #[builder(setter(into))]
     pub(crate) format: String,
 
@@ -78,6 +83,20 @@ impl Event {
     }
 }
 
+impl EventBuilder {
+    fn validate(&self) -> Result<(), String> {
+        let fmt = self.format.as_ref().expect("required");
+        if fmt.contains("$compare") && !fmt.contains("$val") {
+            return Err(format!(
+                "format for event {} has $compare but no $val",
+                self.id.as_ref().expect("required")
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]
@@ -95,14 +114,7 @@ pub enum EventValueType {
     Choice(EventChoiceValue),
 
     /// This will check whether the state is the same as the user specified value in the text box.
-    Text,
-    // TODO:
-    // In the format of the action line for the event, you can place the $compare token which will
-    // be changed to a context-depending dropdown list box that will compare the actual state with
-    // the set state by the user in the event. To get the correct options for the compare, you need
-    // to add the compareOptions to the json of the event definition, which has the options:
-    // none=old fashion string compare (also default), choice=is or is not, string=all string
-    // comparing, number=all number comparing.
+    Text(EventTextConfiguration),
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
@@ -118,6 +130,51 @@ impl EventChoiceValue {
     pub fn builder() -> EventChoiceValueBuilder {
         EventChoiceValueBuilder::default()
     }
+}
+
+#[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventTextConfiguration {
+    /// What options the `$compare` token in the format for a text field should give.
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "compareOptions")]
+    pub(crate) compare_with: Option<CompareMethod>,
+}
+
+impl EventTextConfiguration {
+    pub fn builder() -> EventTextConfigurationBuilder {
+        EventTextConfigurationBuilder::default()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub enum CompareMethod {
+    /// Old-fashioned string compare.
+    ///
+    /// Renders as "is equal".
+    #[serde(rename = "none")]
+    #[default]
+    StringEq,
+
+    /// Lets the user chose `!=` or `==`.
+    ///
+    /// Renders as a dropdown with the options "is equal to" and "is NOT equal to"
+    #[serde(rename = "choice")]
+    IsOrIsNot,
+
+    /// Lets the user make more complicated string comparisons.
+    ///
+    /// Renders as a dropdown with options like "contains", "begins with", "case insensitive
+    /// compared", etc.
+    #[serde(rename = "string")]
+    ExtendedString,
+
+    /// Lets the user make numeric comparisons on the operator.
+    ///
+    /// Renders a dropdown that has `<` and `>` in addition to equal and not equal.
+    #[serde(rename = "number")]
+    Number,
 }
 
 /// The local states object represents the representation and visualisation within Touch Portal.

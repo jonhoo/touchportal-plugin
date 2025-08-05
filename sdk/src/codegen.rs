@@ -414,7 +414,10 @@ fn gen_outgoing(plugin: &PluginDescription) -> TokenStream {
     let mut event_methods = Vec::new();
     for event in plugin.categories.iter().flat_map(|c| &c.events) {
         let id = &event.id;
-        let format = event.format.replace("$val", "`$val`");
+        let format = event
+            .format
+            .replace("$val", "`$val`")
+            .replace("$compare", "`$compare`");
         let mut args_signature = Vec::new();
         let mut args_handle = quote! {};
         let mut args_doc = if event.local_states.is_empty() {

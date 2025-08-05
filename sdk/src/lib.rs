@@ -189,7 +189,7 @@ impl PluginDescriptionBuilder {
                         ));
                     }
                 }
-                (StateType::Choice(_), EventValueType::Text) => {
+                (StateType::Choice(_), EventValueType::Text(_)) => {
                     return Err(format!(
                         "event {} is of free-text type, \
                         but references state {} which is of choice type",
@@ -203,7 +203,7 @@ impl PluginDescriptionBuilder {
                         event.id, event.value_state_id
                     ))
                 }
-                (StateType::Text(_), EventValueType::Text) => {}
+                (StateType::Text(_), EventValueType::Text(_)) => {}
             }
         }
 

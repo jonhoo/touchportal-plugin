@@ -5,7 +5,7 @@ use oauth2::{
     Scope, TokenResponse, TokenUrl,
 };
 use std::time::Duration;
-use touchportal_plugin::protocol::{ActionInteractionMode, InfoMessage};
+use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use url::Url;

@@ -18,7 +18,7 @@ use syn::Ident;
 /// it from your plugin's `main.rs`. That is, in `build.rs`, you'll want:
 ///
 /// ```rust,no_run
-/// use touchportal_plugin::{PluginDescription, codegen};
+/// use touchportal_sdk::{PluginDescription, codegen};
 /// fn main() {
 ///     let plugin = PluginDescription::builder()
 ///       /* build your plugin manifest here */
@@ -107,7 +107,7 @@ pub fn build(plugin: &PluginDescription) -> String {
     let outgoing = gen_outgoing(plugin);
     let incoming = gen_incoming(plugin);
     let tokens = quote! {
-        use ::touchportal_plugin::protocol;
+        use ::touchportal_sdk::protocol;
 
         #settings
 
@@ -655,7 +655,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     quote! { #name }
                 }
                 DataFormat::File(_) | DataFormat::Folder(_) => quote! { ::std::path::PathBuf },
-                DataFormat::Color(_) => quote! { ::touchportal_plugin::reexports::HexColor },
+                DataFormat::Color(_) => quote! { ::touchportal_sdk::reexports::HexColor },
                 DataFormat::LowerBound(_) | DataFormat::UpperBound(_) => quote! { i64 },
             };
             args.insert(format_ident!("{}", id.to_snake_case()), arg_type);

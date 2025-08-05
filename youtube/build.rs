@@ -1,4 +1,4 @@
-use touchportal_plugin::{reexport::HexColor, *};
+use touchportal_sdk::{reexport::HexColor, *};
 
 pub fn plugin() -> PluginDescription {
     PluginDescription::builder()
@@ -320,7 +320,7 @@ fn main() {
 
     std::fs::write(
         format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
-        touchportal_plugin::codegen::build(&plugin),
+        touchportal_sdk::codegen::build(&plugin),
     )
     .unwrap();
 

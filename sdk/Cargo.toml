@@ -1,5 +1,5 @@
 [package]
-name = "touchportal-plugin"
+name = "touchportal-sdk"
 version = "0.1.0"
 edition = "2024"
 

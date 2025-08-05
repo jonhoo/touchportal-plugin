@@ -1544,7 +1544,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "touchportal-plugin"
+name = "touchportal-sdk"
 version = "0.1.0"
 dependencies = [
  "Inflector",
@@ -1570,7 +1570,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "touchportal-plugin",
+ "touchportal-sdk",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1584,7 +1584,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "touchportal-plugin",
+ "touchportal-sdk",
  "tracing",
  "tracing-subscriber",
 ]

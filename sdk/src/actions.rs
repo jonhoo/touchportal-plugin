@@ -23,7 +23,7 @@ use std::collections::HashSet;
 /// (static). The action is set up to use powershell to create a beep sound when it is executed.
 ///
 /// ```
-/// use touchportal_plugin::{
+/// use touchportal_sdk::{
 ///   Action,
 ///   ActionImplementation,
 ///   Line,
@@ -65,7 +65,7 @@ use std::collections::HashSet;
 /// and will present the user with the given control to allow for user input.
 ///
 /// ```
-/// use touchportal_plugin::{
+/// use touchportal_sdk::{
 ///   Action,
 ///   ActionImplementation,
 ///   Data,
@@ -108,7 +108,7 @@ use std::collections::HashSet;
 /// ## Multi-line action with multiple languages
 ///
 /// ```
-/// use touchportal_plugin::{
+/// use touchportal_sdk::{
 ///   Action,
 ///   ActionImplementation,
 ///   Data,

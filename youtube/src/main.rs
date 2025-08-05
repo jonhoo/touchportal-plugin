@@ -14,6 +14,9 @@ use touchportal_sdk::protocol::InfoMessage;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+mod youtube_client;
+use youtube_client::YouTubeClient;
+
 // You can look at the generated code for a plugin using this command:
 //
 // ```bash
@@ -29,7 +32,7 @@ const OAUTH_DONE: &str =
 
 #[derive(Debug)]
 struct Plugin {
-    yt: BasicTokenResponse,
+    yt: YouTubeClient,
     tp: TouchPortalHandle,
 }
 
@@ -59,9 +62,34 @@ impl Plugin {
 
             token
         } else {
-            // TODO: test it, and if it's stale, do the same thing?
-            serde_json::from_str(&settings.you_tube_api_access_token)
-                .context("parse YouTube access token")?
+            let token: BasicTokenResponse = serde_json::from_str(&settings.you_tube_api_access_token)
+                .context("parse YouTube access token")?;
+            
+            // Test the existing token before using it
+            let yt_client = YouTubeClient::new(token);
+            let is_valid = yt_client
+                .validate_token()
+                .await
+                .context("validate existing YouTube token")?;
+            
+            if is_valid {
+                tracing::info!("existing YouTube token is valid, using it");
+                yt_client.into_token()
+            } else {
+                tracing::info!("existing YouTube token is invalid, getting new one");
+                
+                let new_token = run_oauth_flow()
+                    .await
+                    .context("authorize user to YouTube")?;
+
+                outgoing
+                    .set_you_tube_api_access_token(
+                        serde_json::to_string(&new_token).expect("OAuth tokens always serialize"),
+                    )
+                    .await;
+
+                new_token
+            }
         };
 
         let handle = outgoing.clone();
@@ -73,8 +101,10 @@ impl Plugin {
             }
         });
 
+        let yt_client = YouTubeClient::new(token);
+
         Ok(Self {
-            yt: token,
+            yt: yt_client,
             tp: outgoing,
         })
     }

@@ -5,6 +5,11 @@ use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+// You can look at the generated code for a plugin using this command:
+//
+// ```bash
+// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")"
+// ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
 #[derive(Debug)]

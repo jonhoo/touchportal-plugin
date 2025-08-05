@@ -1587,6 +1587,7 @@ dependencies = [
  "touchportal-sdk",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

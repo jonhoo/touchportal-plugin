@@ -10,7 +10,7 @@ include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 #[derive(Debug)]
 struct Plugin(TouchPortalHandle);
 
-impl PluginMethods for Plugin {
+impl PluginCallbacks for Plugin {
     #[tracing::instrument(skip(self), ret)]
     async fn on_tp_pl_action_002(
         &mut self,

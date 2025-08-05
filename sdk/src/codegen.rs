@@ -59,7 +59,7 @@ use syn::Ident;
 ///     }
 /// }
 ///
-/// impl PluginMethods for Plugin {
+/// impl PluginCallbacks for Plugin {
 ///     // your IDE/the compiler errors will guide you here
 /// }
 ///
@@ -745,7 +745,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
     });
 
     quote! {
-        trait PluginMethods {
+        trait PluginCallbacks {
             #( #action_signatures )*
             #( #list_signatures )*
             async fn on_broadcast(&mut self, event: protocol::BroadcastEvent) -> eyre::Result<()> {

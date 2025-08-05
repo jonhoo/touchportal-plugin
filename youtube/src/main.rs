@@ -18,7 +18,7 @@ const OAUTH_CLIENT_ID: &str =
 #[derive(Debug)]
 struct Plugin(TouchPortalHandle);
 
-impl PluginMethods for Plugin {}
+impl PluginCallbacks for Plugin {}
 
 impl Plugin {
     async fn new(

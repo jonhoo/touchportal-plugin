@@ -4,8 +4,8 @@ pub fn plugin() -> PluginDescription {
     PluginDescription::builder()
         .api(ApiVersion::V4_3)
         .version(1)
-        .name("YouTube Live")
-        .id("com.thesquareplanet.touchportal.youtube")
+        .name("Plugin Stress Tester")
+        .id("com.thesquareplanet.touchportal.stress")
         .configuration(
             PluginConfiguration::builder()
                 .color_dark(HexColor::from_u24(0xFF0000))

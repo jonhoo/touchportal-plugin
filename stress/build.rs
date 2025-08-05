@@ -79,7 +79,7 @@ pub fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         .plugin_start_cmd(format!(
-            "%TP_PLUGIN_FOLDER%YouTubeLive/{}{}",
+            "%TP_PLUGIN_FOLDER%StressTest/{}{}",
             std::env::var("CARGO_PKG_NAME").unwrap(),
             std::env::consts::EXE_SUFFIX
         ))

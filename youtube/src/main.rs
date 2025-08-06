@@ -4,7 +4,7 @@ use hyper::body::Bytes;
 use hyper::service::service_fn;
 use hyper::{body, Request, Response};
 use oauth2::basic::{BasicClient, BasicTokenResponse};
-use oauth2::{reqwest, RevocationUrl};
+use oauth2::{reqwest, ClientSecret, RevocationUrl};
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
     TokenUrl,
@@ -15,6 +15,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 mod youtube_client;
+use touchportal_sdk::ApiVersion;
 use youtube_client::YouTubeClient;
 
 // You can look at the generated code for a plugin using this command:
@@ -27,8 +28,17 @@ include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 const OAUTH_CLIENT_ID: &str =
     "392239669497-in1s6h0alvakffbb5bjbqjegn2m5aram.apps.googleusercontent.com";
 
-const OAUTH_DONE: &str =
-    "<!DOCTYPE html><title>YouTube Live now authorized</title><script>window.close();</script>";
+// As per <https://developers.google.com/identity/protocols/oauth2#installed>, for an installed
+// desktop application using PKCE, it's expected that the secret gets embedded, and it is _not_
+// considered secret.
+const OAUTH_SECRET: &str = "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";
+
+const OAUTH_DONE: &str = "
+<!DOCTYPE html>
+<title>YouTube Live now authorized</title>
+<h1>YouTube Live plugin authorized 🎉</h1
+<p>You can now close this window.</p>
+";
 
 #[derive(Debug)]
 struct Plugin {
@@ -47,7 +57,7 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
-        let token = if settings.you_tube_api_access_token.is_empty() {
+        let (token, old) = if settings.you_tube_api_access_token.is_empty() {
             // TODO: notify
 
             let token = run_oauth_flow()
@@ -60,37 +70,40 @@ impl Plugin {
                 )
                 .await;
 
-            token
+            (token, false)
         } else {
-            let token: BasicTokenResponse = serde_json::from_str(&settings.you_tube_api_access_token)
-                .context("parse YouTube access token")?;
-            
-            // Test the existing token before using it
-            let yt_client = YouTubeClient::new(token);
-            let is_valid = yt_client
-                .validate_token()
-                .await
-                .context("validate existing YouTube token")?;
-            
-            if is_valid {
-                tracing::info!("existing YouTube token is valid, using it");
-                yt_client.into_token()
-            } else {
-                tracing::info!("existing YouTube token is invalid, getting new one");
-                
-                let new_token = run_oauth_flow()
-                    .await
-                    .context("authorize user to YouTube")?;
-
-                outgoing
-                    .set_you_tube_api_access_token(
-                        serde_json::to_string(&new_token).expect("OAuth tokens always serialize"),
-                    )
-                    .await;
-
-                new_token
-            }
+            (
+                serde_json::from_str(&settings.you_tube_api_access_token)
+                    .context("parse YouTube access token")?,
+                true,
+            )
         };
+
+        // Test the existing token before using it
+        let mut yt_client = YouTubeClient::new(token);
+        let is_valid = yt_client
+            .validate_token()
+            .await
+            .context("validate existing YouTube token")?;
+
+        if is_valid {
+            tracing::info!("YouTube token is valid, using it");
+        } else {
+            // TODO: notify
+            tracing::info!("existing YouTube token is invalid, getting new one");
+
+            let new_token = run_oauth_flow()
+                .await
+                .context("authorize user to YouTube")?;
+
+            outgoing
+                .set_you_tube_api_access_token(
+                    serde_json::to_string(&new_token).expect("OAuth tokens always serialize"),
+                )
+                .await;
+
+            yt_client = YouTubeClient::new(new_token);
+        }
 
         let handle = outgoing.clone();
         tokio::spawn(async move {
@@ -100,8 +113,6 @@ impl Plugin {
                 // TODO: refresh latest live video + view count?
             }
         });
-
-        let yt_client = YouTubeClient::new(token);
 
         Ok(Self {
             yt: yt_client,
@@ -123,7 +134,7 @@ async fn run_oauth_flow() -> eyre::Result<BasicTokenResponse> {
     let revocation_url = RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
         .expect("Invalid revocation endpoint URL");
     let client = BasicClient::new(ClientId::new(OAUTH_CLIENT_ID.to_string()))
-        // .set_client_secret(ClientSecret::new("client_secret".to_string()))
+        .set_client_secret(ClientSecret::new(OAUTH_SECRET.to_string()))
         .set_auth_uri(auth_url)
         .set_token_uri(token_url)
         .set_redirect_uri(redirect_url)
@@ -188,11 +199,14 @@ async fn setup_redirect(
                 async move {
                     let mut presented_state = None;
                     let mut presented_code = None;
+                    // space-separated
+                    let mut presented_scope = None;
                     for (k, v) in form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes())
                     {
                         match &*k {
                             "state" => presented_state = Some(v),
                             "code" => presented_code = Some(v),
+                            "scope" => presented_scope = Some(v),
                             _ => {}
                         }
                     }
@@ -248,5 +262,26 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    // when run without arguments, we're running as a plugin
+    if std::env::args().len() == 1 {
+        Plugin::run_dynamic("127.0.0.1:12136").await?;
+    } else {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        Plugin::new(
+            PluginSettings {
+                you_tube_api_access_token: String::new(),
+            },
+            TouchPortalHandle(tx),
+            serde_json::from_value(serde_json::json!({
+                "sdkVersion": ApiVersion::V4_3,
+                "tpVersionString": "4.4",
+                "tpVersionCode": 4044,
+                "pluginVersion": 1,
+            }))
+            .context("fake InfoMessage")?,
+        )
+        .await?;
+    }
+
+    Ok(())
 }

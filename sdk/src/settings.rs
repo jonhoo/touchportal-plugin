@@ -86,7 +86,7 @@ impl SettingBuilder {
                 _ => {
                     return Err(format!(
                         "initial value '{initial}' is not switch-y (must be On or Off)"
-                    ))
+                    ));
                 }
             }
         }

@@ -1,6 +1,6 @@
 use eyre::Context;
-use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
+use oauth2::basic::BasicTokenResponse;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -8,7 +8,7 @@ use tracing::instrument;
 ///
 /// This client wraps an OAuth2 token and provides methods to call various YouTube API endpoints.
 /// All API calls require a valid OAuth2 access token with appropriate scopes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct YouTubeClient {
     token: BasicTokenResponse,
     client: reqwest::Client,
@@ -22,8 +22,8 @@ pub struct YouTubeClient {
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
 #[derive(Debug, Serialize, Deserialize)]
 struct LiveBroadcastListResponse {
-    /// Identifies the API resource's type. 
-    /// 
+    /// Identifies the API resource's type.
+    ///
     /// The value will be `youtube#liveBroadcastListResponse`.
     kind: String,
     /// A list of broadcasts that match the request criteria.
@@ -69,7 +69,7 @@ struct LiveBroadcastSnippet {
 
 /// Paging details for lists of resources.
 ///
-/// Includes the total number of items available and the number of resources 
+/// Includes the total number of items available and the number of resources
 /// returned in a single page response.
 ///
 /// See: <https://developers.google.com/youtube/v3/docs/pageInfo>
@@ -314,7 +314,7 @@ impl YouTubeClient {
 
     /// Consumes the client and returns the underlying OAuth2 token.
     ///
-    /// This is useful when you need to extract the token for storage or 
+    /// This is useful when you need to extract the token for storage or
     /// passing to another component.
     pub fn into_token(self) -> BasicTokenResponse {
         self.token
@@ -332,7 +332,7 @@ impl YouTubeClient {
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
     pub async fn validate_token(&self) -> eyre::Result<bool> {
-        let result = self.list_live_broadcasts_internal(1, None).await;
+        let result = dbg!(self.list_live_broadcasts_internal(1, None).await);
         match result {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
@@ -392,7 +392,9 @@ impl YouTubeClient {
         &self,
         status_filter: BroadcastStatusFilter,
     ) -> eyre::Result<Vec<LiveBroadcast>> {
-        let response = self.list_live_broadcasts_internal(50, Some(status_filter)).await?;
+        let response = self
+            .list_live_broadcasts_internal(50, Some(status_filter))
+            .await?;
         Ok(response.items)
     }
 
@@ -414,7 +416,8 @@ impl YouTubeClient {
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self), ret)]
     pub async fn list_active_live_broadcasts(&self) -> eyre::Result<Vec<LiveBroadcast>> {
-        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Active).await
+        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Active)
+            .await
     }
 
     /// Returns a list of upcoming YouTube broadcasts for the authenticated user.
@@ -435,7 +438,8 @@ impl YouTubeClient {
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self), ret)]
     pub async fn list_upcoming_live_broadcasts(&self) -> eyre::Result<Vec<LiveBroadcast>> {
-        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming).await
+        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming)
+            .await
     }
 
     /// Changes the status of a YouTube live broadcast and initiates processes associated with the new status.
@@ -467,7 +471,7 @@ impl YouTubeClient {
         status: BroadcastStatus,
     ) -> eyre::Result<LiveBroadcast> {
         let access_token = self.token.access_token().secret();
-        
+
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/transition";
         let response = self
             .client
@@ -476,9 +480,12 @@ impl YouTubeClient {
             .query(&[
                 ("part", "id,snippet,status"),
                 ("id", broadcast_id),
-                ("broadcastStatus", &serde_json::to_string(&status)
-                    .context("serialize broadcast status")?
-                    .trim_matches('"')), // Remove JSON quotes for query param
+                (
+                    "broadcastStatus",
+                    &serde_json::to_string(&status)
+                        .context("serialize broadcast status")?
+                        .trim_matches('"'),
+                ), // Remove JSON quotes for query param
             ])
             .send()
             .await
@@ -540,7 +547,7 @@ impl YouTubeClient {
         cuepoint: &CuepointRequest,
     ) -> eyre::Result<()> {
         let access_token = self.token.access_token().secret();
-        
+
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/cuepoint";
         let response = self
             .client
@@ -599,7 +606,6 @@ impl YouTubeClient {
         Ok(response.items)
     }
 
-
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
@@ -623,16 +629,16 @@ impl YouTubeClient {
         status_filter: Option<BroadcastStatusFilter>,
     ) -> eyre::Result<LiveBroadcastListResponse> {
         let access_token = self.token.access_token().secret();
-        
+
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
-        
+
         let max_results_string = max_results.to_string();
         let mut query_params = vec![
             ("part", "id,snippet"),
             ("mine", "true"),
             ("maxResults", max_results_string.as_str()),
         ];
-        
+
         // Add broadcastStatus filter if provided
         let status_string;
         if let Some(status) = status_filter {
@@ -642,7 +648,7 @@ impl YouTubeClient {
                 .to_string(); // Remove JSON quotes
             query_params.push(("broadcastStatus", status_string.as_str()));
         }
-        
+
         let response = self
             .client
             .get(url)
@@ -700,7 +706,7 @@ impl YouTubeClient {
         max_results: u32,
     ) -> eyre::Result<LiveStreamListResponse> {
         let access_token = self.token.access_token().secret();
-        
+
         let url = "https://www.googleapis.com/youtube/v3/liveStreams";
         let response = self
             .client

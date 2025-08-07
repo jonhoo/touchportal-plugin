@@ -1,4 +1,3 @@
-use super::PluginCategory;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -78,9 +77,9 @@ pub struct Connector {
     ///
     /// This connector will then be shown in Touch Portals Action selection list attached to that
     /// subcategory instead of the main parent category.
-    #[builder(setter(strip_option), default)]
+    #[builder(setter(into, strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    sub_category_id: Option<PluginCategory>,
+    sub_category_id: Option<String>,
 }
 
 impl Connector {

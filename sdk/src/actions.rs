@@ -1,4 +1,3 @@
-use super::PluginCategory;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -224,7 +223,7 @@ pub struct Action {
     /// subcategory instead of the main parent category.
     #[builder(setter(into, strip_option), default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    sub_category_id: Option<PluginCategory>,
+    sub_category_id: Option<String>,
 }
 
 impl Action {

@@ -679,6 +679,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         let arg_names5 = args.keys();
         let arg_types = args.values();
         action_arms.push(quote! {{
+            #[allow(unused_mut)]
             let mut args: ::std::collections::HashMap<_, _> = action.data.into_iter().map(|idv| (idv.id, idv.value)).collect();
             ::tracing::trace!(?args, concat!("action ", #id, " called"));
             #(

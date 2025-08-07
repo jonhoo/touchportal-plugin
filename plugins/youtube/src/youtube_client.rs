@@ -39,7 +39,7 @@ struct LiveBroadcastListResponse {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#resource>
 #[derive(Debug, Serialize, Deserialize)]
-struct LiveBroadcast {
+pub struct LiveBroadcast {
     /// The ID that YouTube assigns to uniquely identify the broadcast.
     id: String,
     /// Contains basic details about the broadcast.
@@ -246,7 +246,7 @@ struct LiveStreamListResponse {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#resource>
 #[derive(Debug, Serialize, Deserialize)]
-struct LiveStream {
+pub struct LiveStream {
     /// The ID that YouTube assigns to uniquely identify the stream.
     id: String,
     /// Contains basic details about the stream.

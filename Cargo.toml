@@ -1,5 +1,5 @@
 [workspace]
-members = ["sdk", "youtube", "stress"]
+members = ["sdk", "plugins/youtube", "test-plugins/stress"]
 resolver = "3"
 
 [workspace.dependencies]

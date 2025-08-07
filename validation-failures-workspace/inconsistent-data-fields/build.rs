@@ -40,10 +40,10 @@ pub fn plugin() -> PluginDescription {
                                         .max_value(100.0)
                                         .allow_decimals(true)
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 ))
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .lines(
                             Lines::builder()
@@ -53,16 +53,16 @@ pub fn plugin() -> PluginDescription {
                                             Line::builder()
                                                 .line_format("First: {$shared_number$}")
                                                 .build()
-                                                .unwrap()
+                                                .unwrap(),
                                         )
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 )
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .action(
                     Action::builder()
@@ -76,14 +76,14 @@ pub fn plugin() -> PluginDescription {
                                 .format(DataFormat::Number(
                                     NumberData::builder()
                                         .initial(20.0)
-                                        .min_value(10.0)  // Different min_value
+                                        .min_value(10.0) // Different min_value
                                         .max_value(200.0) // Different max_value
                                         .allow_decimals(false) // Different allow_decimals
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 ))
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .lines(
                             Lines::builder()
@@ -93,16 +93,16 @@ pub fn plugin() -> PluginDescription {
                                             Line::builder()
                                                 .line_format("Second: {$shared_number$}")
                                                 .build()
-                                                .unwrap()
+                                                .unwrap(),
                                         )
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 )
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .build()
                 .unwrap(),

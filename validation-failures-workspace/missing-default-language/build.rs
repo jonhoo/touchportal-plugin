@@ -40,10 +40,10 @@ pub fn plugin() -> PluginDescription {
                                             Line::builder()
                                                 .line_format("English action")
                                                 .build()
-                                                .unwrap()
+                                                .unwrap(),
                                         )
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 )
                                 .action(
                                     LingualLine::builder()
@@ -52,17 +52,17 @@ pub fn plugin() -> PluginDescription {
                                             Line::builder()
                                                 .line_format("French action")
                                                 .build()
-                                                .unwrap()
+                                                .unwrap(),
                                         )
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 )
                                 // Should cause validation failure - no "default" language
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .build()
                 .unwrap(),

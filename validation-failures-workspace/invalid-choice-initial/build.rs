@@ -41,10 +41,10 @@ pub fn plugin() -> PluginDescription {
                                         // Initial value not in the choice list - should cause validation failure
                                         .initial("InvalidOption")
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 ))
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .lines(
                             Lines::builder()
@@ -54,16 +54,16 @@ pub fn plugin() -> PluginDescription {
                                             Line::builder()
                                                 .line_format("Selected: {$bad_choice$}")
                                                 .build()
-                                                .unwrap()
+                                                .unwrap(),
                                         )
                                         .build()
-                                        .unwrap()
+                                        .unwrap(),
                                 )
                                 .build()
-                                .unwrap()
+                                .unwrap(),
                         )
                         .build()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .build()
                 .unwrap(),

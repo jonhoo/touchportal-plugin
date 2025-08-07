@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "choice-event-text-state",
+    "event-state-choice-mismatch",
+    "inconsistent-data-fields",
+    "invalid-choice-initial",
+    "missing-default-language",
+]
+
+# This workspace contains plugins that are expected to fail compilation
+# due to build-time validation errors in their build.rs files.
+# These plugins test that the SDK properly catches invalid configurations.

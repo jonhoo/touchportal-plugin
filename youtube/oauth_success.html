@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Live Authorization Complete</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 500px;
+            margin: 100px auto;
+            padding: 40px 20px;
+            text-align: center;
+            background: linear-gradient(135deg, #282828 0%, #1a1a1a 100%);
+            color: white;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        
+        .container {
+            background: #282828;
+            color: #fff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+            border-top: 4px solid #ff0000;
+        }
+        
+        .success-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            animation: bounce 2s ease-in-out infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-8px); }
+            60% { transform: translateY(-4px); }
+        }
+        
+        h1 {
+            color: #fff;
+            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: 500;
+        }
+        
+        .message {
+            font-size: 16px;
+            line-height: 1.5;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">🎉</div>
+        <h1>Authorization Successful!</h1>
+        <p class="message">Your YouTube Live plugin is now authorized. You can close this tab and return to TouchPortal.</p>
+    </div>
+</body>
+</html>

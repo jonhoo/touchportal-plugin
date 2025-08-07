@@ -33,12 +33,7 @@ const OAUTH_CLIENT_ID: &str =
 // considered secret.
 const OAUTH_SECRET: &str = "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";
 
-const OAUTH_DONE: &str = "
-<!DOCTYPE html>
-<title>YouTube Live now authorized</title>
-<h1>YouTube Live plugin authorized 🎉</h1
-<p>You can now close this window.</p>
-";
+const OAUTH_DONE: &str = include_str!("../oauth_success.html");
 
 #[derive(Debug)]
 struct Plugin {

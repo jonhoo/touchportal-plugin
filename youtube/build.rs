@@ -8,8 +8,8 @@ pub fn plugin() -> PluginDescription {
         .id("com.thesquareplanet.touchportal.youtube")
         .configuration(
             PluginConfiguration::builder()
-                .color_dark(HexColor::from_u24(0x000000))
-                .color_light(HexColor::from_u24(0x282828))
+                .color_dark(HexColor::from_u24(0x282828))
+                .color_light(HexColor::from_u24(0xff0000))
                 .parent_category(PluginCategory::Streaming)
                 .build()
                 .unwrap(),

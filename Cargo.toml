@@ -1,5 +1,16 @@
 [workspace]
-members = ["sdk", "plugins/youtube", "test-plugins/stress"]
+members = [
+  "sdk",
+  "plugins/youtube",
+  "test-plugins/stress",
+  "test-plugins/no-actions",
+  "test-plugins/no-events",
+  "test-plugins/all-data-types",
+  "test-plugins/minimal-single",
+  "test-plugins/empty-categories",
+  "test-plugins/boundary-values",
+  "test-plugins/subcategories"
+]
 resolver = "3"
 
 [workspace.dependencies]

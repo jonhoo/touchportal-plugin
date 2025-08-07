@@ -1,7 +1,7 @@
 [package]
-name = "touchportal-stress"
+name = "touchportal-empty-categories"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [build-dependencies]
 touchportal-sdk = { version = "0.1.0", path = "../../sdk" }

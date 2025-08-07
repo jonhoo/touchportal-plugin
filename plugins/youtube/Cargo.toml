@@ -5,7 +5,7 @@ edition = "2024"
 default-run = "touchportal-youtube-live"
 
 [build-dependencies]
-touchportal-sdk = { version = "0.1.0", path = "../sdk" }
+touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
 serde_json = "1.0.142"
 
 [dependencies]
@@ -19,7 +19,7 @@ reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
 tokio = { version = "1.47.1", features = ["full"] }
-touchportal-sdk = { version = "0.1.0", path = "../sdk" }
+touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 webbrowser = "1.0.5"

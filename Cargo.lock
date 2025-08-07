@@ -1926,6 +1926,84 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchportal-all-data-types"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-boundary-values"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-empty-categories"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-minimal-single"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-no-actions"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-no-events"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "touchportal-sdk"
 version = "0.1.0"
 dependencies = [
@@ -1946,6 +2024,19 @@ dependencies = [
 
 [[package]]
 name = "touchportal-stress"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "touchportal-sdk",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "touchportal-subcategories"
 version = "0.1.0"
 dependencies = [
  "eyre",

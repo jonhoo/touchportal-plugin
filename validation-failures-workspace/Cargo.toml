@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "choice-event-text-state",
+    "empty-category",
     "event-state-choice-mismatch",
     "inconsistent-data-fields",
     "invalid-choice-initial",

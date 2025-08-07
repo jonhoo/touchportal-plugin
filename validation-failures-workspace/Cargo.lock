@@ -152,6 +152,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "empty-category"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "touchportal-sdk",
+ "tracing",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

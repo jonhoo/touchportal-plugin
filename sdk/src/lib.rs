@@ -163,6 +163,20 @@ impl PluginDescription {
 
 impl PluginDescriptionBuilder {
     fn validate(&self) -> Result<(), String> {
+        // Check for empty categories
+        for category in self.categories.iter().flatten() {
+            if category.actions.is_empty()
+                && category.events.is_empty()
+                && category.connectors.is_empty()
+                && category.states.is_empty()
+            {
+                return Err(format!(
+                    "category '{}' is empty - categories must contain at least one action, event, connector, or state",
+                    category.id
+                ));
+            }
+        }
+
         let states = self.categories.iter().flatten().flat_map(|c| &c.states);
         let states_by_id: HashMap<_, _> = states.map(|s| (&s.id, s)).collect();
 

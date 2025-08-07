@@ -266,10 +266,14 @@ async fn main() -> eyre::Result<()> {
     if std::env::args().len() == 1 {
         Plugin::run_dynamic("127.0.0.1:12136").await?;
     } else {
+        let mut token = String::new();
+        if tokio::fs::try_exists("token.json").await.unwrap() {
+            token = tokio::fs::read_to_string("token.json").await.unwrap();
+        }
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        Plugin::new(
+        let plugin = Plugin::new(
             PluginSettings {
-                you_tube_api_access_token: String::new(),
+                you_tube_api_access_token: token,
             },
             TouchPortalHandle(tx),
             serde_json::from_value(serde_json::json!({
@@ -281,6 +285,8 @@ async fn main() -> eyre::Result<()> {
             .context("fake InfoMessage")?,
         )
         .await?;
+        let json = serde_json::to_string(&plugin.yt.into_token()).unwrap();
+        tokio::fs::write("token.json", &json).await.unwrap();
     }
 
     Ok(())

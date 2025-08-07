@@ -1,14 +1,16 @@
+#![allow(dead_code)]
+
 use eyre::Context;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::service::service_fn;
-use hyper::{Request, Response, body};
+use hyper::{body, Request, Response};
 use oauth2::basic::{BasicClient, BasicTokenResponse};
+use oauth2::{reqwest, ClientSecret, RevocationUrl};
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
     TokenUrl,
 };
-use oauth2::{ClientSecret, RevocationUrl, reqwest};
 use std::time::Duration;
 use touchportal_sdk::protocol::InfoMessage;
 use tracing::level_filters::LevelFilter;
@@ -52,7 +54,7 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
-        let (token, old) = if settings.you_tube_api_access_token.is_empty() {
+        let (token, is_old) = if settings.you_tube_api_access_token.is_empty() {
             // TODO: notify
 
             let token = run_oauth_flow()
@@ -83,7 +85,7 @@ impl Plugin {
 
         if is_valid {
             tracing::info!("YouTube token is valid, using it");
-        } else {
+        } else if is_old {
             // TODO: notify
             tracing::info!("existing YouTube token is invalid, getting new one");
 
@@ -98,6 +100,9 @@ impl Plugin {
                 .await;
 
             yt_client = YouTubeClient::new(new_token);
+        } else {
+            // fresh token is invalid!
+            todo!()
         }
 
         let handle = outgoing.clone();
@@ -205,6 +210,8 @@ async fn setup_redirect(
                             _ => {}
                         }
                     }
+                    // TODO
+                    let _ = presented_scope;
                     if presented_state.as_deref() != Some(csrf.secret().as_str()) {
                         return Err("invalid csrf token");
                     }
@@ -265,7 +272,7 @@ async fn main() -> eyre::Result<()> {
         if tokio::fs::try_exists("token.json").await.unwrap() {
             token = tokio::fs::read_to_string("token.json").await.unwrap();
         }
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
         let plugin = Plugin::new(
             PluginSettings {
                 you_tube_api_access_token: token,

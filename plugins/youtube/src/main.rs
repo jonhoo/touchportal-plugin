@@ -2,13 +2,13 @@ use eyre::Context;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::service::service_fn;
-use hyper::{body, Request, Response};
+use hyper::{Request, Response, body};
 use oauth2::basic::{BasicClient, BasicTokenResponse};
-use oauth2::{reqwest, ClientSecret, RevocationUrl};
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
     TokenUrl,
 };
+use oauth2::{ClientSecret, RevocationUrl, reqwest};
 use std::time::Duration;
 use touchportal_sdk::protocol::InfoMessage;
 use tracing::level_filters::LevelFilter;

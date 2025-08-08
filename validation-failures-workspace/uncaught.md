@@ -2,23 +2,36 @@
 
 This document tracks plugin configuration mistakes that are NOT caught by the SDK's build-time validation but probably should be.
 
-## 1. Empty Categories
+## Entry Format Template
 
-**Issue**: Categories with no actions, events, states, or connectors are allowed to compile successfully.
+Each validation issue should be documented with the following structure:
 
-**Test**: The `empty-category` plugin compiled without errors despite having a category with no content.
+**Issue**: Brief description of the configuration problem
+**Test**: Name of test plugin and what it attempted
+**Why this should be caught**: Reasoning for why it should fail validation
+**Expected Behavior**: What error message should appear
+**Actual Behavior**: What actually happens (compiles successfully, wrong error, etc.)
 
-**Why this should be caught**: Empty categories serve no purpose and likely indicate a configuration error. TouchPortal UI would show empty categories to users, creating poor UX.
+## Validation Issues With Test Crates
 
-**Expected Behavior**: Should fail with a validation error indicating categories must contain at least one item.
+Some validation issues already have dedicated test crates in this workspace that currently compile when they should not. See the individual `MISSING.md` files in each test crate directory for detailed information.
 
-**Actual Behavior**: Compiles successfully.
+## Currently Uncaught Validation Issues (No test crates yet)
 
-## Future Issues to Test
+*No uncaught validation issues without test crates at this time.*
 
-- **Actions with no lines**: Would create unusable buttons in TouchPortal UI
-- **States with invalid number ranges**: Initial values outside min/max bounds cause runtime errors
+## Potential Future Test Crates
+
+Additional validation scenarios that could benefit from dedicated test crates:
+
 - **File data with bad extensions**: Invalid formats like `.exe.` could cause file picker issues
 - **Invalid plugin IDs**: Non-alphanumeric characters could break TouchPortal's plugin registry
-- **Duplicate IDs**: Would cause conflicts in TouchPortal's internal state management
-- **Missing required fields**: Empty names/descriptions create poor user experience
+- **Invalid color formats**: Colors not matching #AARRGGBB format
+- **Invalid API versions**: Non-integer or unsupported API versions
+- **Events referencing non-existent states**: Cross-reference validation gaps
+- **State initial values not in choice list**: May already be covered by existing `invalid-choice-initial` test
+- **Actions exceeding maximum line limits**: TouchPortal may have UI constraints
+- **Missing connector data**: Connectors without required data fields
+
+Find these, for example, by exploring the TouchPortal API and thinking of other configurations that should ideally fail at compile-time.
+Don't consider whether the code generation _currently_ catches those mistakes. Write the tests first, and if the errors are _not_ caught, add them here or above.

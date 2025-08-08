@@ -519,6 +519,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchportal-actions-no-lines"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-duplicate-ids"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-invalid-number-ranges"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-missing-required-fields"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
 name = "touchportal-sdk"
 version = "0.1.0"
 dependencies = [

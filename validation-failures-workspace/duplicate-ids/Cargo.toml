@@ -1,0 +1,8 @@
+[package]
+name = "touchportal-duplicate-ids"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
+serde_json = "1.0.142"

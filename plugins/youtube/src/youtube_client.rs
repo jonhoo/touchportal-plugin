@@ -1,8 +1,170 @@
+//! YouTube Data API v3 client for live streaming operations.
+//!
+//! # Core Concepts: Broadcasts vs Streams
+//!
+//! The YouTube Live API has two main resource types that work together but serve different purposes:
+//!
+//! ## [`LiveBroadcast`] - Viewer-Facing Events
+//! - **What viewers see**: Title, description, thumbnail, scheduled time
+//! - **Public metadata**: Privacy settings, recording options, monetization
+//! - **Event lifecycle**: Created → Testing → Live → Complete
+//! - **Use for**: UI listings, scheduling, user-facing operations
+//! - **Relationship**: Each broadcast = exactly one YouTube video
+//!
+//! ## [`LiveStream`] - Technical Infrastructure
+//! - **Technical config**: Encoder settings, resolution, bitrate, CDN
+//! - **Ingestion details**: Stream URLs, authentication tokens
+//! - **Health monitoring**: Connection status, stream quality metrics
+//! - **Use for**: Encoder setup, technical diagnostics, infrastructure management
+//! - **Relationship**: One stream can power multiple broadcasts over time
+//!
+//! ## Typical Workflow
+//! 1. Create a [`LiveStream`] with encoder settings (done once, reusable)
+//! 2. Create a [`LiveBroadcast`] for each live event
+//! 3. Bind the broadcast to the stream before going live
+//! 4. Use broadcast methods for user operations (start, end, schedule)
+//! 5. Use stream methods for technical monitoring and configuration
+//!
+//! For most user-facing applications, you'll primarily work with broadcasts via
+//! [`YouTubeClient::list_my_live_broadcasts`] and related methods.
+
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
+use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
+use tokio_stream::Stream;
 use tracing::instrument;
+
+type OneFuturePage<T> =
+    Pin<Box<dyn Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send>>;
+
+/// A paginated stream that automatically fetches subsequent pages from a YouTube API list endpoint.
+///
+/// This stream yields items one by one, automatically fetching the next page when the current
+/// page is exhausted. Only supports forward pagination (no previous page support).
+pub struct PagedStream<T> {
+    /// Current batch of items from the most recent API response
+    current_items: VecDeque<T>,
+    /// Token for the next page, if available
+    next_page_token: Option<String>,
+    /// Future representing the currently pending API request, if any
+    pending_request: Option<OneFuturePage<T>>,
+    /// Whether we've reached the end of all available data
+    is_done: bool,
+}
+
+impl<T> PagedStream<T> {
+    /// Create a new PagedStream from the first page of results.
+    pub fn new(items: VecDeque<T>, next_page_token: Option<String>) -> Self {
+        Self {
+            current_items: items,
+            next_page_token,
+            pending_request: None,
+            is_done: false,
+        }
+    }
+
+    /// Set the fetch function that will be called to get the next page.
+    /// This function should return a future that resolves to (items, next_page_token).
+    pub fn with_fetcher<F, Fut>(self, fetcher: F) -> PagedStreamWithFetcher<T, F>
+    where
+        F: Fn(Option<String>) -> Fut + Send,
+        Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'static,
+    {
+        PagedStreamWithFetcher {
+            current_items: self.current_items,
+            next_page_token: self.next_page_token,
+            pending_request: None,
+            is_done: self.is_done,
+            fetcher,
+        }
+    }
+}
+
+/// A paginated stream with an associated fetch function for subsequent pages.
+#[pin_project]
+pub struct PagedStreamWithFetcher<T, F> {
+    current_items: VecDeque<T>,
+    next_page_token: Option<String>,
+    #[pin]
+    pending_request: Option<OneFuturePage<T>>,
+    is_done: bool,
+    fetcher: F,
+}
+
+impl<T, F, Fut> Stream for PagedStreamWithFetcher<T, F>
+where
+    T: Send + 'static,
+    F: Fn(Option<String>) -> Fut + Send,
+    Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'static,
+{
+    type Item = eyre::Result<T>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            // If we have items in the current batch, return the next one
+            if let Some(item) = this.current_items.pop_front() {
+                return Poll::Ready(Some(Ok(item)));
+            }
+
+            // If we're done (no more pages), return None
+            if *this.is_done {
+                return Poll::Ready(None);
+            }
+
+            // If we don't have a pending request and we have a next page token, start fetching
+            if this.pending_request.is_none() && this.next_page_token.is_some() {
+                let token = this.next_page_token.clone();
+                let future = (this.fetcher)(token);
+                this.pending_request.set(Some(Box::pin(future)));
+            }
+
+            // If we have a pending request, poll it
+            if let Some(pending) = this.pending_request.as_mut().as_pin_mut() {
+                match pending.poll(cx) {
+                    Poll::Ready(Ok((items, next_token))) => {
+                        // We got the next page
+                        this.current_items.clear();
+                        *this.current_items = items;
+                        *this.next_page_token = next_token;
+
+                        // Clear the pending request
+                        this.pending_request.set(None);
+
+                        // If no items and no next token, we're done
+                        if this.current_items.is_empty() && this.next_page_token.is_none() {
+                            *this.is_done = true;
+                        }
+
+                        // Continue the loop to try yielding an item
+                        continue;
+                    }
+                    Poll::Ready(Err(e)) => {
+                        // Error fetching next page
+                        *this.is_done = true;
+                        this.pending_request.set(None);
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                    Poll::Pending => {
+                        // Still waiting for the response
+                        return Poll::Pending;
+                    }
+                }
+            } else {
+                // No pending request and no next page token means we're done
+                *this.is_done = true;
+                return Poll::Ready(None);
+            }
+        }
+    }
+}
 
 /// Client for interacting with the YouTube Data API v3.
 ///
@@ -27,25 +189,34 @@ struct LiveBroadcastListResponse {
     /// The value will be `youtube#liveBroadcastListResponse`.
     kind: String,
     /// A list of broadcasts that match the request criteria.
-    items: Vec<LiveBroadcast>,
+    items: VecDeque<LiveBroadcast>,
     #[serde(rename = "pageInfo")]
     page_info: PageInfo,
+    /// Token that can be used as the value of the pageToken parameter to retrieve the next page in the result set.
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
 }
 
-/// A `liveBroadcast` resource represents an event that will be streamed, via live video, on YouTube.
+/// A `liveBroadcast` resource represents a viewer-facing live streaming event on YouTube.
 ///
-/// Each broadcast corresponds to exactly one YouTube video and contains an `id` and
-/// basic details in the [`LiveBroadcastSnippet`].
+/// **Broadcasts vs Streams**: Broadcasts are what users see and interact with - they contain
+/// the title, description, thumbnail, scheduled times, and viewer-facing settings. Each broadcast
+/// corresponds to exactly one YouTube video that viewers can watch and comment on.
+///
+/// Broadcasts must be bound to a [`LiveStream`] to actually transmit video, but the broadcast
+/// defines the public-facing aspects of the live event.
+///
+/// Each broadcast contains an `id` and basic details in the [`LiveBroadcastSnippet`].
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#resource>
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveBroadcast {
     /// The ID that YouTube assigns to uniquely identify the broadcast.
-    id: String,
+    pub id: String,
     /// Contains basic details about the broadcast.
     ///
     /// Includes the broadcast's title, description, and thumbnail images.
-    snippet: LiveBroadcastSnippet,
+    pub snippet: LiveBroadcastSnippet,
 }
 
 /// The snippet object contains basic details about the broadcast.
@@ -55,16 +226,16 @@ pub struct LiveBroadcast {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#snippet>
 #[derive(Debug, Serialize, Deserialize)]
-struct LiveBroadcastSnippet {
+pub struct LiveBroadcastSnippet {
     /// The broadcast's title.
     ///
     /// Note that the broadcast represents exactly one YouTube video.
-    title: String,
+    pub title: String,
     /// The date and time that the broadcast is scheduled to start.
     ///
     /// The value is specified in ISO 8601 format.
     #[serde(rename = "scheduledStartTime")]
-    scheduled_start_time: Option<String>,
+    pub scheduled_start_time: Option<String>,
 }
 
 /// Paging details for lists of resources.
@@ -88,7 +259,7 @@ struct PageInfo {
 /// Used with the `liveBroadcasts.transition` API to change broadcast state.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/transition>
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BroadcastStatus {
     /// Start broadcast testing mode.
@@ -104,7 +275,7 @@ pub enum BroadcastStatus {
 /// Used with the `liveBroadcasts.list` API to filter broadcasts.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BroadcastStatusFilter {
     /// Current live broadcasts.
@@ -120,7 +291,7 @@ pub enum BroadcastStatusFilter {
 /// The type of cuepoint that can be inserted into a live broadcast.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/cuepoint>
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CueType {
     /// Advertisement cuepoint that may trigger an ad break.
@@ -234,12 +405,23 @@ struct LiveStreamListResponse {
     /// The value will be `youtube#liveStreamListResponse`.
     kind: String,
     /// A list of live streams that match the request criteria.
-    items: Vec<LiveStream>,
+    items: VecDeque<LiveStream>,
     #[serde(rename = "pageInfo")]
     page_info: PageInfo,
+    /// Token that can be used as the value of the pageToken parameter to retrieve the next page in the result set.
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
 }
 
-/// A `liveStream` resource represents the encoder settings, ingestion type, and video stream.
+/// A `liveStream` resource represents the technical video pipeline for transmitting content to YouTube.
+///
+/// **Broadcasts vs Streams**: Streams are the technical infrastructure that handles video encoding,
+/// ingestion URLs, CDN configuration, and transmission protocols. They contain encoder settings,
+/// resolution/bitrate parameters, and health monitoring data. Streams are "behind-the-scenes"
+/// technical resources that power the viewer-facing broadcasts.
+///
+/// A single stream can be reused across multiple broadcasts, and streams can exist independently
+/// of any specific broadcast event.
 ///
 /// Contains configuration details for the live video stream including CDN settings
 /// and stream status information.
@@ -276,7 +458,7 @@ pub(crate) struct LiveStreamSnippet {
 /// The status of a live stream.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#status>
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StreamStatus {
     /// The stream is receiving data.
@@ -314,9 +496,12 @@ struct ChannelListResponse {
     /// The value will be `youtube#channelListResponse`.
     kind: String,
     /// A list of channels that match the request criteria.
-    items: Vec<Channel>,
+    items: VecDeque<Channel>,
     #[serde(rename = "pageInfo")]
     page_info: PageInfo,
+    /// Token that can be used as the value of the pageToken parameter to retrieve the next page in the result set.
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
 }
 
 /// A `channel` resource contains information about a YouTube channel.
@@ -394,8 +579,7 @@ impl YouTubeClient {
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
     pub async fn validate_token(&self) -> eyre::Result<bool> {
-        let result = dbg!(self.list_live_broadcasts_internal(1, None).await);
-        match result {
+        match self.list_live_broadcasts_internal(1, None, None).await {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
                 Ok(true)
@@ -407,14 +591,20 @@ impl YouTubeClient {
         }
     }
 
-    /// Returns a list of YouTube broadcasts for the authenticated user.
+    /// Returns a paginated stream of YouTube broadcasts for the authenticated user.
     ///
-    /// Uses the `liveBroadcasts.list` API to fetch up to 50 broadcast resources
-    /// that belong to the authenticated user.
+    /// **Broadcasts vs Streams**: A broadcast represents the viewer-facing live streaming event
+    /// with metadata like title, description, scheduling, and viewer settings. This is what
+    /// users see and interact with on YouTube. Use broadcasts for user-facing operations like
+    /// listing, scheduling, and managing live events.
+    ///
+    /// Uses the `liveBroadcasts.list` API to fetch broadcast resources
+    /// that belong to the authenticated user. The stream automatically handles
+    /// pagination and fetches subsequent pages as needed.
     ///
     /// # Returns
     ///
-    /// A vector of [`LiveBroadcast`] resources, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields [`LiveBroadcast`] resources.
     ///
     /// # Required Scopes
     ///
@@ -423,16 +613,37 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_live_broadcasts(&self) -> eyre::Result<Vec<LiveBroadcast>> {
-        let response = self.list_live_broadcasts_internal(50, None).await?;
-        Ok(response.items)
+    #[instrument(skip(self))]
+    pub async fn list_my_live_broadcasts(
+        &self,
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+        let response = self.list_live_broadcasts_internal(50, None, None).await?;
+        let client = self.clone();
+        Ok(
+            PagedStream::new(response.items, response.next_page_token).with_fetcher(
+                move |page_token| {
+                    let client = client.clone();
+                    async move {
+                        let response = client
+                            .list_live_broadcasts_internal(50, None, page_token)
+                            .await?;
+                        Ok((response.items, response.next_page_token))
+                    }
+                },
+            ),
+        )
     }
 
-    /// Returns a list of YouTube broadcasts filtered by status for the authenticated user.
+    /// Returns a paginated stream of YouTube broadcasts filtered by status for the authenticated user.
+    ///
+    /// **Broadcasts vs Streams**: A broadcast represents the viewer-facing live streaming event.
+    /// Use this method to find broadcasts in specific states like "active" (currently live),
+    /// "upcoming" (scheduled), or "completed" (ended). This is ideal for UI applications
+    /// that need to show users their current and upcoming live events.
     ///
     /// Uses the `liveBroadcasts.list` API to fetch broadcast resources with a specific status
-    /// that belong to the authenticated user.
+    /// that belong to the authenticated user. The stream automatically handles
+    /// pagination and fetches subsequent pages as needed.
     ///
     /// # Arguments
     ///
@@ -440,7 +651,7 @@ impl YouTubeClient {
     ///
     /// # Returns
     ///
-    /// A vector of [`LiveBroadcast`] resources matching the filter, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields [`LiveBroadcast`] resources matching the filter.
     ///
     /// # Required Scopes
     ///
@@ -449,25 +660,42 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_live_broadcasts_by_status(
+    #[instrument(skip(self))]
+    pub async fn list_my_live_broadcasts_by_status(
         &self,
         status_filter: BroadcastStatusFilter,
-    ) -> eyre::Result<Vec<LiveBroadcast>> {
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+        let status_filter_clone = status_filter.clone();
         let response = self
-            .list_live_broadcasts_internal(50, Some(status_filter))
+            .list_live_broadcasts_internal(50, Some(status_filter), None)
             .await?;
-        Ok(response.items)
+        let client = self.clone();
+        Ok(
+            PagedStream::new(response.items, response.next_page_token).with_fetcher(
+                move |page_token| {
+                    let client = client.clone();
+                    let status_filter = status_filter_clone.clone();
+                    async move {
+                        let response = client
+                            .list_live_broadcasts_internal(50, Some(status_filter), page_token)
+                            .await?;
+                        Ok((response.items, response.next_page_token))
+                    }
+                },
+            ),
+        )
     }
 
-    /// Returns a list of active (currently live) YouTube broadcasts for the authenticated user.
+    /// Returns a paginated stream of active (currently live) YouTube broadcasts for the authenticated user.
     ///
     /// This is a convenience method that filters for broadcasts with status `active`.
-    /// These are broadcasts that are currently streaming and visible to viewers.
+    /// These are broadcasts that are currently streaming and visible to viewers on YouTube.
+    /// Use this to find broadcasts that are live right now and can be controlled (e.g., ended,
+    /// have cuepoints inserted, etc.).
     ///
     /// # Returns
     ///
-    /// A vector of active [`LiveBroadcast`] resources, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields active [`LiveBroadcast`] resources.
     ///
     /// # Required Scopes
     ///
@@ -476,20 +704,23 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_active_live_broadcasts(&self) -> eyre::Result<Vec<LiveBroadcast>> {
-        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Active)
+    #[instrument(skip(self))]
+    pub async fn list_my_active_live_broadcasts(
+        &self,
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+        self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Active)
             .await
     }
 
-    /// Returns a list of upcoming YouTube broadcasts for the authenticated user.
+    /// Returns a paginated stream of upcoming YouTube broadcasts for the authenticated user.
     ///
     /// This is a convenience method that filters for broadcasts with status `upcoming`.
-    /// These are broadcasts that are scheduled but not yet started.
+    /// These are broadcasts that are scheduled but not yet started. Use this to show users
+    /// their upcoming live events that can be started or modified before going live.
     ///
     /// # Returns
     ///
-    /// A vector of upcoming [`LiveBroadcast`] resources, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields upcoming [`LiveBroadcast`] resources.
     ///
     /// # Required Scopes
     ///
@@ -498,9 +729,11 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_upcoming_live_broadcasts(&self) -> eyre::Result<Vec<LiveBroadcast>> {
-        self.list_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming)
+    #[instrument(skip(self))]
+    pub async fn list_my_upcoming_live_broadcasts(
+        &self,
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+        self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming)
             .await
     }
 
@@ -644,14 +877,24 @@ impl YouTubeClient {
         Ok(())
     }
 
-    /// Returns a list of live streams for the authenticated user.
+    /// Returns a paginated stream of live streams for the authenticated user.
     ///
-    /// Uses the `liveStreams.list` API to fetch up to 50 stream resources
-    /// that belong to the authenticated user.
+    /// **Broadcasts vs Streams**: A stream represents the technical video pipeline that sends
+    /// content to YouTube servers. It contains encoder settings, ingestion URLs, CDN configuration,
+    /// and technical metadata. Streams are the "behind-the-scenes" infrastructure that powers
+    /// broadcasts. Use streams for technical operations like configuring encoders, monitoring
+    /// stream health, or managing ingestion settings.
+    ///
+    /// **Note**: For user-facing operations like listing live events or showing titles/descriptions,
+    /// use [`Self::list_my_live_broadcasts`] instead. Streams can be reused across multiple broadcasts.
+    ///
+    /// Uses the `liveStreams.list` API to fetch stream resources
+    /// that belong to the authenticated user. The stream automatically handles
+    /// pagination and fetches subsequent pages as needed.
     ///
     /// # Returns
     ///
-    /// A vector of [`LiveStream`] resources, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields [`LiveStream`] resources.
     ///
     /// # Required Scopes
     ///
@@ -662,22 +905,36 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveStreams/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_live_streams(&self) -> eyre::Result<Vec<LiveStream>> {
-        let response = self.list_live_streams_internal(50).await?;
-        Ok(response.items)
+    #[instrument(skip(self))]
+    pub async fn list_my_live_streams(
+        &self,
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveStream>>> {
+        let response = self.list_live_streams_internal(50, None).await?;
+        let client = self.clone();
+        Ok(
+            PagedStream::new(response.items, response.next_page_token).with_fetcher(
+                move |page_token| {
+                    let client = client.clone();
+                    async move {
+                        let response = client.list_live_streams_internal(50, page_token).await?;
+                        Ok((response.items, response.next_page_token))
+                    }
+                },
+            ),
+        )
     }
 
-    /// Returns a list of YouTube channels owned by the authenticated user.
+    /// Returns a paginated stream of YouTube channels owned by the authenticated user.
     ///
     /// Uses the `channels.list` API with `mine=true` to fetch channel resources
     /// that belong to the authenticated user. This typically returns one channel
     /// for personal accounts, but may return multiple channels for content creators
-    /// or organizations with multiple channels.
+    /// or organizations with multiple channels. The stream automatically handles
+    /// pagination and fetches subsequent pages as needed.
     ///
     /// # Returns
     ///
-    /// A vector of [`Channel`] resources owned by the authenticated user, or an error if the API call fails.
+    /// A [`PagedStreamWithFetcher`] that yields [`Channel`] resources owned by the authenticated user.
     ///
     /// # Required Scopes
     ///
@@ -688,10 +945,23 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/docs/channels/list>
-    #[instrument(skip(self), ret)]
-    pub async fn list_my_channels(&self) -> eyre::Result<Vec<Channel>> {
-        let response = self.list_channels_internal(50).await?;
-        Ok(response.items)
+    #[instrument(skip(self))]
+    pub async fn list_my_channels(
+        &self,
+    ) -> eyre::Result<impl Stream<Item = eyre::Result<Channel>>> {
+        let response = self.list_channels_internal(50, None).await?;
+        let client = self.clone();
+        Ok(
+            PagedStream::new(response.items, response.next_page_token).with_fetcher(
+                move |page_token| {
+                    let client = client.clone();
+                    async move {
+                        let response = client.list_channels_internal(50, page_token).await?;
+                        Ok((response.items, response.next_page_token))
+                    }
+                },
+            ),
+        )
     }
 
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
@@ -703,6 +973,7 @@ impl YouTubeClient {
     ///
     /// * `max_results` - Maximum number of broadcasts to return (1-50)
     /// * `status_filter` - Optional [`BroadcastStatusFilter`] to filter results
+    /// * `page_token` - Optional page token for pagination
     ///
     /// # Returns
     ///
@@ -715,6 +986,7 @@ impl YouTubeClient {
         &self,
         max_results: u32,
         status_filter: Option<BroadcastStatusFilter>,
+        page_token: Option<String>,
     ) -> eyre::Result<LiveBroadcastListResponse> {
         let access_token = self.token.access_token().secret();
 
@@ -735,6 +1007,11 @@ impl YouTubeClient {
                 .trim_matches('"')
                 .to_string(); // Remove JSON quotes
             query_params.push(("broadcastStatus", status_string.as_str()));
+        }
+
+        // Add pageToken if provided
+        if let Some(ref token) = page_token {
+            query_params.push(("pageToken", token.as_str()));
         }
 
         let response = self
@@ -773,7 +1050,7 @@ impl YouTubeClient {
         Ok(live_broadcasts)
     }
 
-    /// Internal method to call the `liveStreams.list` API with configurable `max_results`.
+    /// Internal method to call the `liveStreams.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
     /// authentication headers and query parameters.
@@ -781,6 +1058,7 @@ impl YouTubeClient {
     /// # Arguments
     ///
     /// * `max_results` - Maximum number of streams to return (1-50)
+    /// * `page_token` - Optional page token for pagination
     ///
     /// # Returns
     ///
@@ -792,19 +1070,28 @@ impl YouTubeClient {
     async fn list_live_streams_internal(
         &self,
         max_results: u32,
+        page_token: Option<String>,
     ) -> eyre::Result<LiveStreamListResponse> {
         let access_token = self.token.access_token().secret();
 
         let url = "https://www.googleapis.com/youtube/v3/liveStreams";
+        let max_results_string = max_results.to_string();
+        let mut query_params = vec![
+            ("part", "id,snippet,status"),
+            ("mine", "true"),
+            ("maxResults", max_results_string.as_str()),
+        ];
+
+        // Add pageToken if provided
+        if let Some(ref token) = page_token {
+            query_params.push(("pageToken", token.as_str()));
+        }
+
         let response = self
             .client
             .get(url)
             .header("Authorization", format!("Bearer {}", access_token))
-            .query(&[
-                ("part", "id,snippet,status"),
-                ("mine", "true"),
-                ("maxResults", &max_results.to_string()),
-            ])
+            .query(&query_params)
             .send()
             .await
             .context("send request to YouTube liveStreams API")?;
@@ -836,7 +1123,7 @@ impl YouTubeClient {
         Ok(live_streams)
     }
 
-    /// Internal method to call the `channels.list` API with configurable `max_results`.
+    /// Internal method to call the `channels.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
     /// authentication headers and query parameters. It uses the `mine=true` parameter
@@ -845,6 +1132,7 @@ impl YouTubeClient {
     /// # Arguments
     ///
     /// * `max_results` - Maximum number of channels to return (1-50)
+    /// * `page_token` - Optional page token for pagination
     ///
     /// # Returns
     ///
@@ -853,19 +1141,31 @@ impl YouTubeClient {
     /// # API Reference
     ///
     /// <https://developers.google.com/youtube/v3/docs/channels/list>
-    async fn list_channels_internal(&self, max_results: u32) -> eyre::Result<ChannelListResponse> {
+    async fn list_channels_internal(
+        &self,
+        max_results: u32,
+        page_token: Option<String>,
+    ) -> eyre::Result<ChannelListResponse> {
         let access_token = self.token.access_token().secret();
 
         let url = "https://www.googleapis.com/youtube/v3/channels";
+        let max_results_string = max_results.to_string();
+        let mut query_params = vec![
+            ("part", "id,snippet"),
+            ("mine", "true"),
+            ("maxResults", max_results_string.as_str()),
+        ];
+
+        // Add pageToken if provided
+        if let Some(ref token) = page_token {
+            query_params.push(("pageToken", token.as_str()));
+        }
+
         let response = self
             .client
             .get(url)
             .header("Authorization", format!("Bearer {}", access_token))
-            .query(&[
-                ("part", "id,snippet"),
-                ("mine", "true"),
-                ("maxResults", &max_results.to_string()),
-            ])
+            .query(&query_params)
             .send()
             .await
             .context("send request to YouTube channels API")?;

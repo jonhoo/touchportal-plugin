@@ -30,12 +30,12 @@ pub fn plugin() -> PluginDescription {
         )
         .category(
             Category::builder()
-                .id("ytl_live_streams")
-                .name("Livestreams")
+                .id("ytl_live_broadcasts")
+                .name("Live Broadcasts")
                 .action(
                     Action::builder()
-                        .id("ytl_live_stream_toggle")
-                        .name("Toggle liveness")
+                        .id("ytl_live_broadcast_toggle")
+                        .name("Toggle broadcast liveness")
                         .implementation(ActionImplementation::Dynamic)
                         .datum(
                             Data::builder()
@@ -52,8 +52,7 @@ pub fn plugin() -> PluginDescription {
                         )
                         .datum(
                             Data::builder()
-                                // TODO: this should be broadcast, not stream
-                                .id("ytl_stream")
+                                .id("ytl_broadcast")
                                 .format(DataFormat::Choice(
                                     ChoiceData::builder()
                                         .initial("Select channel first")
@@ -71,7 +70,7 @@ pub fn plugin() -> PluginDescription {
                                         .datum(
                                             Line::builder()
                                                 .line_format(
-                                                    "Start or end live stream {$ytl_stream$} \
+                                                    "Start or end live broadcast {$ytl_broadcast$} \
                                                     on channel {$ytl_channel$}",
                                                 )
                                                 .build()

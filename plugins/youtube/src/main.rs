@@ -13,6 +13,7 @@ use oauth2::{
 };
 use std::collections::HashMap;
 use std::time::Duration;
+use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 use touchportal_sdk::ApiVersion;
 use tracing::level_filters::LevelFilter;
@@ -52,16 +53,16 @@ struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
-    async fn on_ytl_live_stream_toggle(
+    async fn on_ytl_live_broadcast_toggle(
         &mut self,
         _mode: protocol::ActionInteractionMode,
         _ytl_channel: ChoicesForYtlChannel,
-        _ytl_stream: ChoicesForYtlStream,
+        _ytl_broadcast: ChoicesForYtlBroadcast,
     ) -> eyre::Result<()> {
         todo!()
     }
 
-    async fn on_select_ytl_channel_in_ytl_live_stream_toggle(
+    async fn on_select_ytl_channel_in_ytl_live_broadcast_toggle(
         &mut self,
         instance: String,
         selected: ChoicesForYtlChannel,
@@ -78,24 +79,29 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("user selected unknown channel '{selected}'");
         };
 
-        let streams = channel
+        let broadcasts = channel
             .yt
-            .list_live_streams()
+            .list_my_live_broadcasts()
             .await
-            .context("list live streams")?
-            .into_iter()
-            .map(|stream| format!("{} - {}", stream.snippet.title, stream.id));
+            .context("list live broadcasts")?;
+
+        let mut broadcast_choices = Vec::new();
+        let mut stream = std::pin::pin!(broadcasts);
+        while let Some(broadcast) = stream.next().await {
+            let broadcast = broadcast.context("fetch broadcast")?;
+            broadcast_choices.push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
+        }
         self.tp
-            .update_choices_in_specific_ytl_stream(instance, streams)
+            .update_choices_in_specific_ytl_broadcast(instance, broadcast_choices.into_iter())
             .await;
 
         Ok(())
     }
 
-    async fn on_select_ytl_stream_in_ytl_live_stream_toggle(
+    async fn on_select_ytl_broadcast_in_ytl_live_broadcast_toggle(
         &mut self,
         _instance: String,
-        _selected: ChoicesForYtlStream,
+        _selected: ChoicesForYtlBroadcast,
     ) -> eyre::Result<()> {
         Ok(())
     }
@@ -156,6 +162,12 @@ impl Plugin {
                 .await
                 .context("validate existing YouTube token")?;
 
+            if !is_valid && is_old {
+                let token = client.into_token();
+                // TODO(claude): attempt a refresh of the user token, and if it succeeds, set client to be a valid YouTubeClient again.
+                // use https://docs.rs/oauth2/latest/oauth2/struct.Client.html#method.exchange_refresh_token
+            }
+
             if is_valid {
                 tracing::info!("YouTube token is valid, using it");
             } else if is_old {
@@ -188,8 +200,10 @@ impl Plugin {
 
         let mut client_by_channel = HashMap::new();
         for client in yt_clients {
-            let channels = client.list_my_channels().await.context("list channels")?;
-            for channel in channels {
+            let channels_stream = client.list_my_channels().await.context("list channels")?;
+            let mut channels_stream = std::pin::pin!(channels_stream);
+            while let Some(channel) = channels_stream.next().await {
+                let channel = channel.context("fetch channel")?;
                 client_by_channel.insert(
                     channel.id,
                     Channel {
@@ -212,11 +226,6 @@ impl Plugin {
                     .map(|(id, c)| format!("{} - {id}", c.name)),
             )
             .await;
-
-        for client in client_by_channel.values_mut() {
-            dbg!(client.yt.list_live_streams().await.unwrap());
-            dbg!(client.yt.list_live_broadcasts().await.unwrap());
-        }
 
         let handle = outgoing.clone();
         tokio::spawn(async move {

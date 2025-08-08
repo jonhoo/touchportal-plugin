@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(find:*)",
+      "Bash(cargo test)",
+      "Bash(mkdir:*)",
+      "WebFetch(domain:www.touch-portal.com)",
+      "Bash(cargo test:*)",
+      "Bash(git mv:*)",
+      "Bash(./test_validation_failures.sh:*)",
+      "Bash(shellcheck:*)",
+      "Bash(touch:*)",
+      "Bash(RUST_BACKTRACE=1 cargo check)",
+      "Bash(cargo metadata:*)"
+    ],
+    "deny": []
+  }
+}

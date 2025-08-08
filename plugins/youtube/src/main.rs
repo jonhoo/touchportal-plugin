@@ -11,14 +11,15 @@ use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
     TokenUrl,
 };
+use std::collections::HashMap;
 use std::time::Duration;
-use touchportal_sdk::protocol::InfoMessage;
+use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
+use touchportal_sdk::ApiVersion;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
+use youtube_client::YouTubeClient;
 
 mod youtube_client;
-use touchportal_sdk::ApiVersion;
-use youtube_client::YouTubeClient;
 
 // You can look at the generated code for a plugin using this command:
 //
@@ -38,12 +39,67 @@ const OAUTH_SECRET: &str = "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";
 const OAUTH_DONE: &str = include_str!("../oauth_success.html");
 
 #[derive(Debug)]
-struct Plugin {
+struct Channel {
+    name: String,
     yt: YouTubeClient,
-    tp: TouchPortalHandle,
 }
 
-impl PluginCallbacks for Plugin {}
+#[derive(Debug)]
+struct Plugin {
+    yt: HashMap<String, Channel>,
+    tp: TouchPortalHandle,
+    current_channel: Option<String>,
+}
+
+impl PluginCallbacks for Plugin {
+    async fn on_ytl_live_stream_toggle(
+        &mut self,
+        _mode: protocol::ActionInteractionMode,
+        _ytl_channel: ChoicesForYtlChannel,
+        _ytl_stream: ChoicesForYtlStream,
+    ) -> eyre::Result<()> {
+        todo!()
+    }
+
+    async fn on_select_ytl_channel_in_ytl_live_stream_toggle(
+        &mut self,
+        instance: String,
+        selected: ChoicesForYtlChannel,
+    ) -> eyre::Result<()> {
+        let ChoicesForYtlChannel::Dynamic(selected) = selected else {
+            return Ok(());
+        };
+        let selected = selected
+            .rsplit_once(" - ")
+            .expect("all options are formatted this way")
+            .1;
+        self.current_channel = Some(selected.to_string());
+        let Some(channel) = self.yt.get_mut(selected) else {
+            eyre::bail!("user selected unknown channel '{selected}'");
+        };
+
+        let streams = channel
+            .yt
+            .list_live_streams()
+            .await
+            .context("list live streams")?
+            .into_iter()
+            .map(|stream| format!("{} - {}", stream.snippet.title, stream.id));
+        self.tp
+            .update_choices_in_specific_ytl_stream(instance, streams)
+            .await;
+
+        Ok(())
+    }
+
+    async fn on_select_ytl_stream_in_ytl_live_stream_toggle(
+        &mut self,
+        _instance: String,
+        _selected: ChoicesForYtlStream,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+}
 
 impl Plugin {
     async fn new(
@@ -54,55 +110,112 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
-        let (token, is_old) = if settings.you_tube_api_access_token.is_empty() {
-            // TODO: notify
+        let (tokens, is_old) = if settings.you_tube_api_access_tokens.is_empty()
+            || settings.you_tube_api_access_tokens == "[]"
+        {
+            outgoing
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_auth")
+                        .title("Check your browser")
+                        .message(
+                            "You need to authenticate to YouTube \
+                            to give access to your channel.",
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .await;
 
             let token = run_oauth_flow()
                 .await
                 .context("authorize user to YouTube")?;
+            let tokens = vec![token];
 
             outgoing
-                .set_you_tube_api_access_token(
-                    serde_json::to_string(&token).expect("OAuth tokens always serialize"),
+                .set_you_tube_api_access_tokens(
+                    serde_json::to_string(&tokens).expect("OAuth tokens always serialize"),
                 )
                 .await;
 
-            (token, false)
+            (tokens, false)
         } else {
             (
-                serde_json::from_str(&settings.you_tube_api_access_token)
+                serde_json::from_str(&settings.you_tube_api_access_tokens)
                     .context("parse YouTube access token")?,
                 true,
             )
         };
 
         // Test the existing token before using it
-        let mut yt_client = YouTubeClient::new(token);
-        let is_valid = yt_client
-            .validate_token()
-            .await
-            .context("validate existing YouTube token")?;
-
-        if is_valid {
-            tracing::info!("YouTube token is valid, using it");
-        } else if is_old {
-            // TODO: notify
-            tracing::info!("existing YouTube token is invalid, getting new one");
-
-            let new_token = run_oauth_flow()
+        let mut yt_clients = Vec::new();
+        for token in tokens {
+            let mut client = YouTubeClient::new(token);
+            let is_valid = client
+                .validate_token()
                 .await
-                .context("authorize user to YouTube")?;
+                .context("validate existing YouTube token")?;
 
-            outgoing
-                .set_you_tube_api_access_token(
-                    serde_json::to_string(&new_token).expect("OAuth tokens always serialize"),
-                )
-                .await;
+            if is_valid {
+                tracing::info!("YouTube token is valid, using it");
+            } else if is_old {
+                outgoing
+                    .notify(
+                        CreateNotificationCommand::builder()
+                            .notification_id("ytl_reauth")
+                            .title("Check your browser")
+                            .message(
+                                "You need to authenticate to YouTube \
+                                to re-authorize access to your channel.",
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .await;
+                tracing::info!("existing YouTube token is invalid, getting new one");
 
-            yt_client = YouTubeClient::new(new_token);
-        } else {
-            // fresh token is invalid!
-            todo!()
+                let new_token = run_oauth_flow()
+                    .await
+                    .context("authorize user to YouTube")?;
+
+                client = YouTubeClient::new(new_token);
+            } else {
+                eyre::bail!("freshly minted YouTube token is invalid");
+            }
+
+            yt_clients.push(client);
+        }
+
+        let mut client_by_channel = HashMap::new();
+        for client in yt_clients {
+            let channels = client.list_my_channels().await.context("list channels")?;
+            for channel in channels {
+                client_by_channel.insert(
+                    channel.id,
+                    Channel {
+                        name: channel.snippet.title,
+                        yt: client.clone(),
+                    },
+                );
+            }
+        }
+
+        // TODO: keep a state that reflects the current stream state for every known stream?
+
+        // TODO: event when a stream becomes active or inactive
+
+        // Now we actually know what channels the user can select between!
+        outgoing
+            .update_choices_in_ytl_channel(
+                client_by_channel
+                    .iter()
+                    .map(|(id, c)| format!("{} - {id}", c.name)),
+            )
+            .await;
+
+        for client in client_by_channel.values_mut() {
+            dbg!(client.yt.list_live_streams().await.unwrap());
+            dbg!(client.yt.list_live_broadcasts().await.unwrap());
         }
 
         let handle = outgoing.clone();
@@ -115,8 +228,9 @@ impl Plugin {
         });
 
         Ok(Self {
-            yt: yt_client,
+            yt: client_by_channel,
             tp: outgoing,
+            current_channel: None,
         })
     }
 }
@@ -268,14 +382,14 @@ async fn main() -> eyre::Result<()> {
     if std::env::args().len() == 1 {
         Plugin::run_dynamic("127.0.0.1:12136").await?;
     } else {
-        let mut token = String::new();
-        if tokio::fs::try_exists("token.json").await.unwrap() {
-            token = tokio::fs::read_to_string("token.json").await.unwrap();
+        let mut tokens = String::new();
+        if tokio::fs::try_exists("tokens.json").await.unwrap() {
+            tokens = tokio::fs::read_to_string("tokens.json").await.unwrap();
         }
         let (tx, _rx) = tokio::sync::mpsc::channel(100);
         let plugin = Plugin::new(
             PluginSettings {
-                you_tube_api_access_token: token,
+                you_tube_api_access_tokens: tokens,
             },
             TouchPortalHandle(tx),
             serde_json::from_value(serde_json::json!({
@@ -287,8 +401,10 @@ async fn main() -> eyre::Result<()> {
             .context("fake InfoMessage")?,
         )
         .await?;
-        let json = serde_json::to_string(&plugin.yt.into_token()).unwrap();
-        tokio::fs::write("token.json", &json).await.unwrap();
+        let json =
+            serde_json::to_string(&plugin.yt.values().map(|c| c.yt.token()).collect::<Vec<_>>())
+                .unwrap();
+        tokio::fs::write("tokens.json", &json).await.unwrap();
     }
 
     Ok(())

@@ -1,6 +1,6 @@
 use eyre::Context;
-use oauth2::TokenResponse;
 use oauth2::basic::BasicTokenResponse;
+use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -248,14 +248,14 @@ struct LiveStreamListResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveStream {
     /// The ID that YouTube assigns to uniquely identify the stream.
-    id: String,
+    pub(crate) id: String,
     /// Contains basic details about the stream.
     ///
     /// Includes the stream's title and description.
-    snippet: LiveStreamSnippet,
+    pub(crate) snippet: LiveStreamSnippet,
     /// Contains information about the stream's status.
     #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<LiveStreamStatus>,
+    pub(crate) status: Option<LiveStreamStatus>,
 }
 
 /// The snippet object contains basic details about the stream.
@@ -265,9 +265,9 @@ pub struct LiveStream {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#snippet>
 #[derive(Debug, Serialize, Deserialize)]
-struct LiveStreamSnippet {
+pub(crate) struct LiveStreamSnippet {
     /// The stream's title.
-    title: String,
+    pub(crate) title: String,
     /// The stream's description.
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
@@ -295,10 +295,64 @@ pub enum StreamStatus {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#status>
 #[derive(Debug, Serialize, Deserialize)]
-struct LiveStreamStatus {
+pub(crate) struct LiveStreamStatus {
     /// The stream's status.
     #[serde(rename = "streamStatus")]
     stream_status: StreamStatus,
+}
+
+/// Response structure for the `channels.list` API call.
+///
+/// Contains a list of [`Channel`] resources that match the request criteria,
+/// along with pagination information in [`PageInfo`].
+///
+/// See: <https://developers.google.com/youtube/v3/docs/channels/list>
+#[derive(Debug, Serialize, Deserialize)]
+struct ChannelListResponse {
+    /// Identifies the API resource's type.
+    ///
+    /// The value will be `youtube#channelListResponse`.
+    kind: String,
+    /// A list of channels that match the request criteria.
+    items: Vec<Channel>,
+    #[serde(rename = "pageInfo")]
+    page_info: PageInfo,
+}
+
+/// A `channel` resource contains information about a YouTube channel.
+///
+/// Each channel represents a user or organization account on YouTube and contains
+/// basic details, branding settings, statistics, and other metadata.
+///
+/// See: <https://developers.google.com/youtube/v3/docs/channels#resource>
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Channel {
+    /// The ID that YouTube uses to uniquely identify the channel.
+    pub id: String,
+    /// Contains basic details about the channel.
+    ///
+    /// Includes the channel's title, description, and other metadata.
+    pub snippet: ChannelSnippet,
+}
+
+/// The snippet object contains basic details about the channel.
+///
+/// This is a subset of the full snippet data available from the YouTube API,
+/// containing only the fields currently needed by this implementation.
+///
+/// See: <https://developers.google.com/youtube/v3/docs/channels#snippet>
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChannelSnippet {
+    /// The channel's title.
+    pub title: String,
+    /// The channel's description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The date and time that the channel was created.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(rename = "publishedAt")]
+    pub published_at: String,
 }
 
 impl YouTubeClient {
@@ -310,6 +364,14 @@ impl YouTubeClient {
     pub fn new(token: BasicTokenResponse) -> Self {
         let client = reqwest::Client::new();
         Self { token, client }
+    }
+
+    /// Returns the underlying OAuth2 token.
+    ///
+    /// This is useful when you need to extract the token for storage or
+    /// passing to another component.
+    pub fn token(&self) -> &BasicTokenResponse {
+        &self.token
     }
 
     /// Consumes the client and returns the underlying OAuth2 token.
@@ -606,6 +668,32 @@ impl YouTubeClient {
         Ok(response.items)
     }
 
+    /// Returns a list of YouTube channels owned by the authenticated user.
+    ///
+    /// Uses the `channels.list` API with `mine=true` to fetch channel resources
+    /// that belong to the authenticated user. This typically returns one channel
+    /// for personal accounts, but may return multiple channels for content creators
+    /// or organizations with multiple channels.
+    ///
+    /// # Returns
+    ///
+    /// A vector of [`Channel`] resources owned by the authenticated user, or an error if the API call fails.
+    ///
+    /// # Required Scopes
+    ///
+    /// * `https://www.googleapis.com/auth/youtube.readonly`
+    /// * `https://www.googleapis.com/auth/youtube`
+    /// * `https://www.googleapis.com/auth/youtube.force-ssl`
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/docs/channels/list>
+    #[instrument(skip(self), ret)]
+    pub async fn list_my_channels(&self) -> eyre::Result<Vec<Channel>> {
+        let response = self.list_channels_internal(50).await?;
+        Ok(response.items)
+    }
+
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
@@ -746,5 +834,66 @@ impl YouTubeClient {
         );
 
         Ok(live_streams)
+    }
+
+    /// Internal method to call the `channels.list` API with configurable `max_results`.
+    ///
+    /// This method handles the actual HTTP request to the YouTube API, including
+    /// authentication headers and query parameters. It uses the `mine=true` parameter
+    /// to retrieve only channels owned by the authenticated user.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_results` - Maximum number of channels to return (1-50)
+    ///
+    /// # Returns
+    ///
+    /// A [`ChannelListResponse`] containing the API response data.
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/docs/channels/list>
+    async fn list_channels_internal(&self, max_results: u32) -> eyre::Result<ChannelListResponse> {
+        let access_token = self.token.access_token().secret();
+
+        let url = "https://www.googleapis.com/youtube/v3/channels";
+        let response = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .query(&[
+                ("part", "id,snippet"),
+                ("mine", "true"),
+                ("maxResults", &max_results.to_string()),
+            ])
+            .send()
+            .await
+            .context("send request to YouTube channels API")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".to_string());
+            return Err(eyre::eyre!(
+                "YouTube channels API request failed with status {}: {}",
+                status,
+                error_text
+            ));
+        }
+
+        let channels: ChannelListResponse = response
+            .json()
+            .await
+            .context("parse YouTube channels API response as JSON")?;
+
+        tracing::debug!(
+            total_results = channels.page_info.total_results,
+            returned_items = channels.items.len(),
+            "fetched channels"
+        );
+
+        Ok(channels)
     }
 }

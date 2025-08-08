@@ -16,7 +16,7 @@ pub fn plugin() -> PluginDescription {
         )
         .setting(
             Setting::builder()
-                .name("YouTube API Access Token")
+                .name("YouTube API access tokens")
                 .initial("")
                 .kind(SettingType::Text(
                     TextSetting::builder()
@@ -25,6 +25,67 @@ pub fn plugin() -> PluginDescription {
                         .build()
                         .unwrap(),
                 ))
+                .build()
+                .unwrap(),
+        )
+        .category(
+            Category::builder()
+                .id("ytl_live_streams")
+                .name("Livestreams")
+                .action(
+                    Action::builder()
+                        .id("ytl_live_stream_toggle")
+                        .name("Toggle liveness")
+                        .implementation(ActionImplementation::Dynamic)
+                        .datum(
+                            Data::builder()
+                                .id("ytl_channel")
+                                .format(DataFormat::Choice(
+                                    ChoiceData::builder()
+                                        .initial("")
+                                        .choice("")
+                                        .build()
+                                        .unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .datum(
+                            Data::builder()
+                                // TODO: this should be broadcast, not stream
+                                .id("ytl_stream")
+                                .format(DataFormat::Choice(
+                                    ChoiceData::builder()
+                                        .initial("Select channel first")
+                                        .choice("Select channel first")
+                                        .build()
+                                        .unwrap(),
+                                ))
+                                .build()
+                                .unwrap(),
+                        )
+                        .lines(
+                            Lines::builder()
+                                .action(
+                                    LingualLine::builder()
+                                        .datum(
+                                            Line::builder()
+                                                .line_format(
+                                                    "Start or end live stream {$ytl_stream$} \
+                                                    on channel {$ytl_channel$}",
+                                                )
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .build()
+                                        .unwrap(),
+                                )
+                                .build()
+                                .unwrap(),
+                        )
+                        .build()
+                        .unwrap(),
+                )
                 .build()
                 .unwrap(),
         )

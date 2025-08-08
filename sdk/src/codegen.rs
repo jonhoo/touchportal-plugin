@@ -595,15 +595,16 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     let name = data.choice_enum_name();
                     if handled_data_choice_ids.insert(id) {
                         let choices = &choice_data.value_choices;
-                        let choice_variants1 = choices
-                            .iter()
-                            .map(|c| format_ident!("{}", c.to_pascal_case()));
-                        let choice_variants2 = choices
-                            .iter()
-                            .map(|c| format_ident!("{}", c.to_pascal_case()));
-                        let choice_variants3 = choices
-                            .iter()
-                            .map(|c| format_ident!("{}", c.to_pascal_case()));
+                        let as_variant = |c: &str| {
+                            if c.is_empty() {
+                                format_ident!("Empty")
+                            } else {
+                                format_ident!("{}", c.to_pascal_case())
+                            }
+                        };
+                        let choice_variants1 = choices.iter().map(|c| as_variant(c));
+                        let choice_variants2 = choices.iter().map(|c| as_variant(c));
+                        let choice_variants3 = choices.iter().map(|c| as_variant(c));
                         action_data_choices = quote! {
                             #action_data_choices
 

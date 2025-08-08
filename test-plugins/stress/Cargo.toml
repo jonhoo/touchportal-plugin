@@ -3,6 +3,9 @@ name = "touchportal-stress"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.touchportal]
+plugin_name = "StressTest"
+
 [build-dependencies]
 touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
 serde_json = "1.0.142"

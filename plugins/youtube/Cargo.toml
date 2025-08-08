@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 default-run = "touchportal-youtube-live"
 
+[package.metadata.touchportal]
+plugin_name = "YouTubeLive"
+
 [build-dependencies]
 touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
 serde_json = "1.0.142"

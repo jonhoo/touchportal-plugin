@@ -403,6 +403,28 @@ impl PluginDescriptionBuilder {
             }
         }
 
+        // Validate connector format strings reference existing data fields
+        for connector in self.categories.iter().flatten().flat_map(|c| &c.connectors) {
+            // Extract data field references from format string (e.g., {$field_id$})
+            let format_refs = connector
+                .format
+                .split("{$")
+                .skip(1) // Skip text before first {$
+                .filter_map(|s| s.split("$}").next());
+
+            // Check that each referenced field exists in the connector's data
+            let connector_data_ids: std::collections::HashSet<_> =
+                connector.data.iter().map(|d| d.id.as_str()).collect();
+            for field_ref in format_refs {
+                if !connector_data_ids.contains(field_ref) {
+                    return Err(format!(
+                        "connector {} references data field {} in format string, but no such data field is defined",
+                        connector.id, field_ref
+                    ));
+                }
+            }
+        }
+
         Ok(())
     }
 }

@@ -2,21 +2,50 @@
 set -e
 
 # Script to test that all validation-failure plugins fail compilation with expected errors
+# Usage: ./test_validation_failures.sh [plugin-name1] [plugin-name2] ...
+# If plugin names are provided, only those plugins will be tested
 
-echo "Testing validation failure plugins..."
+if [ $# -gt 0 ]; then
+    if [ $# -eq 1 ]; then
+        echo "Testing specific validation failure plugin: $1..."
+    else
+        echo "Testing specific validation failure plugins: $*..."
+    fi
+else
+    echo "Testing validation failure plugins..."
+fi
 
 WORKSPACE_DIR="$(dirname "$0")"
 cd "$WORKSPACE_DIR"
 
 # Get list of all member plugins from Cargo.toml
-PLUGINS=$(grep -A 100 "members = \[" Cargo.toml | grep -E '^\s*"[^"]+",?' | sed 's/.*"\([^"]*\)".*/\1/' | sed '/^\s*$/d')
+ALL_PLUGINS_STR=$(grep -A 100 "members = \[" Cargo.toml | grep -E '^\s*"[^"]+",?' | sed 's/.*"\([^"]*\)".*/\1/' | sed '/^\s*$/d')
+readarray -t ALL_PLUGINS <<< "$ALL_PLUGINS_STR"
+
+# If specific plugins requested, filter to just those
+if [ $# -gt 0 ]; then
+    PLUGINS=()
+    for plugin in "$@"; do
+        # Check if the specific plugin exists in the list
+        if printf '%s\n' "${ALL_PLUGINS[@]}" | grep -qx "$plugin"; then
+            PLUGINS+=("$plugin")
+        else
+            echo "ERROR: Plugin '$plugin' not found in workspace members."
+            echo "Available plugins:"
+            printf '%s\n' "${ALL_PLUGINS[@]}" | sed 's/^/  - /'
+            exit 1
+        fi
+    done
+else
+    PLUGINS=("${ALL_PLUGINS[@]}")
+fi
 
 TOTAL=0
 PASSED=0
 FAILED=0
 UNCAUGHT=0
 
-for plugin in $PLUGINS; do
+for plugin in "${PLUGINS[@]}"; do
     echo ""
     echo "=== Testing plugin: $plugin ==="
     TOTAL=$((TOTAL + 1))
@@ -42,7 +71,7 @@ for plugin in $PLUGINS; do
         echo "Running: cargo check -p $package_name"
 
         # For uncaught tests, we expect them to compile successfully
-        if cargo check -p "$package_name" 2>&1 > /dev/null; then
+        if cargo check -p "$package_name" > /dev/null 2>&1; then
             echo "✓ Plugin $plugin compiled successfully (expected - validation gap)"
             UNCAUGHT=$((UNCAUGHT + 1))
         else

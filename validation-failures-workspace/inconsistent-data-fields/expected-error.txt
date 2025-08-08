@@ -1,1 +1,1 @@
-ValidationError("data field shared_number appears multiple times with different numeric definitions")
+data field shared_number appears multiple times with different numeric definitions

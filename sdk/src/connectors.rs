@@ -31,7 +31,7 @@ pub struct Connector {
     /// practise is to create a unique prefix for all your actions like in our case;
     /// `tp_yourplugin_connector_001`.
     #[builder(setter(into))]
-    id: String,
+    pub(crate) id: String,
 
     /// This is the name of the connector.
     ///
@@ -65,7 +65,7 @@ pub struct Connector {
     /// the connector line, use the format `{$id$}` where id is the id of the data object you want
     /// to show the control for.
     #[builder(setter(into))]
-    format: String,
+    pub(crate) format: String,
 
     /// This is a collection of data which can be specified by the user.
     ///

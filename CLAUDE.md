@@ -57,17 +57,26 @@ While inside the `test-plugins/stress/` directory:
 
 Validation failure tests are plugins that intentionally contain build-time validation errors to ensure the SDK properly catches invalid configurations.
 
-#### Running All Validation Tests
+#### Running Validation Tests
 
 ```bash
 cd validation-failures-workspace/
+
+# Run all validation tests
 ./test_validation_failures.sh
+
+# Run a specific validation test by name
+./test_validation_failures.sh missing-connector-data
+
+# Run multiple specific validation tests
+./test_validation_failures.sh missing-connector-data choice-event-text-state
 ```
 
 This script:
-1. Attempts to compile each validation test plugin
+1. Attempts to compile each validation test plugin (or just the specified ones)
 2. Verifies that compilation fails with the expected error message
 3. Reports which tests passed/failed
+4. When run with plugin names, only tests those specific plugins and shows available plugins if any name is invalid
 
 #### Adding New Validation Tests
 
@@ -75,7 +84,7 @@ This script:
 2. Add the plugin name to the `members` list in `validation-failures-workspace/Cargo.toml`
 3. Write a `build.rs` with intentional validation errors
 4. Create an `expected-error.txt` file with the exact error message expected
-5. Add a `src/main.rs` with the required `include!(concat!(env!("OUT_DIR"), "/entry.rs"));` statement to trigger compilation of generated code
+5. Add a `src/main.rs` that just contains an `fn main`. Generated code does not need to be included here since the `build.rs` will fail first.
 6. Run `./test_validation_failures.sh` to verify it works
 
 #### Current Validation Tests
@@ -190,6 +199,7 @@ The plugin communicates with TouchPortal using a JSON-based protocol over TCP. T
 - The framework automatically generates type-safe interfaces
 - Testing of the SDK and plugin is manual beyond ensuring that `cargo check` works in the plugin directory.
 - Build-time validation testing is automated via the `validation-failures-workspace/` test suite.
+- When writing `validate` functions for builders, avoid unnecessary `if let Some` on fields that are not optional; the builder will ensure that they are set to `Some` before `validate` is called, so we can use expect.
 
 ## Error Handling & Debugging
 

@@ -1,1 +1,1 @@
-ValidationError("event mismatched_event references state mismatched_state, but they have diverging choice-sets")
+event mismatched_event references state mismatched_state, but they have diverging choice-sets

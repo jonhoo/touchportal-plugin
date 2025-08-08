@@ -20,12 +20,7 @@ Some validation issues already have dedicated test crates in this workspace that
 
 *No uncaught validation issues without test crates at this time.*
 
-## Potential Future Test Crates
+## Finding More Validation Scenarios
 
-Additional validation scenarios that could benefit from dedicated test crates:
-
-- **Actions exceeding maximum line limits**: TouchPortal may have UI constraints
-- **Missing connector data**: Connectors without required data fields
-
-Find more of these, for example, by exploring the TouchPortal API and thinking of other configurations that should ideally fail at compile-time.
-Don't consider whether the code generation _currently_ catches those mistakes. Write the tests first, and if the errors are _not_ caught, add them here or above.
+To identify additional validation scenarios that could benefit from dedicated test crates, explore the TouchPortal API and consider other configurations that should ideally fail at compile-time.
+Don't consider whether the code generation _currently_ catches those mistakes. Write the tests first, and if the errors are _not_ caught, add them to the sections above.

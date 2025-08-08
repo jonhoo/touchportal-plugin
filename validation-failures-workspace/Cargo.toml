@@ -13,6 +13,7 @@ members = [
     "invalid-choice-initial",
     "invalid-number-ranges",
     "invalid-plugin-ids",
+    "missing-connector-data",
     "missing-default-language",
     "missing-required-fields",
 ]

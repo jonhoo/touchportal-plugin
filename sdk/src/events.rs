@@ -85,11 +85,11 @@ impl Event {
 
 impl EventBuilder {
     fn validate(&self) -> Result<(), String> {
-        let fmt = self.format.as_ref().expect("required");
+        let fmt = self.format.as_ref().expect("format is required");
         if fmt.contains("$compare") && !fmt.contains("$val") {
             return Err(format!(
                 "format for event {} has $compare but no $val",
-                self.id.as_ref().expect("required")
+                self.id.as_ref().expect("id is required")
             ));
         }
 

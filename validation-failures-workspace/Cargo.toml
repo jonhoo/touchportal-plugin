@@ -1,14 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
+    "actions-max-lines",
     "actions-no-lines",
     "choice-event-text-state",
     "duplicate-ids",
     "empty-category",
     "event-state-choice-mismatch",
+    "events-nonexistent-states",
     "inconsistent-data-fields",
+    "invalid-api-versions",
     "invalid-choice-initial",
     "invalid-number-ranges",
+    "invalid-plugin-ids",
     "missing-default-language",
     "missing-required-fields",
 ]

@@ -71,7 +71,7 @@ pub struct Connector {
     ///
     /// These data id's can be used to fill up the format attribute.
     #[builder(setter(each(name = "datum")), default)]
-    data: Vec<super::data::Data>,
+    pub(crate) data: Vec<super::data::Data>,
 
     /// This attribute allows you to connect this connector to a specified subcategory id.
     ///

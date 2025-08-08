@@ -1952,19 +1952,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "touchportal-empty-categories"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "serde",
- "serde_json",
- "tokio",
- "touchportal-sdk",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "touchportal-minimal-single"
 version = "0.1.0"
 dependencies = [

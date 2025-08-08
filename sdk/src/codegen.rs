@@ -784,6 +784,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                             _ => unreachable!("we would not have entered this outer match arm otherwise"),
                         };
 
+                        #[allow(clippy::match_single_binding)]
                         match &*action.action_id {
                             #(
                                 #action_ids => #action_arms
@@ -798,6 +799,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                         ::tracing::error!(?assoc, "short connector id support are not yet implemented");
                     }
                     TouchPortalOutput::ListChange(change) => {
+                        #[allow(clippy::match_single_binding)]
                         match (&*change.list_id, &*change.action_id) {
                             #(
                                 (#list_ids, #list_id_for_actions) => #list_arms,

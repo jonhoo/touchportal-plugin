@@ -109,6 +109,7 @@ fn bool_is_true(b: &bool) -> bool {
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct NumberData {
     /// This is the default value the data object has.
@@ -143,6 +144,48 @@ pub struct NumberData {
 impl NumberData {
     pub fn builder() -> NumberDataBuilder {
         NumberDataBuilder::default()
+    }
+}
+
+impl NumberDataBuilder {
+    fn validate(&self) -> Result<(), String> {
+        let initial = self.initial.expect("initial is required");
+        let min = self.min_value.flatten();
+        let max = self.max_value.flatten();
+
+        if let Some(min_val) = min
+            && initial < min_val
+        {
+            if let Some(max_val) = max {
+                return Err(format!(
+                    "initial value {} is outside the allowed range [{}, {}]",
+                    initial, min_val, max_val
+                ));
+            } else {
+                return Err(format!(
+                    "initial value {} is below the minimum allowed value {}",
+                    initial, min_val
+                ));
+            }
+        }
+
+        if let Some(max_val) = max
+            && initial > max_val
+        {
+            if let Some(min_val) = min {
+                return Err(format!(
+                    "initial value {} is outside the allowed range [{}, {}]",
+                    initial, min_val, max_val
+                ));
+            } else {
+                return Err(format!(
+                    "initial value {} is above the maximum allowed value {}",
+                    initial, max_val
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 

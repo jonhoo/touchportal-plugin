@@ -519,6 +519,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchportal-actions-max-lines"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
 name = "touchportal-actions-no-lines"
 version = "0.1.0"
 dependencies = [
@@ -535,7 +543,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchportal-events-nonexistent-states"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-invalid-api-versions"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-invalid-color-formats"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
 name = "touchportal-invalid-number-ranges"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "touchportal-sdk",
+]
+
+[[package]]
+name = "touchportal-invalid-plugin-ids"
 version = "0.1.0"
 dependencies = [
  "serde_json",

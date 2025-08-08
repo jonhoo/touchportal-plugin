@@ -482,7 +482,7 @@ impl YouTubeClient {
                 ("id", broadcast_id),
                 (
                     "broadcastStatus",
-                    &serde_json::to_string(&status)
+                    serde_json::to_string(&status)
                         .context("serialize broadcast status")?
                         .trim_matches('"'),
                 ), // Remove JSON quotes for query param

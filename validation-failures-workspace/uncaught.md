@@ -24,14 +24,8 @@ Some validation issues already have dedicated test crates in this workspace that
 
 Additional validation scenarios that could benefit from dedicated test crates:
 
-- **File data with bad extensions**: Invalid formats like `.exe.` could cause file picker issues
-- **Invalid plugin IDs**: Non-alphanumeric characters could break TouchPortal's plugin registry
-- **Invalid color formats**: Colors not matching #AARRGGBB format
-- **Invalid API versions**: Non-integer or unsupported API versions
-- **Events referencing non-existent states**: Cross-reference validation gaps
-- **State initial values not in choice list**: May already be covered by existing `invalid-choice-initial` test
 - **Actions exceeding maximum line limits**: TouchPortal may have UI constraints
 - **Missing connector data**: Connectors without required data fields
 
-Find these, for example, by exploring the TouchPortal API and thinking of other configurations that should ideally fail at compile-time.
+Find more of these, for example, by exploring the TouchPortal API and thinking of other configurations that should ideally fail at compile-time.
 Don't consider whether the code generation _currently_ catches those mistakes. Write the tests first, and if the errors are _not_ caught, add them here or above.

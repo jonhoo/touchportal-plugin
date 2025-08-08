@@ -4,7 +4,6 @@ members = [
   "plugins/youtube",
   "test-plugins/all-data-types",
   "test-plugins/boundary-values",
-  "test-plugins/empty-categories",
   "test-plugins/minimal-single",
   "test-plugins/no-actions",
   "test-plugins/no-events",

@@ -51,7 +51,7 @@ impl PluginCallbacks for Plugin {
             .send(touchportal_sdk::protocol::TouchPortalCommand::StateUpdate(
                 touchportal_sdk::protocol::UpdateStateCommand::builder()
                     .state_id("counter_state")
-                    .value(&count.to_string())
+                    .value(count.to_string())
                     .build()
                     .unwrap(),
             ))
@@ -63,7 +63,7 @@ impl PluginCallbacks for Plugin {
             .send(touchportal_sdk::protocol::TouchPortalCommand::StateUpdate(
                 touchportal_sdk::protocol::UpdateStateCommand::builder()
                     .state_id("result_state")
-                    .value(&format!("Counter: {}", count))
+                    .value(format!("Counter: {}", count))
                     .build()
                     .unwrap(),
             ))

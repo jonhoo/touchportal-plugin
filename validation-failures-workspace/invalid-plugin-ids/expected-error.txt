@@ -1,0 +1,1 @@
+invalid plugin ID 'com.test.invalid@plugin#id!' - plugin IDs must contain only alphanumeric characters, dots, hyphens, and underscores

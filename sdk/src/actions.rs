@@ -234,6 +234,17 @@ impl Action {
 
 impl ActionBuilder {
     fn validate(&self) -> Result<(), String> {
+        // Check for empty required fields
+        let name = self.name.as_ref().expect("name is required");
+        if name.trim().is_empty() {
+            return Err("action name cannot be empty".to_string());
+        }
+
+        let id = self.id.as_ref().expect("id is required");
+        if id.trim().is_empty() {
+            return Err("action id cannot be empty".to_string());
+        }
+
         let mut data_ids = HashSet::new();
         for data in self.data.iter().flatten() {
             data_ids.insert(format!("{{${}$}}", data.id));
@@ -248,14 +259,15 @@ impl ActionBuilder {
             }
         }
 
+        let lines = self.lines.as_ref().expect("lines is required");
         let mut languages = HashSet::new();
-        for line in &self.lines.as_ref().unwrap().actions {
+        for line in &lines.actions {
             if !languages.insert(&line.language) {
                 return Err(format!("found two lines for language '{}'", line.language));
             }
         }
 
-        for line in &self.lines.as_ref().unwrap().actions {
+        for line in &lines.actions {
             for data_id in &data_ids {
                 if !line
                     .data
@@ -456,8 +468,19 @@ impl LingualLine {
 
 impl LingualLineBuilder {
     fn validate(&self) -> Result<(), String> {
-        if self.data.as_ref().is_none_or(|d| d.is_empty()) {
+        let data = self.data.as_ref().expect("data is required");
+        if data.is_empty() {
             return Err("At least one line object must be set".to_string());
+        }
+
+        // Check TouchPortal recommended maximum of 8 lines per action
+        if data.len() > 8 {
+            return Err(format!(
+                "action has {} lines, but TouchPortal recommends \
+                a maximum of 8 lines for proper visibility \
+                on smaller screens",
+                data.len()
+            ));
         }
 
         Ok(())

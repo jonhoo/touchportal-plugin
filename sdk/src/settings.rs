@@ -39,8 +39,9 @@ impl Setting {
 
 impl SettingBuilder {
     fn validate(&self) -> Result<(), String> {
-        let initial = &self.initial.as_ref().expect("required");
-        let kind = self.kind.as_ref().expect("required");
+        let initial = self.initial.as_ref().expect("initial is required");
+        let kind = self.kind.as_ref().expect("kind is required");
+
         let max_length = match kind {
             SettingType::Text(req) => req.max_length,
             SettingType::Number(req) => req.max_length,
@@ -50,6 +51,7 @@ impl SettingBuilder {
             SettingType::Switch(_) => None,
             SettingType::Choice(_) => None,
         };
+
         if let Some(max_length) = max_length
             && initial.len() > max_length as usize
         {

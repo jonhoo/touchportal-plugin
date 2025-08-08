@@ -321,6 +321,88 @@ impl PluginDescriptionBuilder {
             }
         }
 
+        // Check for duplicate action IDs across all categories
+        let mut action_ids = HashSet::new();
+        for action in self.categories.iter().flatten().flat_map(|c| &c.actions) {
+            if !action_ids.insert(&action.id) {
+                return Err(format!(
+                    "duplicate action ID '{}' found - action IDs must be unique across all categories",
+                    action.id
+                ));
+            }
+        }
+
+        // Validate plugin ID format
+        let id = self.id.as_ref().expect("id is required");
+        if id.trim().is_empty() {
+            return Err("plugin ID cannot be empty".to_string());
+        }
+
+        // Check for valid characters (alphanumeric, dots, hyphens, underscores)
+        if !id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return Err(format!(
+                "invalid plugin ID '{}' - plugin IDs must contain only alphanumeric characters, dots, hyphens, and underscores",
+                id
+            ));
+        }
+
+        // Validate API version compatibility with used features
+        let api_version = self.api.as_ref().expect("api is required");
+        let api_version_num = *api_version as u16;
+
+        // Check LowerBound/UpperBound data types require API v10+ (V4_3)
+        for action in self.categories.iter().flatten().flat_map(|c| &c.actions) {
+            for data in &action.data {
+                match &data.format {
+                    crate::DataFormat::LowerBound(_) => {
+                        if api_version_num < 10 {
+                            return Err(format!(
+                                "feature 'LowerBound' requires API version 10 or higher, but plugin specifies API version {}",
+                                api_version_num
+                            ));
+                        }
+                    }
+                    crate::DataFormat::UpperBound(_) => {
+                        if api_version_num < 10 {
+                            return Err(format!(
+                                "feature 'UpperBound' requires API version 10 or higher, but plugin specifies API version {}",
+                                api_version_num
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check connectors for LowerBound/UpperBound usage
+        for connector in self.categories.iter().flatten().flat_map(|c| &c.connectors) {
+            for data in &connector.data {
+                match &data.format {
+                    crate::DataFormat::LowerBound(_) => {
+                        if api_version_num < 10 {
+                            return Err(format!(
+                                "feature 'LowerBound' requires API version 10 or higher, but plugin specifies API version {}",
+                                api_version_num
+                            ));
+                        }
+                    }
+                    crate::DataFormat::UpperBound(_) => {
+                        if api_version_num < 10 {
+                            return Err(format!(
+                                "feature 'UpperBound' requires API version 10 or higher, but plugin specifies API version {}",
+                                api_version_num
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -553,7 +635,7 @@ pub use states::*;
 
 mod settings;
 pub use settings::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[test]
 fn serialize_tutorial_sdk_example() {

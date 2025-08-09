@@ -28,7 +28,37 @@ pub fn plugin() -> PluginDescription {
                 .build()
                 .unwrap(),
         )
-        // TODO: add a category + action for authenticating more accounts
+        .category(
+            Category::builder()
+                .id("ytl_account_management")
+                .name("Account Management")
+                .action(
+                    Action::builder()
+                        .id("ytl_authenticate_account")
+                        .name("Authenticate account")
+                        .implementation(ActionImplementation::Dynamic)
+                        .lines(
+                            Lines::builder()
+                                .action(
+                                    LingualLine::builder()
+                                        .datum(
+                                            Line::builder()
+                                                .line_format("Add another YouTube account")
+                                                .build()
+                                                .unwrap(),
+                                        )
+                                        .build()
+                                        .unwrap(),
+                                )
+                                .build()
+                                .unwrap(),
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
         .category(
             Category::builder()
                 .id("ytl_live_broadcasts")

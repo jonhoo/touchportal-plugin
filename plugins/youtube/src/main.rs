@@ -2,7 +2,8 @@
 
 use crate::youtube_client::Token;
 use eyre::Context;
-use std::collections::HashMap;
+use oauth2::{RefreshToken, TokenResponse};
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
@@ -34,7 +35,7 @@ const OAUTH_DONE: &str = include_str!("../oauth_success.html");
 #[derive(Debug)]
 struct Channel {
     name: String,
-    yt: std::sync::Arc<YouTubeClient>,
+    yt: YouTubeClient,
 }
 
 #[derive(Debug)]
@@ -45,6 +46,100 @@ struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_ytl_authenticate_account(
+        &mut self,
+        _mode: protocol::ActionInteractionMode,
+    ) -> eyre::Result<()> {
+        let oauth_manager = oauth::OAuthManager::new(OAUTH_CLIENT_ID, OAUTH_SECRET, OAUTH_DONE);
+
+        self.tp
+            .notify(
+                CreateNotificationCommand::builder()
+                    .notification_id("ytl_add_account")
+                    .title("Check your browser")
+                    .message(
+                        "You need to authenticate to YouTube \
+                        to add another account.",
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .await;
+
+        let new_token = oauth_manager
+            .authenticate()
+            .await
+            .context("authorize additional YouTube account")?;
+
+        let client = YouTubeClient::new(Token::from_fresh_token(new_token.clone()), oauth_manager);
+
+        let is_valid = client
+            .validate_token()
+            .await
+            .context("validate new YouTube token")?;
+
+        if !is_valid {
+            eyre::bail!("newly authenticated YouTube token failed validation");
+        }
+
+        let mut new_channel_count = 0;
+        let channels_stream = client.list_my_channels();
+        let mut channels_stream = std::pin::pin!(channels_stream);
+        while let Some(channel) = channels_stream.next().await {
+            let channel = channel.context("fetch channel for new account")?;
+            let channel_id = channel.id.clone();
+            let channel_name = channel.snippet.title.clone();
+
+            // Overwrite any existing entry for this channel ID with the new token
+            self.yt.insert(
+                channel_id.clone(),
+                Channel {
+                    name: channel_name,
+                    yt: client.clone(),
+                },
+            );
+
+            new_channel_count += 1;
+        }
+
+        self.tp
+            .update_choices_in_ytl_channel(
+                self.yt.iter().map(|(id, c)| format!("{} - {id}", c.name)),
+            )
+            .await;
+
+        // Collect unique tokens by refresh token uniqueness
+        let mut seen_refresh_tokens = HashSet::new();
+        let mut all_tokens = Vec::new();
+
+        for channel in self.yt.values() {
+            let token = channel.yt.token().await;
+
+            if let Some(refresh_token) = token.refresh_token().map(RefreshToken::secret) {
+                if seen_refresh_tokens.insert(refresh_token.clone()) {
+                    all_tokens.push(token);
+                }
+            } else {
+                // Token without refresh token - always include it
+                all_tokens.push(token);
+            }
+        }
+
+        self.tp
+            .set_you_tube_api_access_tokens(
+                serde_json::to_string(&all_tokens).expect("OAuth tokens always serialize"),
+            )
+            .await;
+
+        tracing::info!(
+            channel_count = new_channel_count,
+            "successfully added new YouTube account"
+        );
+
+        Ok(())
+    }
+
     async fn on_ytl_live_broadcast_toggle(
         &mut self,
         _mode: protocol::ActionInteractionMode,
@@ -245,8 +340,7 @@ impl Plugin {
         // TouchPortal plugin instance.
         let mut client_by_channel = HashMap::new();
         for client in yt_clients {
-            let client_arc = std::sync::Arc::new(client);
-            let channels_stream = client_arc.list_my_channels();
+            let channels_stream = client.list_my_channels();
             let mut channels_stream = std::pin::pin!(channels_stream);
             while let Some(channel) = channels_stream.next().await {
                 let channel = channel.context("fetch channel")?;
@@ -254,7 +348,7 @@ impl Plugin {
                     channel.id.clone(),
                     Channel {
                         name: channel.snippet.title,
-                        yt: client_arc.clone(),
+                        yt: client.clone(),
                     },
                 );
             }

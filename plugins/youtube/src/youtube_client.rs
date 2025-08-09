@@ -141,7 +141,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     /// The current OAuth2 token, protected by a mutex for thread-safe refresh operations
     token: BasicTokenResponse,
@@ -150,10 +150,61 @@ pub struct Token {
 }
 
 impl Token {
+    pub fn from_expired_token(token: BasicTokenResponse) -> Self {
+        Self {
+            expires_at: SystemTime::UNIX_EPOCH,
+            token,
+        }
+    }
+
     pub fn from_fresh_token(token: BasicTokenResponse) -> Self {
         Self {
             expires_at: Self::calculate_token_expiry(&token),
             token,
+        }
+    }
+
+    pub fn raw_token(&self) -> &BasicTokenResponse {
+        &self.token
+    }
+
+    /// Refreshes this token using the provided OAuth manager, preserving the refresh token.
+    ///
+    /// This method handles the entire refresh flow internally, ensuring the refresh token
+    /// is never lost during the process.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - Token was successfully refreshed
+    /// * `Ok(false)` - Refresh failed (invalid grant, no refresh token, etc.)
+    /// * `Err(_)` - Network or other error occurred
+    pub async fn refresh(
+        &mut self,
+        oauth_manager: &crate::oauth::OAuthManager,
+    ) -> eyre::Result<bool> {
+        tracing::trace!("refreshing token");
+        match oauth_manager
+            .refresh_token(self.token.clone())
+            .await
+            .context("refresh OAuth token")?
+        {
+            Some(new_token) => {
+                let old_token = std::mem::replace(&mut self.token, new_token);
+
+                // If the new token doesn't have a refresh token, preserve the original one
+                if self.token.refresh_token().is_none() {
+                    tracing::trace!("new token lacks refresh token, preserving original");
+                    self.token
+                        .set_refresh_token(old_token.refresh_token().cloned());
+                } else {
+                    tracing::debug!("new token includes refresh token");
+                }
+
+                // Update the token expiry time
+                self.expires_at = Self::calculate_token_expiry(&self.token);
+                Ok(true)
+            }
+            None => Ok(false),
         }
     }
 
@@ -602,19 +653,11 @@ impl YouTubeClient {
             tracing::info!("access token expired, attempting refresh");
 
             // Token needs refresh
-            match self
-                .oauth_manager
-                .refresh_token(token.token.clone())
-                .await?
-            {
-                Some(new_token) => {
-                    *token = Token::from_fresh_token(new_token);
-                    tracing::info!("access token successfully refreshed");
-                }
-                None => {
-                    tracing::error!("access token refresh failed, client is unusable");
-                    return Err(eyre::eyre!("Unable to refresh expired access token"));
-                }
+            if token.refresh(&self.oauth_manager).await? {
+                tracing::info!("access token successfully refreshed");
+            } else {
+                tracing::error!("access token refresh failed, client is unusable");
+                return Err(eyre::eyre!("Unable to refresh expired access token"));
             }
         }
 

@@ -168,49 +168,48 @@ impl Plugin {
                 // Always refresh old tokens proactively for long-running plugin
                 tracing::info!("proactively refreshing old token for maximum lifetime");
 
-                match oauth_manager
-                    .refresh_token(token)
-                    .await
-                    .context("attempt proactive token refresh")?
-                {
-                    Some(refreshed_token) => {
-                        tracing::info!("successfully refreshed old token");
-                        refreshed_token
-                    }
-                    None => {
-                        // Refresh failed - fall back to full re-authentication
-                        outgoing
-                            .notify(
-                                CreateNotificationCommand::builder()
-                                    .notification_id("ytl_reauth")
-                                    .title("Check your browser")
-                                    .message(
-                                        "YouTube token refresh failed. \
-                                        You need to re-authenticate to YouTube.",
-                                    )
-                                    .build()
-                                    .unwrap(),
-                            )
-                            .await;
-                        tracing::info!("token refresh failed, getting new token via full OAuth");
+                let mut token = Token::from_expired_token(token);
 
-                        oauth_manager
-                            .authenticate()
-                            .await
-                            .context("authorize user to YouTube")?
-                    }
+                if token
+                    .refresh(&oauth_manager)
+                    .await
+                    .context("refresh token")?
+                {
+                    tracing::debug!("successfully refreshed old token");
+                } else {
+                    // Refresh failed - fall back to full re-authentication
+                    outgoing
+                        .notify(
+                            CreateNotificationCommand::builder()
+                                .notification_id("ytl_reauth")
+                                .title("Check your browser")
+                                .message(
+                                    "YouTube token refresh failed. \
+                                        You need to re-authenticate to YouTube.",
+                                )
+                                .build()
+                                .unwrap(),
+                        )
+                        .await;
+
+                    tracing::warn!("token refresh failed, getting new token via full OAuth");
+                    let raw_token = oauth_manager
+                        .authenticate()
+                        .await
+                        .context("authorize user to YouTube")?;
+
+                    token = Token::from_fresh_token(raw_token);
                 }
+
+                token
             } else {
                 // Token is fresh from this session, use as-is
-                token
+                Token::from_fresh_token(token)
             };
 
             // Create client with refreshed/fresh token and shared OAuth manager
-            let client = YouTubeClient::new(
-                Token::from_fresh_token(final_token.clone()),
-                oauth_manager.clone(),
-            );
-            refreshed_tokens.push(final_token);
+            refreshed_tokens.push(final_token.raw_token().clone());
+            let client = YouTubeClient::new(final_token, oauth_manager.clone());
             yt_clients.push(client);
         }
 

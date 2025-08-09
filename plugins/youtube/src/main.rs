@@ -4,6 +4,7 @@ use crate::youtube_client::{BroadcastLifeCycleStatus, TimeBoundAccessToken};
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
 use std::collections::{HashMap, HashSet};
+use std::io::IsTerminal;
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
@@ -22,15 +23,6 @@ mod youtube_client;
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
-const OAUTH_CLIENT_ID: &str =
-    "392239669497-in1s6h0alvakffbb5bjbqjegn2m5aram.apps.googleusercontent.com";
-
-// As per <https://developers.google.com/identity/protocols/oauth2#installed>, for an installed
-// desktop application using PKCE, it's expected that the secret gets embedded, and it is _not_
-// considered secret.
-const OAUTH_SECRET: &str = "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";
-
-const OAUTH_DONE: &str = include_str!("../oauth_success.html");
 
 #[derive(Debug)]
 struct Channel {
@@ -51,7 +43,7 @@ impl PluginCallbacks for Plugin {
         &mut self,
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
-        let oauth_manager = oauth::OAuthManager::new(OAUTH_CLIENT_ID, OAUTH_SECRET, OAUTH_DONE);
+        let oauth_manager = oauth::OAuthManager::new();
 
         self.tp
             .notify(
@@ -205,7 +197,7 @@ impl Plugin {
         // ==============================================================================
         // We centralize all OAuth operations through a single manager to maintain
         // consistency in client configuration and error handling across token flows.
-        let oauth_manager = oauth::OAuthManager::new(OAUTH_CLIENT_ID, OAUTH_SECRET, OAUTH_DONE);
+        let oauth_manager = oauth::OAuthManager::new();
 
         // ==============================================================================
         // Token Acquisition Strategy
@@ -426,7 +418,7 @@ async fn main() -> eyre::Result<()> {
                 .from_env_lossy(),
         )
         .without_time() // done by TouchPortal's logs
-        .with_ansi(false) // doesn't work in TouchPortal
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
 
     // when run without arguments, we're running as a plugin

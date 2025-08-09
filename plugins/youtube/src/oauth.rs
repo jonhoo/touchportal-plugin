@@ -19,36 +19,30 @@ use std::future::Future;
 /// Google OAuth2 token endpoint URL used for both initial authentication and token refresh
 const TOKEN_URL: &str = "https://www.googleapis.com/oauth2/v3/token";
 
+/// Google OAuth2 client ID for YouTube API access
+const CLIENT_ID: &str = "392239669497-in1s6h0alvakffbb5bjbqjegn2m5aram.apps.googleusercontent.com";
+
+/// Google OAuth2 client secret (embedded as per Google's installed app guidelines)
+// As per <https://developers.google.com/identity/protocols/oauth2#installed>, for an installed
+// desktop application using PKCE, it's expected that the secret gets embedded, and it is _not_
+// considered secret.
+const CLIENT_SECRET: &str = "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";
+
+/// HTML content to display after successful OAuth authorization
+const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
+
 /// Manages OAuth 2.0 authentication flows for YouTube API access.
 ///
 /// The OAuthManager encapsulates all OAuth operations, providing a consistent interface
-/// for both initial user authentication and token refresh operations. It maintains
-/// the OAuth client configuration and handles the security aspects of the authorization flow.
-#[derive(Debug, Clone)]
-pub(crate) struct OAuthManager {
-    client_id: &'static str,
-    client_secret: &'static str,
-    oauth_done_html: &'static str,
-}
+/// for both initial user authentication and token refresh operations. It uses constant
+/// OAuth client configuration and handles the security aspects of the authorization flow.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OAuthManager;
 
 impl OAuthManager {
-    /// Creates a new OAuth manager with the specified credentials.
-    ///
-    /// # Arguments
-    ///
-    /// * `client_id` - The OAuth client ID for the YouTube API application
-    /// * `client_secret` - The OAuth client secret (embedded for installed applications)
-    /// * `oauth_done_html` - HTML content to display after successful authorization
-    pub(crate) fn new(
-        client_id: &'static str,
-        client_secret: &'static str,
-        oauth_done_html: &'static str,
-    ) -> Self {
-        Self {
-            client_id,
-            client_secret,
-            oauth_done_html,
-        }
+    /// Creates a new OAuth manager instance.
+    pub(crate) const fn new() -> Self {
+        Self
     }
 
     /// Performs a complete OAuth 2.0 authorization flow to obtain a new access token.
@@ -74,8 +68,8 @@ impl OAuthManager {
         let token_url = TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL");
         let revocation_url = RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
             .expect("Invalid revocation endpoint URL");
-        let client = BasicClient::new(ClientId::new(self.client_id.to_string()))
-            .set_client_secret(ClientSecret::new(self.client_secret.to_string()))
+        let client = BasicClient::new(ClientId::new(CLIENT_ID.to_string()))
+            .set_client_secret(ClientSecret::new(CLIENT_SECRET.to_string()))
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
             .set_redirect_uri(redirect_url)
@@ -150,8 +144,8 @@ impl OAuthManager {
         tracing::debug!("attempting to refresh OAuth token");
 
         // Create a minimal OAuth client for token refresh (no redirect URL needed)
-        let client = BasicClient::new(ClientId::new(self.client_id.to_string()))
-            .set_client_secret(ClientSecret::new(self.client_secret.to_string()))
+        let client = BasicClient::new(ClientId::new(CLIENT_ID.to_string()))
+            .set_client_secret(ClientSecret::new(CLIENT_SECRET.to_string()))
             .set_token_uri(
                 TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL"),
             );
@@ -216,7 +210,6 @@ impl OAuthManager {
         let url = RedirectUrl::new(format!("http://{}:{}", addr.ip(), addr.port()))
             .context("construct redirect url")?;
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let oauth_done = self.oauth_done_html;
         tokio::spawn(async move {
             let r = async move {
                 let (conn, _) = socket.accept().await.context("accept")?;
@@ -252,7 +245,7 @@ impl OAuthManager {
                         got.send(code)
                             .await
                             .expect("channel won't be closed until server exit");
-                        Ok(Response::new(Full::<Bytes>::from(oauth_done)))
+                        Ok(Response::new(Full::<Bytes>::from(OAUTH_DONE_HTML)))
                     }
                 });
                 let mut serve = std::pin::pin!(

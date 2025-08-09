@@ -308,21 +308,25 @@ pub struct LiveBroadcastSnippet {
     /// The date and time that the broadcast is scheduled to start.
     ///
     /// The value is specified in ISO 8601 format.
+    /// May be unset for broadcasts that are not yet scheduled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_start_time: Option<Timestamp>,
     /// The date and time that the broadcast is scheduled to end.
     ///
     /// The value is specified in ISO 8601 format.
+    /// May be unset, which means the broadcast is scheduled to continue indefinitely.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_end_time: Option<Timestamp>,
     /// The date and time that the broadcast actually started.
     ///
     /// The value is specified in ISO 8601 format.
+    /// Unset until the broadcast has actually started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actual_start_time: Option<Timestamp>,
     /// The date and time that the broadcast actually ended.
     ///
     /// The value is specified in ISO 8601 format.
+    /// Unset until the broadcast has actually ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actual_end_time: Option<Timestamp>,
 }
@@ -440,19 +444,10 @@ pub struct CuepointRequest {
         deserialize_with = "deserialize_seconds_as_duration"
     )]
     pub duration: Option<SignedDuration>,
-    /// Time offset for cuepoint insertion.
+    /// Wall clock time for when to insert the cuepoint.
     ///
-    /// Cannot be used together with [`Self::walltime`].
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "insertionOffsetTimeMs",
-        serialize_with = "serialize_duration_as_milliseconds",
-        deserialize_with = "deserialize_milliseconds_as_duration"
-    )]
-    pub insertion_offset_time: Option<SignedDuration>,
-    /// Specific wall clock time for insertion.
-    ///
-    /// Cannot be used together with [`Self::insertion_offset_time`].
+    /// If `None`, YouTube will use a default `insertionOffsetTimeMs` of `0`,
+    /// meaning the cuepoint will be inserted immediately.
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "walltimeMs",
@@ -487,97 +482,6 @@ where
     Ok(seconds.map(|s| SignedDuration::from_secs(s as i64)))
 }
 
-fn serialize_duration_as_milliseconds<S>(
-    duration: &Option<SignedDuration>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match duration {
-        Some(d) => {
-            let millis = d.as_millis();
-            serializer.serialize_u64(millis as u64)
-        }
-        None => serializer.serialize_none(),
-    }
-}
-
-fn deserialize_milliseconds_as_duration<'de, D>(
-    deserializer: D,
-) -> Result<Option<SignedDuration>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let millis: Option<u64> = Option::deserialize(deserializer)?;
-    Ok(millis.map(|ms| SignedDuration::from_millis(ms as i64)))
-}
-
-impl CuepointRequest {
-    /// Creates a new ad cuepoint request with default 30-second duration.
-    ///
-    /// This is a convenience method for the most common cuepoint type.
-    ///
-    /// # Returns
-    ///
-    /// A [`CuepointRequest`] configured for ad insertion with default settings.
-    pub fn ad_cuepoint() -> Self {
-        Self {
-            cue_type: CueType::CueTypeAd,
-            duration: Some(SignedDuration::from_secs(30)),
-            insertion_offset_time: None,
-            walltime: None,
-        }
-    }
-
-    /// Creates a new ad cuepoint request with custom duration.
-    ///
-    /// # Arguments
-    ///
-    /// * `duration` - Duration of the ad break
-    ///
-    /// # Returns
-    ///
-    /// A [`CuepointRequest`] configured for ad insertion with the specified duration.
-    pub fn ad_cuepoint_with_duration(duration: SignedDuration) -> Self {
-        Self {
-            cue_type: CueType::CueTypeAd,
-            duration: Some(duration),
-            insertion_offset_time: None,
-            walltime: None,
-        }
-    }
-
-    /// Sets the insertion offset time for this cuepoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `offset` - Time offset for cuepoint insertion
-    ///
-    /// # Returns
-    ///
-    /// Self with the insertion offset time set.
-    pub fn with_insertion_offset(mut self, offset: SignedDuration) -> Self {
-        self.insertion_offset_time = Some(offset);
-        self.walltime = None; // Clear walltime if set
-        self
-    }
-
-    /// Sets the wall clock time for this cuepoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `walltime` - Specific wall clock time for insertion
-    ///
-    /// # Returns
-    ///
-    /// Self with the wall clock time set.
-    pub fn with_walltime(mut self, walltime: Timestamp) -> Self {
-        self.walltime = Some(walltime);
-        self.insertion_offset_time = None; // Clear offset if set
-        self
-    }
-}
 
 /// Response structure for the `liveStreams.list` API call.
 ///

@@ -10,7 +10,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 // cargo build --release
 
 pub mod codegen;
-pub use codegen::build;
+pub use codegen::{export, generate};
 
 pub mod reexport {
     pub use hex_color::HexColor;

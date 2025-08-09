@@ -92,15 +92,5 @@ pub fn plugin() -> PluginDescription {
 fn main() {
     let plugin = plugin();
 
-    std::fs::write(
-        format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
-        touchportal_sdk::codegen::build(&plugin),
-    )
-    .unwrap();
-
-    std::fs::write(
-        format!("{}/entry.tp", std::env::var("OUT_DIR").unwrap()),
-        serde_json::to_vec(&plugin).unwrap(),
-    )
-    .unwrap();
+    touchportal_sdk::codegen::export(&plugin);
 }

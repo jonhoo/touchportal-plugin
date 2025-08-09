@@ -96,7 +96,50 @@ use syn::Ident;
 /// popd
 /// rm -r "$tmp"
 /// ```
-pub fn build(plugin: &PluginDescription) -> String {
+/// Generates and writes the build outputs for a TouchPortal plugin.
+///
+/// This function handles the complete build process for a plugin:
+/// - Generates the Rust binding code and writes it to `$OUT_DIR/entry.rs`
+/// - Serializes the plugin description and writes it to `$OUT_DIR/entry.tp`
+/// - Outputs appropriate cargo build directives for rebuild detection
+///
+/// This is the recommended way to handle plugin build outputs in your `build.rs`:
+///
+/// ```rust,no_run
+/// use touchportal_sdk::{PluginDescription, codegen};
+/// fn main() {
+///     let plugin = PluginDescription::builder()
+///       /* build your plugin manifest here */
+///       .build()
+///       .unwrap();
+///
+///     // Generate and write all build outputs
+///     codegen::export(&plugin);
+/// }
+/// ```
+pub fn export(plugin: &PluginDescription) {
+    // Generate the Rust binding code
+    let rust_code = generate(plugin);
+
+    // Get the OUT_DIR environment variable
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR environment variable not set");
+
+    // Write the generated Rust code
+    std::fs::write(format!("{}/entry.rs", out_dir), rust_code)
+        .expect("write generated Rust code to OUT_DIR/entry.rs");
+
+    // Write the serialized plugin description
+    std::fs::write(
+        format!("{}/entry.tp", out_dir),
+        serde_json::to_vec(plugin).expect("serialize plugin description"),
+    )
+    .expect("write serialized plugin description to OUT_DIR/entry.tp");
+
+    // Output cargo directives for proper rebuild detection
+    println!("cargo::rerun-if-changed=build.rs");
+}
+
+pub fn generate(plugin: &PluginDescription) -> String {
     // also write out &'static PluginDescription
     // defs probably go to lib, and so does the static (const?) construction of the instance.
     // then, this loads that to make entry.tp _and_ it's used to codegen (how?) action+event bindings.

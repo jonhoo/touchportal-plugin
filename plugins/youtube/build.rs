@@ -28,6 +28,7 @@ pub fn plugin() -> PluginDescription {
                 .build()
                 .unwrap(),
         )
+        // TODO: add a category + action for authenticating more accounts
         .category(
             Category::builder()
                 .id("ytl_live_broadcasts")

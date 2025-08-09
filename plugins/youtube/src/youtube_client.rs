@@ -28,119 +28,93 @@
 //! For most user-facing applications, you'll primarily work with broadcasts via
 //! [`YouTubeClient::list_my_live_broadcasts`] and related methods.
 
+use crate::oauth::OAuthManager;
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
-use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
+use std::time::{Duration, SystemTime};
+use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::instrument;
 
-type OneFuturePage<T> =
-    Pin<Box<dyn Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send>>;
+type OneFuturePage<'a, F, T> =
+    Pin<Box<dyn Future<Output = eyre::Result<(F, (VecDeque<T>, Option<String>))>> + 'a>>;
+
+impl<'a, T, F> PagedStream<'a, T, F> {
+    /// Create a new PagedStream from the first page of results.
+    pub fn new(fetcher: F) -> Self
+    where
+        F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
+    {
+        let first_page = async move {
+            let results = fetcher(None).await?;
+            Ok((fetcher, results))
+        };
+        Self {
+            pending_request: Some(Box::pin(first_page)),
+            current_items: VecDeque::new(),
+            is_done: false,
+        }
+    }
+}
 
 /// A paginated stream that automatically fetches subsequent pages from a YouTube API list endpoint.
 ///
 /// This stream yields items one by one, automatically fetching the next page when the current
 /// page is exhausted. Only supports forward pagination (no previous page support).
-pub struct PagedStream<T> {
+pub struct PagedStream<'a, T, F> {
     /// Current batch of items from the most recent API response
     current_items: VecDeque<T>,
-    /// Token for the next page, if available
-    next_page_token: Option<String>,
     /// Future representing the currently pending API request, if any
-    pending_request: Option<OneFuturePage<T>>,
+    pending_request: Option<OneFuturePage<'a, F, T>>,
     /// Whether we've reached the end of all available data
     is_done: bool,
 }
 
-impl<T> PagedStream<T> {
-    /// Create a new PagedStream from the first page of results.
-    pub fn new(items: VecDeque<T>, next_page_token: Option<String>) -> Self {
-        Self {
-            current_items: items,
-            next_page_token,
-            pending_request: None,
-            is_done: false,
-        }
-    }
+impl<'a, T: Unpin, F> Unpin for PagedStream<'a, T, F> {}
 
-    /// Set the fetch function that will be called to get the next page.
-    /// This function should return a future that resolves to (items, next_page_token).
-    pub fn with_fetcher<F, Fut>(self, fetcher: F) -> PagedStreamWithFetcher<T, F>
-    where
-        F: Fn(Option<String>) -> Fut + Send,
-        Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'static,
-    {
-        PagedStreamWithFetcher {
-            current_items: self.current_items,
-            next_page_token: self.next_page_token,
-            pending_request: None,
-            is_done: self.is_done,
-            fetcher,
-        }
-    }
-}
-
-/// A paginated stream with an associated fetch function for subsequent pages.
-#[pin_project]
-pub struct PagedStreamWithFetcher<T, F> {
-    current_items: VecDeque<T>,
-    next_page_token: Option<String>,
-    #[pin]
-    pending_request: Option<OneFuturePage<T>>,
-    is_done: bool,
-    fetcher: F,
-}
-
-impl<T, F, Fut> Stream for PagedStreamWithFetcher<T, F>
+impl<'a, T: Unpin, F> Stream for PagedStream<'a, T, F>
 where
-    T: Send + 'static,
-    F: Fn(Option<String>) -> Fut + Send,
-    Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'static,
+    F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
 {
     type Item = eyre::Result<T>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         loop {
             // If we have items in the current batch, return the next one
-            if let Some(item) = this.current_items.pop_front() {
+            if let Some(item) = self.current_items.pop_front() {
                 return Poll::Ready(Some(Ok(item)));
             }
 
             // If we're done (no more pages), return None
-            if *this.is_done {
+            if self.is_done {
                 return Poll::Ready(None);
             }
 
-            // If we don't have a pending request and we have a next page token, start fetching
-            if this.pending_request.is_none() && this.next_page_token.is_some() {
-                let token = this.next_page_token.clone();
-                let future = (this.fetcher)(token);
-                this.pending_request.set(Some(Box::pin(future)));
-            }
-
             // If we have a pending request, poll it
-            if let Some(pending) = this.pending_request.as_mut().as_pin_mut() {
-                match pending.poll(cx) {
-                    Poll::Ready(Ok((items, next_token))) => {
+            if let Some(pending) = self.pending_request.as_mut() {
+                match pending.as_mut().poll(cx) {
+                    Poll::Ready(Ok((fetcher, (items, next_token)))) => {
                         // We got the next page
-                        this.current_items.clear();
-                        *this.current_items = items;
-                        *this.next_page_token = next_token;
+                        self.current_items.extend(items);
 
-                        // Clear the pending request
-                        this.pending_request.set(None);
-
-                        // If no items and no next token, we're done
-                        if this.current_items.is_empty() && this.next_page_token.is_none() {
-                            *this.is_done = true;
+                        if let Some(next_token) = next_token {
+                            // Set up the future for the next page
+                            // (but don't poll it yet)
+                            self.pending_request = Some(Box::pin(async move {
+                                let results = fetcher(Some(next_token)).await?;
+                                Ok((fetcher, results))
+                            }));
+                        } else {
+                            // If no next token, we're done
+                            self.is_done = true;
+                            self.pending_request = None;
                         }
 
                         // Continue the loop to try yielding an item
@@ -148,8 +122,8 @@ where
                     }
                     Poll::Ready(Err(e)) => {
                         // Error fetching next page
-                        *this.is_done = true;
-                        this.pending_request.set(None);
+                        self.pending_request = None;
+                        self.is_done = true;
                         return Poll::Ready(Some(Err(e)));
                     }
                     Poll::Pending => {
@@ -159,9 +133,40 @@ where
                 }
             } else {
                 // No pending request and no next page token means we're done
-                *this.is_done = true;
+                self.is_done = true;
                 return Poll::Ready(None);
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Token {
+    /// The current OAuth2 token, protected by a mutex for thread-safe refresh operations
+    token: BasicTokenResponse,
+    /// When the current access token expires (with safety buffer)
+    expires_at: SystemTime,
+}
+
+impl Token {
+    pub fn from_fresh_token(token: BasicTokenResponse) -> Self {
+        Self {
+            expires_at: Self::calculate_token_expiry(&token),
+            token,
+        }
+    }
+
+    /// Calculates when a token should be considered expired based on its expires_in field.
+    ///
+    /// Uses the current time + expires_in duration - 5 minute safety buffer.
+    /// If no expires_in is provided, assumes a conservative 55-minute lifetime.
+    fn calculate_token_expiry(token: &BasicTokenResponse) -> SystemTime {
+        let now = SystemTime::now();
+        if let Some(expires_in) = token.expires_in() {
+            now + expires_in - Duration::from_secs(300) // 5 minute buffer
+        } else {
+            // If no expires_in field, assume 1 hour minus buffer (conservative default)
+            now + Duration::from_secs(3300) // 55 minutes
         }
     }
 }
@@ -170,9 +175,17 @@ where
 ///
 /// This client wraps an OAuth2 token and provides methods to call various YouTube API endpoints.
 /// All API calls require a valid OAuth2 access token with appropriate scopes.
+///
+/// The client automatically refreshes expired access tokens before API calls using the stored
+/// refresh token and OAuth manager. Token expiry is tracked based on the `expires_in` field
+/// from the OAuth response, with a safety buffer to prevent edge-case failures.
 #[derive(Debug, Clone)]
 pub struct YouTubeClient {
-    token: BasicTokenResponse,
+    /// The current OAuth2 token.
+    token: Arc<Mutex<Token>>,
+    /// OAuth manager for refreshing tokens
+    oauth_manager: OAuthManager,
+    /// HTTP client for API requests
     client: reqwest::Client,
 }
 
@@ -541,44 +554,93 @@ pub struct ChannelSnippet {
 }
 
 impl YouTubeClient {
-    /// Creates a new YouTube API client with the provided OAuth2 token.
+    /// Creates a new YouTube API client with the provided OAuth2 token and OAuth manager.
+    ///
+    /// The token expiry time is calculated from when the token was created plus the `expires_in`
+    /// duration minus a 5-minute safety buffer to prevent edge-case failures.
     ///
     /// # Arguments
     ///
     /// * `token` - A valid [`BasicTokenResponse`] containing the OAuth2 access token
-    pub fn new(token: BasicTokenResponse) -> Self {
+    /// * `oauth_manager` - Shared OAuth manager for token refresh operations
+    pub fn new(token: Token, oauth_manager: OAuthManager) -> Self {
         let client = reqwest::Client::new();
-        Self { token, client }
+
+        Self {
+            token: Arc::new(Mutex::new(token)),
+            oauth_manager,
+            client,
+        }
     }
 
-    /// Returns the underlying OAuth2 token.
+    /// Returns a clone of the underlying OAuth2 token.
     ///
     /// This is useful when you need to extract the token for storage or
-    /// passing to another component.
-    pub fn token(&self) -> &BasicTokenResponse {
-        &self.token
+    /// passing to another component. Since the token is protected by a mutex,
+    /// this method is async.
+    pub async fn token(&self) -> BasicTokenResponse {
+        self.token.lock().await.token.clone()
     }
 
-    /// Consumes the client and returns the underlying OAuth2 token.
+    /// Ensures the access token is fresh by checking expiry and refreshing if necessary.
     ///
-    /// This is useful when you need to extract the token for storage or
-    /// passing to another component.
-    pub fn into_token(self) -> BasicTokenResponse {
-        self.token
+    /// This method is called automatically before each API request to ensure the token
+    /// is valid. It checks if the token expires within the safety buffer and refreshes
+    /// it if needed.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - Token is fresh (either was valid or successfully refreshed)
+    /// * `Ok(false)` - Token refresh failed, client is unusable
+    /// * `Err(_)` - Network or other error occurred during refresh
+    #[instrument(skip(self), ret)]
+    async fn ensure_fresh_token(&self) -> eyre::Result<bool> {
+        let mut token = self.token.lock().await;
+        let now = SystemTime::now();
+
+        if now < token.expires_at {
+            // Token is still fresh
+            return Ok(true);
+        }
+
+        tracing::info!("access token expired, attempting refresh");
+
+        // Token needs refresh
+        match self
+            .oauth_manager
+            .refresh_token(token.token.clone())
+            .await?
+        {
+            Some(new_token) => {
+                *token = Token::from_fresh_token(new_token);
+                tracing::info!("access token successfully refreshed");
+                Ok(true)
+            }
+            None => {
+                tracing::error!("access token refresh failed, client is unusable");
+                Ok(false)
+            }
+        }
     }
 
     /// Validates the OAuth2 token by making a test API call to the YouTube Data API.
     ///
-    /// Makes a minimal call to [`Self::list_live_broadcasts_internal`] with `max_results=1`
+    /// This method first ensures the token is fresh (auto-refresh if needed), then makes
+    /// a minimal call to [`Self::list_live_broadcasts_internal`] with `max_results=1`
     /// to test if the token is still valid and has the required scopes.
     ///
     /// # Returns
     ///
     /// * `Ok(true)` - Token is valid and can be used for API calls
-    /// * `Ok(false)` - Token is invalid or expired
+    /// * `Ok(false)` - Token is invalid or refresh failed
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
     pub async fn validate_token(&self) -> eyre::Result<bool> {
+        // Ensure token is fresh before validation
+        if !self.ensure_fresh_token().await? {
+            return Ok(false);
+        }
+
         match self.list_live_broadcasts_internal(1, None, None).await {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
@@ -614,24 +676,15 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self))]
-    pub async fn list_my_live_broadcasts(
+    pub fn list_my_live_broadcasts(
         &self,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
-        let response = self.list_live_broadcasts_internal(50, None, None).await?;
-        let client = self.clone();
-        Ok(
-            PagedStream::new(response.items, response.next_page_token).with_fetcher(
-                move |page_token| {
-                    let client = client.clone();
-                    async move {
-                        let response = client
-                            .list_live_broadcasts_internal(50, None, page_token)
-                            .await?;
-                        Ok((response.items, response.next_page_token))
-                    }
-                },
-            ),
-        )
+    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
+        PagedStream::new(|page_token| async {
+            let response = self
+                .list_live_broadcasts_internal(50, None, page_token)
+                .await?;
+            Ok((response.items, response.next_page_token))
+        })
     }
 
     /// Returns a paginated stream of YouTube broadcasts filtered by status for the authenticated user.
@@ -661,29 +714,20 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self))]
-    pub async fn list_my_live_broadcasts_by_status(
+    pub fn list_my_live_broadcasts_by_status(
         &self,
         status_filter: BroadcastStatusFilter,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         let status_filter_clone = status_filter.clone();
-        let response = self
-            .list_live_broadcasts_internal(50, Some(status_filter), None)
-            .await?;
-        let client = self.clone();
-        Ok(
-            PagedStream::new(response.items, response.next_page_token).with_fetcher(
-                move |page_token| {
-                    let client = client.clone();
-                    let status_filter = status_filter_clone.clone();
-                    async move {
-                        let response = client
-                            .list_live_broadcasts_internal(50, Some(status_filter), page_token)
-                            .await?;
-                        Ok((response.items, response.next_page_token))
-                    }
-                },
-            ),
-        )
+        PagedStream::new(move |page_token| {
+            let status_filter = status_filter_clone.clone();
+            async {
+                let response = self
+                    .list_live_broadcasts_internal(50, Some(status_filter), page_token)
+                    .await?;
+                Ok((response.items, response.next_page_token))
+            }
+        })
     }
 
     /// Returns a paginated stream of active (currently live) YouTube broadcasts for the authenticated user.
@@ -705,11 +749,10 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self))]
-    pub async fn list_my_active_live_broadcasts(
+    pub fn list_my_active_live_broadcasts(
         &self,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Active)
-            .await
     }
 
     /// Returns a paginated stream of upcoming YouTube broadcasts for the authenticated user.
@@ -730,11 +773,10 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self))]
-    pub async fn list_my_upcoming_live_broadcasts(
+    pub fn list_my_upcoming_live_broadcasts(
         &self,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveBroadcast>>> {
+    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming)
-            .await
     }
 
     /// Changes the status of a YouTube live broadcast and initiates processes associated with the new status.
@@ -765,7 +807,19 @@ impl YouTubeClient {
         broadcast_id: &str,
         status: BroadcastStatus,
     ) -> eyre::Result<LiveBroadcast> {
-        let access_token = self.token.access_token().secret();
+        // Ensure token is fresh before making API call
+        if !self.ensure_fresh_token().await? {
+            return Err(eyre::eyre!("Unable to refresh expired access token"));
+        }
+
+        let access_token = self
+            .token
+            .lock()
+            .await
+            .token
+            .access_token()
+            .secret()
+            .to_string();
 
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/transition";
         let response = self
@@ -841,7 +895,19 @@ impl YouTubeClient {
         broadcast_id: &str,
         cuepoint: &CuepointRequest,
     ) -> eyre::Result<()> {
-        let access_token = self.token.access_token().secret();
+        // Ensure token is fresh before making API call
+        if !self.ensure_fresh_token().await? {
+            return Err(eyre::eyre!("Unable to refresh expired access token"));
+        }
+
+        let access_token = self
+            .token
+            .lock()
+            .await
+            .token
+            .access_token()
+            .secret()
+            .to_string();
 
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/cuepoint";
         let response = self
@@ -906,22 +972,11 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveStreams/list>
     #[instrument(skip(self))]
-    pub async fn list_my_live_streams(
-        &self,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<LiveStream>>> {
-        let response = self.list_live_streams_internal(50, None).await?;
-        let client = self.clone();
-        Ok(
-            PagedStream::new(response.items, response.next_page_token).with_fetcher(
-                move |page_token| {
-                    let client = client.clone();
-                    async move {
-                        let response = client.list_live_streams_internal(50, page_token).await?;
-                        Ok((response.items, response.next_page_token))
-                    }
-                },
-            ),
-        )
+    pub fn list_my_live_streams(&self) -> impl Stream<Item = eyre::Result<LiveStream>> + use<'_> {
+        PagedStream::new(|page_token| async {
+            let response = self.list_live_streams_internal(50, page_token).await?;
+            Ok((response.items, response.next_page_token))
+        })
     }
 
     /// Returns a paginated stream of YouTube channels owned by the authenticated user.
@@ -946,22 +1001,11 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/docs/channels/list>
     #[instrument(skip(self))]
-    pub async fn list_my_channels(
-        &self,
-    ) -> eyre::Result<impl Stream<Item = eyre::Result<Channel>>> {
-        let response = self.list_channels_internal(50, None).await?;
-        let client = self.clone();
-        Ok(
-            PagedStream::new(response.items, response.next_page_token).with_fetcher(
-                move |page_token| {
-                    let client = client.clone();
-                    async move {
-                        let response = client.list_channels_internal(50, page_token).await?;
-                        Ok((response.items, response.next_page_token))
-                    }
-                },
-            ),
-        )
+    pub fn list_my_channels(&self) -> impl Stream<Item = eyre::Result<Channel>> + use<'_> {
+        PagedStream::new(|page_token| async {
+            let response = self.list_channels_internal(50, page_token).await?;
+            Ok((response.items, response.next_page_token))
+        })
     }
 
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
@@ -988,7 +1032,19 @@ impl YouTubeClient {
         status_filter: Option<BroadcastStatusFilter>,
         page_token: Option<String>,
     ) -> eyre::Result<LiveBroadcastListResponse> {
-        let access_token = self.token.access_token().secret();
+        // Ensure token is fresh before making API call
+        if !self.ensure_fresh_token().await? {
+            return Err(eyre::eyre!("Unable to refresh expired access token"));
+        }
+
+        let access_token = self
+            .token
+            .lock()
+            .await
+            .token
+            .access_token()
+            .secret()
+            .to_string();
 
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
 
@@ -1072,7 +1128,19 @@ impl YouTubeClient {
         max_results: u32,
         page_token: Option<String>,
     ) -> eyre::Result<LiveStreamListResponse> {
-        let access_token = self.token.access_token().secret();
+        // Ensure token is fresh before making API call
+        if !self.ensure_fresh_token().await? {
+            return Err(eyre::eyre!("Unable to refresh expired access token"));
+        }
+
+        let access_token = self
+            .token
+            .lock()
+            .await
+            .token
+            .access_token()
+            .secret()
+            .to_string();
 
         let url = "https://www.googleapis.com/youtube/v3/liveStreams";
         let max_results_string = max_results.to_string();
@@ -1146,7 +1214,19 @@ impl YouTubeClient {
         max_results: u32,
         page_token: Option<String>,
     ) -> eyre::Result<ChannelListResponse> {
-        let access_token = self.token.access_token().secret();
+        // Ensure token is fresh before making API call
+        if !self.ensure_fresh_token().await? {
+            return Err(eyre::eyre!("Unable to refresh expired access token"));
+        }
+
+        let access_token = self
+            .token
+            .lock()
+            .await
+            .token
+            .access_token()
+            .secret()
+            .to_string();
 
         let url = "https://www.googleapis.com/youtube/v3/channels";
         let max_results_string = max_results.to_string();

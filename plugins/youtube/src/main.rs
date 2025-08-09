@@ -1,16 +1,7 @@
 #![allow(dead_code)]
 
+use crate::youtube_client::Token;
 use eyre::Context;
-use http_body_util::Full;
-use hyper::body::Bytes;
-use hyper::service::service_fn;
-use hyper::{body, Request, Response};
-use oauth2::basic::{BasicClient, BasicTokenResponse};
-use oauth2::{reqwest, ClientSecret, RevocationUrl};
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
-    TokenUrl,
-};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio_stream::StreamExt;
@@ -20,6 +11,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use youtube_client::YouTubeClient;
 
+mod oauth;
 mod youtube_client;
 
 // You can look at the generated code for a plugin using this command:
@@ -42,7 +34,7 @@ const OAUTH_DONE: &str = include_str!("../oauth_success.html");
 #[derive(Debug)]
 struct Channel {
     name: String,
-    yt: YouTubeClient,
+    yt: std::sync::Arc<YouTubeClient>,
 }
 
 #[derive(Debug)]
@@ -79,11 +71,7 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("user selected unknown channel '{selected}'");
         };
 
-        let broadcasts = channel
-            .yt
-            .list_my_live_broadcasts()
-            .await
-            .context("list live broadcasts")?;
+        let broadcasts = channel.yt.list_my_live_broadcasts();
 
         let mut broadcast_choices = Vec::new();
         let mut stream = std::pin::pin!(broadcasts);
@@ -116,6 +104,18 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
+        // ==============================================================================
+        // OAuth Manager Setup
+        // ==============================================================================
+        // We centralize all OAuth operations through a single manager to maintain
+        // consistency in client configuration and error handling across token flows.
+        let oauth_manager = oauth::OAuthManager::new(OAUTH_CLIENT_ID, OAUTH_SECRET, OAUTH_DONE);
+
+        // ==============================================================================
+        // Token Acquisition Strategy
+        // ==============================================================================
+        // For new users with no stored tokens, we initiate a fresh OAuth flow.
+        // The user gets a browser notification to complete the authorization process.
         let (tokens, is_old) = if settings.you_tube_api_access_tokens.is_empty()
             || settings.you_tube_api_access_tokens == "[]"
         {
@@ -133,7 +133,8 @@ impl Plugin {
                 )
                 .await;
 
-            let token = run_oauth_flow()
+            let token = oauth_manager
+                .authenticate()
                 .await
                 .context("authorize user to YouTube")?;
             let tokens = vec![token];
@@ -153,62 +154,108 @@ impl Plugin {
             )
         };
 
-        // Test the existing token before using it
+        // ==============================================================================
+        // Token Refresh Strategy for Long-Running Plugin
+        // ==============================================================================
+        // For long-running plugins, we proactively refresh all old tokens to ensure
+        // they have maximum lifetime. Fresh tokens are validated after refresh to
+        // confirm they work correctly.
         let mut yt_clients = Vec::new();
+        let mut refreshed_tokens = Vec::new();
+
         for token in tokens {
-            let mut client = YouTubeClient::new(token);
-            let is_valid = client
-                .validate_token()
-                .await
-                .context("validate existing YouTube token")?;
+            let final_token = if is_old {
+                // Always refresh old tokens proactively for long-running plugin
+                tracing::info!("proactively refreshing old token for maximum lifetime");
 
-            if !is_valid && is_old {
-                let token = client.into_token();
-                // TODO(claude): attempt a refresh of the user token, and if it succeeds, set client to be a valid YouTubeClient again.
-                // use https://docs.rs/oauth2/latest/oauth2/struct.Client.html#method.exchange_refresh_token
-            }
-
-            if is_valid {
-                tracing::info!("YouTube token is valid, using it");
-            } else if is_old {
-                outgoing
-                    .notify(
-                        CreateNotificationCommand::builder()
-                            .notification_id("ytl_reauth")
-                            .title("Check your browser")
-                            .message(
-                                "You need to authenticate to YouTube \
-                                to re-authorize access to your channel.",
-                            )
-                            .build()
-                            .unwrap(),
-                    )
-                    .await;
-                tracing::info!("existing YouTube token is invalid, getting new one");
-
-                let new_token = run_oauth_flow()
+                match oauth_manager
+                    .refresh_token(token)
                     .await
-                    .context("authorize user to YouTube")?;
+                    .context("attempt proactive token refresh")?
+                {
+                    Some(refreshed_token) => {
+                        tracing::info!("successfully refreshed old token");
+                        refreshed_token
+                    }
+                    None => {
+                        // Refresh failed - fall back to full re-authentication
+                        outgoing
+                            .notify(
+                                CreateNotificationCommand::builder()
+                                    .notification_id("ytl_reauth")
+                                    .title("Check your browser")
+                                    .message(
+                                        "YouTube token refresh failed. \
+                                        You need to re-authenticate to YouTube.",
+                                    )
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .await;
+                        tracing::info!("token refresh failed, getting new token via full OAuth");
 
-                client = YouTubeClient::new(new_token);
+                        oauth_manager
+                            .authenticate()
+                            .await
+                            .context("authorize user to YouTube")?
+                    }
+                }
             } else {
-                eyre::bail!("freshly minted YouTube token is invalid");
-            }
+                // Token is fresh from this session, use as-is
+                token
+            };
 
+            // Create client with refreshed/fresh token and shared OAuth manager
+            let client = YouTubeClient::new(
+                Token::from_fresh_token(final_token.clone()),
+                oauth_manager.clone(),
+            );
+            refreshed_tokens.push(final_token);
             yt_clients.push(client);
         }
 
+        // ==============================================================================
+        // Token Validation After Refresh
+        // ==============================================================================
+        // Now that all tokens are fresh, validate them to ensure they work correctly.
+        // Any validation failures at this point indicate serious issues.
+        for client in &yt_clients {
+            let is_valid = client
+                .validate_token()
+                .await
+                .context("validate refreshed YouTube token")?;
+
+            if !is_valid {
+                eyre::bail!("freshly refreshed YouTube token failed validation");
+            }
+        }
+
+        // Update stored tokens with the refreshed ones
+        outgoing
+            .set_you_tube_api_access_tokens(
+                serde_json::to_string(&refreshed_tokens).expect("OAuth tokens always serialize"),
+            )
+            .await;
+
+        // ==============================================================================
+        // Multi-Channel Client Setup
+        // ==============================================================================
+        // Each valid token may correspond to multiple YouTube channels.
+        // We build a mapping from channel ID to authenticated client for efficient
+        // action routing. This allows users to manage multiple channels from a single
+        // TouchPortal plugin instance.
         let mut client_by_channel = HashMap::new();
         for client in yt_clients {
-            let channels_stream = client.list_my_channels().await.context("list channels")?;
+            let client_arc = std::sync::Arc::new(client);
+            let channels_stream = client_arc.list_my_channels();
             let mut channels_stream = std::pin::pin!(channels_stream);
             while let Some(channel) = channels_stream.next().await {
                 let channel = channel.context("fetch channel")?;
                 client_by_channel.insert(
-                    channel.id,
+                    channel.id.clone(),
                     Channel {
                         name: channel.snippet.title,
-                        yt: client.clone(),
+                        yt: client_arc.clone(),
                     },
                 );
             }
@@ -218,7 +265,11 @@ impl Plugin {
 
         // TODO: event when a stream becomes active or inactive
 
-        // Now we actually know what channels the user can select between!
+        // ==============================================================================
+        // TouchPortal UI Initialization
+        // ==============================================================================
+        // Now that we know what channels are available, update the TouchPortal UI
+        // with channel choices that users can select from in their actions.
         outgoing
             .update_choices_in_ytl_channel(
                 client_by_channel
@@ -227,6 +278,12 @@ impl Plugin {
             )
             .await;
 
+        // ==============================================================================
+        // Background State Monitoring Task
+        // ==============================================================================
+        // Spawn a background task to periodically refresh live stream status and metrics.
+        // This keeps the plugin's state synchronized with YouTube's backend without
+        // requiring user interaction.
         let handle = outgoing.clone();
         tokio::spawn(async move {
             let _ = handle;
@@ -242,137 +299,6 @@ impl Plugin {
             current_channel: None,
         })
     }
-}
-
-async fn run_oauth_flow() -> eyre::Result<BasicTokenResponse> {
-    let csrf = CsrfToken::new_random();
-    let (redirect_url, eventually_authorization_code) = setup_redirect(csrf.clone())
-        .await
-        .context("set up redirect endpoint")?;
-
-    let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
-        .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://www.googleapis.com/oauth2/v3/token".to_string())
-        .expect("Invalid token endpoint URL");
-    let revocation_url = RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
-        .expect("Invalid revocation endpoint URL");
-    let client = BasicClient::new(ClientId::new(OAUTH_CLIENT_ID.to_string()))
-        .set_client_secret(ClientSecret::new(OAUTH_SECRET.to_string()))
-        .set_auth_uri(auth_url)
-        .set_token_uri(token_url)
-        .set_redirect_uri(redirect_url)
-        .set_revocation_url(revocation_url);
-
-    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-    let (auth_url, _csrf_token) = client
-        // We never re-use the CSRF since we only go through the flow exactly once.
-        .authorize_url(move || csrf.clone())
-        .add_scope(Scope::new(
-            "https://www.googleapis.com/auth/youtube".to_string(),
-        ))
-        .set_pkce_challenge(pkce_challenge)
-        .url();
-
-    tracing::info!(url = %auth_url, "asking user to follow OAuth flow");
-    webbrowser::open(auth_url.as_ref()).context("open user's browser")?;
-    let authorization_code = eventually_authorization_code
-        .await
-        .context("await user authorization code")?;
-
-    let http_client = reqwest::ClientBuilder::new()
-        // SSRF no thank you.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("building reqwest client should not fail");
-    let token_result = client
-        .exchange_code(authorization_code)
-        .set_pkce_verifier(pkce_verifier)
-        .request_async(&http_client)
-        .await
-        .context("exchange authorization code with access token")?;
-
-    Ok(token_result)
-}
-
-async fn setup_redirect(
-    csrf: CsrfToken,
-) -> eyre::Result<(
-    RedirectUrl,
-    impl Future<Output = eyre::Result<AuthorizationCode>>,
-)> {
-    // Once the user has been redirected to the redirect URL, you'll have access to the
-    // authorization code. For security reasons, your code should verify that the `state`
-    // parameter returned by the server matches `csrf_token`. `code` has the authorization code.
-    // RedirectUrl::new("http://redirect".to_string())?
-    let socket = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .context("bind to localhost")?;
-    let addr = socket.local_addr().context("get local address")?;
-    let url = RedirectUrl::new(format!("http://{}:{}", addr.ip(), addr.port()))
-        .context("construct redirect url")?;
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        let r = async move {
-            let (conn, _) = socket.accept().await.context("accept")?;
-            let conn = hyper_util::rt::TokioIo::new(conn);
-            let (got, mut gotten) = tokio::sync::mpsc::channel(1);
-            let service = service_fn(move |req: Request<body::Incoming>| {
-                let csrf = csrf.clone();
-                let got = got.clone();
-                async move {
-                    let mut presented_state = None;
-                    let mut presented_code = None;
-                    // space-separated
-                    let mut presented_scope = None;
-                    for (k, v) in form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes())
-                    {
-                        match &*k {
-                            "state" => presented_state = Some(v),
-                            "code" => presented_code = Some(v),
-                            "scope" => presented_scope = Some(v),
-                            _ => {}
-                        }
-                    }
-                    // TODO
-                    let _ = presented_scope;
-                    if presented_state.as_deref() != Some(csrf.secret().as_str()) {
-                        return Err("invalid csrf token");
-                    }
-                    let Some(code) = presented_code else {
-                        return Err("no authorization code found");
-                    };
-                    let code = AuthorizationCode::new(code.into_owned());
-                    got.send(code)
-                        .await
-                        .expect("channel won't be closed until server exit");
-                    Ok(Response::new(Full::<Bytes>::from(OAUTH_DONE)))
-                }
-            });
-            let mut serve = std::pin::pin!(
-                hyper::server::conn::http1::Builder::new().serve_connection(conn, service)
-            );
-
-            tokio::select! {
-                exit = &mut serve => {
-                    if let Err(e) = exit {
-                        Err(e).context("redirect server got bad request")
-                    } else {
-                        eyre::bail!("redirect server exit prematurely");
-                    }
-                }
-                code = gotten.recv() => {
-                    serve
-                        .graceful_shutdown();
-                    let code = code.expect("channel won't be closed until service_fn is dropped");
-                    Ok(code)
-                }
-            }
-        };
-        let _ = tx.send(r.await);
-    });
-    Ok((url, async move {
-        rx.await.context("redirect future dropped prematurely")?
-    }))
 }
 
 #[tokio::main]
@@ -410,9 +336,12 @@ async fn main() -> eyre::Result<()> {
             .context("fake InfoMessage")?,
         )
         .await?;
-        let json =
-            serde_json::to_string(&plugin.yt.values().map(|c| c.yt.token()).collect::<Vec<_>>())
-                .unwrap();
+        // Collect all tokens asynchronously
+        let mut tokens = Vec::new();
+        for channel in plugin.yt.values() {
+            tokens.push(channel.yt.token().await);
+        }
+        let json = serde_json::to_string(&tokens).unwrap();
         tokio::fs::write("tokens.json", &json).await.unwrap();
     }
 

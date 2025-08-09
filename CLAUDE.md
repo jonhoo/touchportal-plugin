@@ -111,13 +111,14 @@ cargo build --all
 cargo check --all-targets
 ```
 
-It is not generally useful to run the plugin binaries on their own, since they will only work when the TouchPortal host process is running.
-You could start your own TCP server on localhost port 12136 and pretend to be TouchPortal to test the application at the protocol level.
-If so, run the binary for a plugin by going inside the directory for the plugin and run:
+The TouchPortal plugin binary should only be run by TouchPortal itself, since it requires the TouchPortal host process. The YouTube plugin includes a separate CLI binary for testing and debugging:
 
 ```bash
-# Run with logging
+# Run the CLI binary (default) for testing/debugging
 RUST_LOG=trace cargo run --release
+
+# Run the TouchPortal plugin binary (should only be run by TouchPortal)
+RUST_LOG=trace cargo run --release --bin touchportal-youtube-live
 ```
 
 ## Architecture Overview
@@ -132,7 +133,9 @@ This is an SDK that allows writing **TouchPortal plugins** written in Rust that 
   - Protocol handling for TouchPortal communication
 - **`plugins/`** - Production TouchPortal plugins for real-world use
   - **`youtube/`** - Plugin to interact with the YouTube Live API
-    - `src/main.rs` - Plugin runtime and business logic
+    - `src/bin/touchportal-youtube-live.rs` - TouchPortal plugin binary
+    - `src/bin/youtube-live-cli.rs` - CLI tool for testing and debugging
+    - `src/lib.rs` - Shared code between binaries
     - `build.rs` - Build-time plugin definition and code generation
     - `Cargo.toml` - Plugin dependencies and metadata
 - **`test-plugins/`** - Test and development plugins for SDK testing

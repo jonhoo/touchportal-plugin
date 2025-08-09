@@ -82,7 +82,8 @@ fi
 
 # Extract the build script output directory to find entry.tp.
 # The build script generates this file as part of the plugin definition.
-out_dir=$(echo "$build_json" | jq -r "select(.reason == \"build-script-executed\") | select(.package_id | contains(\"#$crate_binary@\")).out_dir")
+# Look for the local package (path+file://) in the build output
+out_dir=$(echo "$build_json" | jq -r "select(.reason == \"build-script-executed\") | select(.package_id | startswith(\"path+file://\")).out_dir")
 out_dir=$(dirname "$out_dir")
 entry_tp="$out_dir/out/entry.tp"
 

@@ -23,8 +23,8 @@ get_plugin_config() {
         exit 1
     fi
 
-    # Extract default-run binary name, fallback to package name
-    crate_binary=$(echo "$current_package" | jq -r '.default_run // .name')
+    # Extract plugin binary name from metadata, fallback to default-run, then package name
+    crate_binary=$(echo "$current_package" | jq -r '.metadata.touchportal.plugin_binary // .default_run // .name')
 
     # Derive tpp filename
     tpp_file="$plugin_name.tpp"

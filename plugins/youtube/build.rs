@@ -120,8 +120,7 @@ fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         .plugin_start_cmd(format!(
-            "%TP_PLUGIN_FOLDER%YouTubeLive/{}{}",
-            std::env::var("CARGO_PKG_NAME").unwrap(),
+            "%TP_PLUGIN_FOLDER%YouTubeLive/touchportal-youtube-live{}",
             std::env::consts::EXE_SUFFIX
         ))
         .build()

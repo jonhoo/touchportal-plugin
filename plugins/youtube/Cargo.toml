@@ -2,14 +2,23 @@
 name = "touchportal-youtube-live"
 version = "0.1.0"
 edition = "2024"
-default-run = "touchportal-youtube-live"
+default-run = "youtube-live-cli"
 
 [package.metadata.touchportal]
 plugin_name = "YouTubeLive"
+plugin_binary = "touchportal-youtube-live"
 
 [build-dependencies]
 touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
 serde_json = "1.0.142"
+
+[[bin]]
+name = "touchportal-youtube-live"
+path = "src/bin/touchportal-youtube-live.rs"
+
+[[bin]]
+name = "youtube-live-cli"
+path = "src/bin/youtube-live-cli.rs"
 
 [dependencies]
 eyre = "0.6.12"

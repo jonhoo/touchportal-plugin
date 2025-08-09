@@ -37,11 +37,11 @@ const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
 /// for both initial user authentication and token refresh operations. It uses constant
 /// OAuth client configuration and handles the security aspects of the authorization flow.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct OAuthManager;
+pub struct OAuthManager;
 
 impl OAuthManager {
     /// Creates a new OAuth manager instance.
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
@@ -56,7 +56,7 @@ impl OAuthManager {
     ///
     /// Panics if hardcoded OAuth endpoint URLs are malformed (this should never happen
     /// in practice as the URLs are static and validated).
-    pub(crate) async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
+    pub async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
         let csrf = CsrfToken::new_random();
         let (redirect_url, eventually_authorization_code) = self
             .setup_redirect(csrf.clone())
@@ -132,7 +132,7 @@ impl OAuthManager {
     /// Panics if hardcoded OAuth endpoint URLs are malformed or if the HTTP client
     /// cannot be built with the specified configuration (both should never happen
     /// in practice).
-    pub(crate) async fn refresh_token(
+    pub async fn refresh_token(
         &self,
         token: BasicTokenResponse,
     ) -> eyre::Result<Option<BasicTokenResponse>> {

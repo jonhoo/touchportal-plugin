@@ -31,7 +31,7 @@
 use crate::oauth::OAuthManager;
 use eyre::Context;
 use http::Method;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
@@ -410,7 +410,6 @@ pub enum BroadcastStatus {
     Complete,
 }
 
-
 /// The type of cuepoint that can be inserted into a live broadcast.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/cuepoint>
@@ -432,24 +431,86 @@ pub enum CueType {
 pub struct CuepointRequest {
     /// The type of cuepoint to insert.
     pub cue_type: CueType,
-    /// Duration of the cuepoint in seconds.
+    /// Duration of the cuepoint.
     ///
     /// Defaults to 30 seconds if not specified.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_secs: Option<u32>,
-    /// Time offset for cuepoint insertion in milliseconds.
-    ///
-    /// Cannot be used together with [`Self::walltime_ms`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub insertion_offset_time_ms: Option<u64>,
-    /// Specific wall clock time for insertion.
-    ///
-    /// Cannot be used together with [`Self::insertion_offset_time_ms`].
     #[serde(
         skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_duration_as_seconds",
+        deserialize_with = "deserialize_seconds_as_duration"
+    )]
+    pub duration: Option<SignedDuration>,
+    /// Time offset for cuepoint insertion.
+    ///
+    /// Cannot be used together with [`Self::walltime`].
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "insertionOffsetTimeMs",
+        serialize_with = "serialize_duration_as_milliseconds",
+        deserialize_with = "deserialize_milliseconds_as_duration"
+    )]
+    pub insertion_offset_time: Option<SignedDuration>,
+    /// Specific wall clock time for insertion.
+    ///
+    /// Cannot be used together with [`Self::insertion_offset_time`].
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "walltimeMs",
         with = "jiff::fmt::serde::timestamp::millisecond::optional"
     )]
-    pub walltime_ms: Option<Timestamp>,
+    pub walltime: Option<Timestamp>,
+}
+
+fn serialize_duration_as_seconds<S>(
+    duration: &Option<SignedDuration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match duration {
+        Some(d) => {
+            let seconds = d.as_secs();
+            serializer.serialize_u64(seconds as u64)
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_seconds_as_duration<'de, D>(
+    deserializer: D,
+) -> Result<Option<SignedDuration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let seconds: Option<u64> = Option::deserialize(deserializer)?;
+    Ok(seconds.map(|s| SignedDuration::from_secs(s as i64)))
+}
+
+fn serialize_duration_as_milliseconds<S>(
+    duration: &Option<SignedDuration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match duration {
+        Some(d) => {
+            let millis = d.as_millis();
+            serializer.serialize_u64(millis as u64)
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_milliseconds_as_duration<'de, D>(
+    deserializer: D,
+) -> Result<Option<SignedDuration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let millis: Option<u64> = Option::deserialize(deserializer)?;
+    Ok(millis.map(|ms| SignedDuration::from_millis(ms as i64)))
 }
 
 impl CuepointRequest {
@@ -463,9 +524,9 @@ impl CuepointRequest {
     pub fn ad_cuepoint() -> Self {
         Self {
             cue_type: CueType::CueTypeAd,
-            duration_secs: Some(30),
-            insertion_offset_time_ms: None,
-            walltime_ms: None,
+            duration: Some(SignedDuration::from_secs(30)),
+            insertion_offset_time: None,
+            walltime: None,
         }
     }
 
@@ -473,17 +534,17 @@ impl CuepointRequest {
     ///
     /// # Arguments
     ///
-    /// * `duration_secs` - Duration of the ad break in seconds
+    /// * `duration` - Duration of the ad break
     ///
     /// # Returns
     ///
     /// A [`CuepointRequest`] configured for ad insertion with the specified duration.
-    pub fn ad_cuepoint_with_duration(duration_secs: u32) -> Self {
+    pub fn ad_cuepoint_with_duration(duration: SignedDuration) -> Self {
         Self {
             cue_type: CueType::CueTypeAd,
-            duration_secs: Some(duration_secs),
-            insertion_offset_time_ms: None,
-            walltime_ms: None,
+            duration: Some(duration),
+            insertion_offset_time: None,
+            walltime: None,
         }
     }
 
@@ -491,14 +552,14 @@ impl CuepointRequest {
     ///
     /// # Arguments
     ///
-    /// * `offset_ms` - Time offset for cuepoint insertion in milliseconds
+    /// * `offset` - Time offset for cuepoint insertion
     ///
     /// # Returns
     ///
     /// Self with the insertion offset time set.
-    pub fn with_insertion_offset(mut self, offset_ms: u64) -> Self {
-        self.insertion_offset_time_ms = Some(offset_ms);
-        self.walltime_ms = None; // Clear walltime if set
+    pub fn with_insertion_offset(mut self, offset: SignedDuration) -> Self {
+        self.insertion_offset_time = Some(offset);
+        self.walltime = None; // Clear walltime if set
         self
     }
 
@@ -512,8 +573,8 @@ impl CuepointRequest {
     ///
     /// Self with the wall clock time set.
     pub fn with_walltime(mut self, walltime: Timestamp) -> Self {
-        self.walltime_ms = Some(walltime);
-        self.insertion_offset_time_ms = None; // Clear offset if set
+        self.walltime = Some(walltime);
+        self.insertion_offset_time = None; // Clear offset if set
         self
     }
 }
@@ -857,15 +918,10 @@ impl YouTubeClient {
         &self,
     ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         PagedStream::new(|page_token| async {
-            let response = self
-                .list_live_broadcasts_internal(50, page_token)
-                .await?;
+            let response = self.list_live_broadcasts_internal(50, page_token).await?;
             Ok((response.items, response.next_page_token))
         })
     }
-
-
-
 
     /// Changes the status of a YouTube live broadcast and initiates processes associated with the new status.
     ///
@@ -1065,7 +1121,6 @@ impl YouTubeClient {
             ("mine", "true"),
             ("maxResults", max_results_string.as_str()),
         ];
-
 
         // Add pageToken if provided
         if let Some(ref token) = page_token {

@@ -31,6 +31,7 @@
 use crate::oauth::OAuthManager;
 use eyre::Context;
 use http::Method;
+use jiff::Timestamp;
 use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
@@ -299,10 +300,31 @@ pub struct LiveBroadcastSnippet {
     ///
     /// Note that the broadcast represents exactly one YouTube video.
     pub title: String,
+    /// The date and time that the broadcast was added to YouTube's live broadcast schedule.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(rename = "publishedAt")]
+    pub published_at: Timestamp,
     /// The date and time that the broadcast is scheduled to start.
     ///
     /// The value is specified in ISO 8601 format.
-    pub scheduled_start_time: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_start_time: Option<Timestamp>,
+    /// The date and time that the broadcast is scheduled to end.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_end_time: Option<Timestamp>,
+    /// The date and time that the broadcast actually started.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_start_time: Option<Timestamp>,
+    /// The date and time that the broadcast actually ended.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_end_time: Option<Timestamp>,
 }
 
 /// The status object contains information about the live broadcast's status and settings.
@@ -388,23 +410,6 @@ pub enum BroadcastStatus {
     Complete,
 }
 
-/// Filter values for listing live broadcasts by status.
-///
-/// Used with the `liveBroadcasts.list` API to filter broadcasts.
-///
-/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BroadcastStatusFilter {
-    /// Current live broadcasts.
-    Active,
-    /// All broadcasts.
-    All,
-    /// Ended broadcasts.
-    Completed,
-    /// Broadcasts not yet started.
-    Upcoming,
-}
 
 /// The type of cuepoint that can be inserted into a live broadcast.
 ///
@@ -437,11 +442,14 @@ pub struct CuepointRequest {
     /// Cannot be used together with [`Self::walltime_ms`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insertion_offset_time_ms: Option<u64>,
-    /// Specific wall clock time for insertion in milliseconds.
+    /// Specific wall clock time for insertion.
     ///
     /// Cannot be used together with [`Self::insertion_offset_time_ms`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub walltime_ms: Option<u64>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "jiff::fmt::serde::timestamp::millisecond::optional"
+    )]
+    pub walltime_ms: Option<Timestamp>,
 }
 
 impl CuepointRequest {
@@ -498,13 +506,13 @@ impl CuepointRequest {
     ///
     /// # Arguments
     ///
-    /// * `walltime_ms` - Specific wall clock time for insertion in milliseconds
+    /// * `walltime` - Specific wall clock time for insertion
     ///
     /// # Returns
     ///
     /// Self with the wall clock time set.
-    pub fn with_walltime(mut self, walltime_ms: u64) -> Self {
-        self.walltime_ms = Some(walltime_ms);
+    pub fn with_walltime(mut self, walltime: Timestamp) -> Self {
+        self.walltime_ms = Some(walltime);
         self.insertion_offset_time_ms = None; // Clear offset if set
         self
     }
@@ -571,6 +579,11 @@ pub(crate) struct LiveStreamSnippet {
     /// The stream's description.
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    /// The date and time that the stream was created.
+    ///
+    /// The value is specified in ISO 8601 format.
+    #[serde(rename = "publishedAt")]
+    pub(crate) published_at: Timestamp,
 }
 
 /// The status of a live stream.
@@ -655,7 +668,7 @@ pub struct ChannelSnippet {
     ///
     /// The value is specified in ISO 8601 format.
     #[serde(rename = "publishedAt")]
-    pub published_at: String,
+    pub published_at: Timestamp,
 }
 
 impl YouTubeClient {
@@ -800,7 +813,7 @@ impl YouTubeClient {
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
     pub async fn validate_token(&self) -> eyre::Result<bool> {
-        match self.list_live_broadcasts_internal(1, None, None).await {
+        match self.list_live_broadcasts_internal(1, None).await {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
                 Ok(true)
@@ -812,20 +825,25 @@ impl YouTubeClient {
         }
     }
 
-    /// Returns a paginated stream of YouTube broadcasts for the authenticated user.
+    /// Returns a paginated stream of all YouTube broadcasts for the authenticated user.
     ///
     /// **Broadcasts vs Streams**: A broadcast represents the viewer-facing live streaming event
     /// with metadata like title, description, scheduling, and viewer settings. This is what
     /// users see and interact with on YouTube. Use broadcasts for user-facing operations like
     /// listing, scheduling, and managing live events.
     ///
-    /// Uses the `liveBroadcasts.list` API to fetch broadcast resources
-    /// that belong to the authenticated user. The stream automatically handles
-    /// pagination and fetches subsequent pages as needed.
+    /// Uses the `liveBroadcasts.list` API with `mine=true` to fetch all broadcast resources
+    /// that belong to the authenticated user, regardless of their status (active, upcoming,
+    /// completed, etc.). The stream automatically handles pagination and fetches subsequent
+    /// pages as needed.
+    ///
+    /// **Status Filtering**: To filter broadcasts by status, collect the results and filter
+    /// client-side using the `broadcast.status.life_cycle_status` field. The YouTube API
+    /// does not support combining `mine=true` with `broadcastStatus` filtering.
     ///
     /// # Returns
     ///
-    /// A [`PagedStreamWithFetcher`] that yields [`LiveBroadcast`] resources.
+    /// A [`PagedStreamWithFetcher`] that yields all [`LiveBroadcast`] resources owned by the user.
     ///
     /// # Required Scopes
     ///
@@ -840,103 +858,14 @@ impl YouTubeClient {
     ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         PagedStream::new(|page_token| async {
             let response = self
-                .list_live_broadcasts_internal(50, None, page_token)
+                .list_live_broadcasts_internal(50, page_token)
                 .await?;
             Ok((response.items, response.next_page_token))
         })
     }
 
-    /// Returns a paginated stream of YouTube broadcasts filtered by status for the authenticated user.
-    ///
-    /// **Broadcasts vs Streams**: A broadcast represents the viewer-facing live streaming event.
-    /// Use this method to find broadcasts in specific states like "active" (currently live),
-    /// "upcoming" (scheduled), or "completed" (ended). This is ideal for UI applications
-    /// that need to show users their current and upcoming live events.
-    ///
-    /// Uses the `liveBroadcasts.list` API to fetch broadcast resources with a specific status
-    /// that belong to the authenticated user. The stream automatically handles
-    /// pagination and fetches subsequent pages as needed.
-    ///
-    /// # Arguments
-    ///
-    /// * `status_filter` - The [`BroadcastStatusFilter`] to apply
-    ///
-    /// # Returns
-    ///
-    /// A [`PagedStreamWithFetcher`] that yields [`LiveBroadcast`] resources matching the filter.
-    ///
-    /// # Required Scopes
-    ///
-    /// * `https://www.googleapis.com/auth/youtube`
-    ///
-    /// # API Reference
-    ///
-    /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self))]
-    pub fn list_my_live_broadcasts_by_status(
-        &self,
-        status_filter: BroadcastStatusFilter,
-    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
-        let status_filter_clone = status_filter.clone();
-        PagedStream::new(move |page_token| {
-            let status_filter = status_filter_clone.clone();
-            async {
-                let response = self
-                    .list_live_broadcasts_internal(50, Some(status_filter), page_token)
-                    .await?;
-                Ok((response.items, response.next_page_token))
-            }
-        })
-    }
 
-    /// Returns a paginated stream of active (currently live) YouTube broadcasts for the authenticated user.
-    ///
-    /// This is a convenience method that filters for broadcasts with status `active`.
-    /// These are broadcasts that are currently streaming and visible to viewers on YouTube.
-    /// Use this to find broadcasts that are live right now and can be controlled (e.g., ended,
-    /// have cuepoints inserted, etc.).
-    ///
-    /// # Returns
-    ///
-    /// A [`PagedStreamWithFetcher`] that yields active [`LiveBroadcast`] resources.
-    ///
-    /// # Required Scopes
-    ///
-    /// * `https://www.googleapis.com/auth/youtube`
-    ///
-    /// # API Reference
-    ///
-    /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self))]
-    pub fn list_my_active_live_broadcasts(
-        &self,
-    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
-        self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Active)
-    }
 
-    /// Returns a paginated stream of upcoming YouTube broadcasts for the authenticated user.
-    ///
-    /// This is a convenience method that filters for broadcasts with status `upcoming`.
-    /// These are broadcasts that are scheduled but not yet started. Use this to show users
-    /// their upcoming live events that can be started or modified before going live.
-    ///
-    /// # Returns
-    ///
-    /// A [`PagedStreamWithFetcher`] that yields upcoming [`LiveBroadcast`] resources.
-    ///
-    /// # Required Scopes
-    ///
-    /// * `https://www.googleapis.com/auth/youtube`
-    ///
-    /// # API Reference
-    ///
-    /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
-    #[instrument(skip(self))]
-    pub fn list_my_upcoming_live_broadcasts(
-        &self,
-    ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
-        self.list_my_live_broadcasts_by_status(BroadcastStatusFilter::Upcoming)
-    }
 
     /// Changes the status of a YouTube live broadcast and initiates processes associated with the new status.
     ///
@@ -1108,12 +1037,12 @@ impl YouTubeClient {
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
-    /// authentication headers and query parameters.
+    /// authentication headers and query parameters. Uses `mine=true` to return
+    /// all broadcasts owned by the authenticated user.
     ///
     /// # Arguments
     ///
     /// * `max_results` - Maximum number of broadcasts to return (1-50)
-    /// * `status_filter` - Optional [`BroadcastStatusFilter`] to filter results
     /// * `page_token` - Optional page token for pagination
     ///
     /// # Returns
@@ -1126,7 +1055,6 @@ impl YouTubeClient {
     async fn list_live_broadcasts_internal(
         &self,
         max_results: u32,
-        status_filter: Option<BroadcastStatusFilter>,
         page_token: Option<String>,
     ) -> eyre::Result<LiveBroadcastListResponse> {
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
@@ -1138,15 +1066,6 @@ impl YouTubeClient {
             ("maxResults", max_results_string.as_str()),
         ];
 
-        // Add broadcastStatus filter if provided
-        let status_string;
-        if let Some(status) = status_filter {
-            status_string = serde_json::to_string(&status)
-                .context("serialize broadcast status filter")?
-                .trim_matches('"')
-                .to_string(); // Remove JSON quotes
-            query_params.push(("broadcastStatus", status_string.as_str()));
-        }
 
         // Add pageToken if provided
         if let Some(ref token) = page_token {

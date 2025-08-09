@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::youtube_client::Token;
+use crate::youtube_client::{BroadcastLifeCycleStatus, Token};
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
 use std::collections::{HashMap, HashSet};
@@ -354,8 +354,30 @@ impl Plugin {
             }
         }
 
-        // TODO: keep a state that reflects the current stream state for every known stream?
+        // for testing
+        for (id, Channel { name, yt }) in &client_by_channel {
+            eprintln!("==> {name} ({id})");
+            let broadcasts = yt.list_my_live_broadcasts();
+            let mut stream = std::pin::pin!(broadcasts);
+            while let Some(broadcast) = stream.next().await {
+                let broadcast = broadcast.context("fetch broadcast")?;
+                match broadcast.status.life_cycle_status {
+                    BroadcastLifeCycleStatus::Ready | BroadcastLifeCycleStatus::Created => {
+                        eprintln!("upcoming : {broadcast:?}");
+                    }
+                    BroadcastLifeCycleStatus::Live | BroadcastLifeCycleStatus::Testing => {
+                        eprintln!("active   : {broadcast:?}");
+                    }
+                    BroadcastLifeCycleStatus::Complete | BroadcastLifeCycleStatus::Revoked => {
+                        // assume that results are returned in reverse chronological order
+                        eprintln!("complete : {broadcast:?}");
+                        break;
+                    }
+                }
+            }
+        }
 
+        // TODO: keep a state that reflects the current stream state for every known stream?
         // TODO: event when a stream becomes active or inactive
 
         // ==============================================================================

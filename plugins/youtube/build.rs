@@ -1,6 +1,6 @@
 use touchportal_sdk::{reexport::HexColor, *};
 
-pub fn plugin() -> PluginDescription {
+fn plugin() -> PluginDescription {
     PluginDescription::builder()
         .api(ApiVersion::V4_3)
         .version(1)

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::youtube_client::{BroadcastLifeCycleStatus, Token};
+use crate::youtube_client::{BroadcastLifeCycleStatus, TimeBoundAccessToken};
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
 use std::collections::{HashMap, HashSet};
@@ -72,7 +72,8 @@ impl PluginCallbacks for Plugin {
             .await
             .context("authorize additional YouTube account")?;
 
-        let client = YouTubeClient::new(Token::from_fresh_token(new_token.clone()), oauth_manager);
+        let client =
+            YouTubeClient::new(TimeBoundAccessToken::new(new_token.clone()), oauth_manager);
 
         let is_valid = client
             .validate_token()
@@ -263,7 +264,7 @@ impl Plugin {
                 // Always refresh old tokens proactively for long-running plugin
                 tracing::info!("proactively refreshing old token for maximum lifetime");
 
-                let mut token = Token::from_expired_token(token);
+                let mut token = TimeBoundAccessToken::expired(token);
 
                 if token
                     .refresh(&oauth_manager)
@@ -293,13 +294,13 @@ impl Plugin {
                         .await
                         .context("authorize user to YouTube")?;
 
-                    token = Token::from_fresh_token(raw_token);
+                    token = TimeBoundAccessToken::new(raw_token);
                 }
 
                 token
             } else {
                 // Token is fresh from this session, use as-is
-                Token::from_fresh_token(token)
+                TimeBoundAccessToken::new(token)
             };
 
             // Create client with refreshed/fresh token and shared OAuth manager
@@ -425,7 +426,7 @@ async fn main() -> eyre::Result<()> {
                 .from_env_lossy(),
         )
         .without_time() // done by TouchPortal's logs
-        .with_ansi(false)
+        .with_ansi(false) // doesn't work in TouchPortal
         .init();
 
     // when run without arguments, we're running as a plugin

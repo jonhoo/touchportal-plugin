@@ -25,7 +25,7 @@ const TOKEN_URL: &str = "https://www.googleapis.com/oauth2/v3/token";
 /// for both initial user authentication and token refresh operations. It maintains
 /// the OAuth client configuration and handles the security aspects of the authorization flow.
 #[derive(Debug, Clone)]
-pub struct OAuthManager {
+pub(crate) struct OAuthManager {
     client_id: &'static str,
     client_secret: &'static str,
     oauth_done_html: &'static str,
@@ -39,7 +39,7 @@ impl OAuthManager {
     /// * `client_id` - The OAuth client ID for the YouTube API application
     /// * `client_secret` - The OAuth client secret (embedded for installed applications)
     /// * `oauth_done_html` - HTML content to display after successful authorization
-    pub fn new(
+    pub(crate) fn new(
         client_id: &'static str,
         client_secret: &'static str,
         oauth_done_html: &'static str,
@@ -57,7 +57,12 @@ impl OAuthManager {
     /// 1. Opening the user's browser for authorization
     /// 2. Setting up a local HTTP server to receive the authorization callback
     /// 3. Exchanging the authorization code for an access token
-    pub async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
+    ///
+    /// # Panics
+    ///
+    /// Panics if hardcoded OAuth endpoint URLs are malformed (this should never happen
+    /// in practice as the URLs are static and validated).
+    pub(crate) async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
         let csrf = CsrfToken::new_random();
         let (redirect_url, eventually_authorization_code) = self
             .setup_redirect(csrf.clone())
@@ -127,7 +132,13 @@ impl OAuthManager {
     ///
     /// When refresh fails, the token should be considered invalid and the user
     /// should be prompted to re-authenticate using [`Self::authenticate`].
-    pub async fn refresh_token(
+    ///
+    /// # Panics
+    ///
+    /// Panics if hardcoded OAuth endpoint URLs are malformed or if the HTTP client
+    /// cannot be built with the specified configuration (both should never happen
+    /// in practice).
+    pub(crate) async fn refresh_token(
         &self,
         token: BasicTokenResponse,
     ) -> eyre::Result<Option<BasicTokenResponse>> {

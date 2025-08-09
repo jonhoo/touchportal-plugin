@@ -36,6 +36,7 @@ use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -50,7 +51,7 @@ type OneFuturePage<'a, F, T> =
 
 impl<'a, T, F> PagedStream<'a, T, F> {
     /// Create a new PagedStream from the first page of results.
-    pub fn new(fetcher: F) -> Self
+    pub(crate) fn new(fetcher: F) -> Self
     where
         F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
     {
@@ -70,7 +71,7 @@ impl<'a, T, F> PagedStream<'a, T, F> {
 ///
 /// This stream yields items one by one, automatically fetching the next page when the current
 /// page is exhausted. Only supports forward pagination (no previous page support).
-pub struct PagedStream<'a, T, F> {
+pub(crate) struct PagedStream<'a, T, F> {
     /// Current batch of items from the most recent API response
     current_items: VecDeque<T>,
     /// Future representing the currently pending API request, if any
@@ -143,29 +144,37 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct Token {
+pub(crate) struct TimeBoundAccessToken {
     /// The current OAuth2 token, protected by a mutex for thread-safe refresh operations
     token: BasicTokenResponse,
     /// When the current access token expires (with safety buffer)
     expires_at: SystemTime,
 }
 
-impl Token {
-    pub fn from_expired_token(token: BasicTokenResponse) -> Self {
+impl TimeBoundAccessToken {
+    /// Creates a new YouTube token that is already expired, forcing immediate refresh.
+    ///
+    /// This is useful when loading tokens from storage where you want to ensure
+    /// they are validated before use.
+    pub(crate) fn expired(token: BasicTokenResponse) -> Self {
         Self {
             expires_at: SystemTime::UNIX_EPOCH,
             token,
         }
     }
 
-    pub fn from_fresh_token(token: BasicTokenResponse) -> Self {
+    /// Creates a new YouTube token with calculated expiry time.
+    ///
+    /// The expiry time is calculated from the token's `expires_in` field minus
+    /// a 5-minute safety buffer to prevent edge-case failures.
+    pub(crate) fn new(token: BasicTokenResponse) -> Self {
         Self {
             expires_at: Self::calculate_token_expiry(&token),
             token,
         }
     }
 
-    pub fn raw_token(&self) -> &BasicTokenResponse {
+    pub(crate) fn raw_token(&self) -> &BasicTokenResponse {
         &self.token
     }
 
@@ -179,7 +188,8 @@ impl Token {
     /// * `Ok(true)` - Token was successfully refreshed
     /// * `Ok(false)` - Refresh failed (invalid grant, no refresh token, etc.)
     /// * `Err(_)` - Network or other error occurred
-    pub async fn refresh(
+    ///
+    pub(crate) async fn refresh(
         &mut self,
         oauth_manager: &crate::oauth::OAuthManager,
     ) -> eyre::Result<bool> {
@@ -233,9 +243,9 @@ impl Token {
 /// refresh token and OAuth manager. Token expiry is tracked based on the `expires_in` field
 /// from the OAuth response, with a safety buffer to prevent edge-case failures.
 #[derive(Debug, Clone)]
-pub struct YouTubeClient {
+pub(crate) struct YouTubeClient {
     /// The current OAuth2 token.
-    token: Arc<Mutex<Token>>,
+    token: Arc<Mutex<TimeBoundAccessToken>>,
     /// OAuth manager for refreshing tokens
     oauth_manager: OAuthManager,
     /// HTTP client for API requests
@@ -276,15 +286,15 @@ struct LiveBroadcastListResponse {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#resource>
 #[derive(Debug, Serialize, Deserialize)]
-pub struct LiveBroadcast {
+pub(crate) struct LiveBroadcast {
     /// The ID that YouTube assigns to uniquely identify the broadcast.
-    pub id: String,
+    pub(crate)id: String,
     /// Contains basic details about the broadcast.
     ///
     /// Includes the broadcast's title, description, and thumbnail images.
-    pub snippet: LiveBroadcastSnippet,
+    pub(crate)snippet: LiveBroadcastSnippet,
     /// Contains information about the broadcast's status.
-    pub status: LiveBroadcastStatus,
+    pub(crate)status: LiveBroadcastStatus,
 }
 
 /// The snippet object contains basic details about the broadcast.
@@ -295,40 +305,40 @@ pub struct LiveBroadcast {
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#snippet>
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LiveBroadcastSnippet {
+pub(crate) struct LiveBroadcastSnippet {
     /// The broadcast's title.
     ///
     /// Note that the broadcast represents exactly one YouTube video.
-    pub title: String,
+    pub(crate)title: String,
     /// The date and time that the broadcast was added to YouTube's live broadcast schedule.
     ///
     /// The value is specified in ISO 8601 format.
     #[serde(rename = "publishedAt")]
-    pub published_at: Timestamp,
+    pub(crate)published_at: Timestamp,
     /// The date and time that the broadcast is scheduled to start.
     ///
     /// The value is specified in ISO 8601 format.
     /// May be unset for broadcasts that are not yet scheduled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_start_time: Option<Timestamp>,
+    pub(crate)scheduled_start_time: Option<Timestamp>,
     /// The date and time that the broadcast is scheduled to end.
     ///
     /// The value is specified in ISO 8601 format.
     /// May be unset, which means the broadcast is scheduled to continue indefinitely.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_end_time: Option<Timestamp>,
+    pub(crate)scheduled_end_time: Option<Timestamp>,
     /// The date and time that the broadcast actually started.
     ///
     /// The value is specified in ISO 8601 format.
     /// Unset until the broadcast has actually started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actual_start_time: Option<Timestamp>,
+    pub(crate)actual_start_time: Option<Timestamp>,
     /// The date and time that the broadcast actually ended.
     ///
     /// The value is specified in ISO 8601 format.
     /// Unset until the broadcast has actually ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actual_end_time: Option<Timestamp>,
+    pub(crate)actual_end_time: Option<Timestamp>,
 }
 
 /// The status object contains information about the live broadcast's status and settings.
@@ -339,21 +349,21 @@ pub struct LiveBroadcastSnippet {
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status>
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LiveBroadcastStatus {
+pub(crate) struct LiveBroadcastStatus {
     /// The broadcast's lifecycle status.
-    pub life_cycle_status: BroadcastLifeCycleStatus,
+    pub(crate)life_cycle_status: BroadcastLifeCycleStatus,
     /// The broadcast's privacy status.
-    pub privacy_status: BroadcastPrivacyStatus,
+    pub(crate)privacy_status: BroadcastPrivacyStatus,
     /// Whether the broadcast is made for kids.
-    pub made_for_kids: bool,
+    pub(crate)made_for_kids: bool,
 }
 
 /// The broadcast's current lifecycle status.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.lifeCycleStatus>
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum BroadcastLifeCycleStatus {
+pub(crate) enum BroadcastLifeCycleStatus {
     /// The broadcast is ready to be activated but has not yet been activated.
     Ready,
     /// The broadcast is in testing mode and can be seen by viewers who have access to the URL.
@@ -368,12 +378,26 @@ pub enum BroadcastLifeCycleStatus {
     Revoked,
 }
 
+impl fmt::Display for BroadcastLifeCycleStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ready => write!(f, "ready"),
+            Self::Testing => write!(f, "testing"),
+            Self::Live => write!(f, "live"),
+            Self::Complete => write!(f, "complete"),
+            Self::Created => write!(f, "created"),
+            Self::Revoked => write!(f, "revoked"),
+        }
+    }
+}
+
+
 /// The broadcast's privacy status.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.privacyStatus>
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum BroadcastPrivacyStatus {
+pub(crate) enum BroadcastPrivacyStatus {
     /// The broadcast is public and can be viewed by anyone.
     Public,
     /// The broadcast is unlisted and can only be viewed by people with the link.
@@ -381,6 +405,17 @@ pub enum BroadcastPrivacyStatus {
     /// The broadcast is private and can only be viewed by the owner and authorized viewers.
     Private,
 }
+
+impl fmt::Display for BroadcastPrivacyStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Public => write!(f, "public"),
+            Self::Unlisted => write!(f, "unlisted"),
+            Self::Private => write!(f, "private"),
+        }
+    }
+}
+
 
 /// Paging details for lists of resources.
 ///
@@ -403,9 +438,9 @@ struct PageInfo {
 /// Used with the `liveBroadcasts.transition` API to change broadcast state.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/transition>
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum BroadcastStatus {
+pub(crate) enum BroadcastStatus {
     /// Start broadcast testing mode.
     Testing,
     /// Make broadcast visible to audience.
@@ -414,15 +449,33 @@ pub enum BroadcastStatus {
     Complete,
 }
 
+impl fmt::Display for BroadcastStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Testing => write!(f, "testing"),
+            Self::Live => write!(f, "live"),
+            Self::Complete => write!(f, "complete"),
+        }
+    }
+}
+
 /// The type of cuepoint that can be inserted into a live broadcast.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/cuepoint>
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum CueType {
+pub(crate) enum CueType {
     /// Advertisement cuepoint that may trigger an ad break.
     #[serde(rename = "cueTypeAd")]
     CueTypeAd,
+}
+
+impl fmt::Display for CueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CueTypeAd => write!(f, "ad"),
+        }
+    }
 }
 
 /// Request body for inserting a cuepoint into a live broadcast.
@@ -432,9 +485,9 @@ pub enum CueType {
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/cuepoint>
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CuepointRequest {
+pub(crate) struct CuepointRequest {
     /// The type of cuepoint to insert.
-    pub cue_type: CueType,
+    pub(crate)cue_type: CueType,
     /// Duration of the cuepoint.
     ///
     /// Defaults to 30 seconds if not specified.
@@ -443,7 +496,7 @@ pub struct CuepointRequest {
         serialize_with = "serialize_duration_as_seconds",
         deserialize_with = "deserialize_seconds_as_duration"
     )]
-    pub duration: Option<SignedDuration>,
+    pub(crate)duration: Option<SignedDuration>,
     /// Wall clock time for when to insert the cuepoint.
     ///
     /// If `None`, YouTube will use a default `insertionOffsetTimeMs` of `0`,
@@ -453,7 +506,7 @@ pub struct CuepointRequest {
         rename = "walltimeMs",
         with = "jiff::fmt::serde::timestamp::millisecond::optional"
     )]
-    pub walltime: Option<Timestamp>,
+    pub(crate)walltime: Option<Timestamp>,
 }
 
 fn serialize_duration_as_seconds<S>(
@@ -519,16 +572,16 @@ struct LiveStreamListResponse {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#resource>
 #[derive(Debug, Serialize, Deserialize)]
-pub struct LiveStream {
+pub(crate) struct LiveStream {
     /// The ID that YouTube assigns to uniquely identify the stream.
-    pub(crate) id: String,
+    pub(crate)id: String,
     /// Contains basic details about the stream.
     ///
     /// Includes the stream's title and description.
-    pub(crate) snippet: LiveStreamSnippet,
+    pub(crate)snippet: LiveStreamSnippet,
     /// Contains information about the stream's status.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) status: Option<LiveStreamStatus>,
+    pub(crate)status: Option<LiveStreamStatus>,
 }
 
 /// The snippet object contains basic details about the stream.
@@ -540,23 +593,23 @@ pub struct LiveStream {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct LiveStreamSnippet {
     /// The stream's title.
-    pub(crate) title: String,
+    pub(crate)title: String,
     /// The stream's description.
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub(crate)description: Option<String>,
     /// The date and time that the stream was created.
     ///
     /// The value is specified in ISO 8601 format.
     #[serde(rename = "publishedAt")]
-    pub(crate) published_at: Timestamp,
+    pub(crate)published_at: Timestamp,
 }
 
 /// The status of a live stream.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#status>
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum StreamStatus {
+pub(crate) enum StreamStatus {
     /// The stream is receiving data.
     Active,
     /// The stream exists but lacks valid CDN settings.
@@ -569,6 +622,18 @@ pub enum StreamStatus {
     Ready,
 }
 
+impl fmt::Display for StreamStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Active => write!(f, "active"),
+            Self::Created => write!(f, "created"),
+            Self::Error => write!(f, "error"),
+            Self::Inactive => write!(f, "inactive"),
+            Self::Ready => write!(f, "ready"),
+        }
+    }
+}
+
 /// Contains information about the live stream's status.
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveStreams#status>
@@ -576,7 +641,7 @@ pub enum StreamStatus {
 pub(crate) struct LiveStreamStatus {
     /// The stream's status.
     #[serde(rename = "streamStatus")]
-    stream_status: StreamStatus,
+    pub(crate)stream_status: StreamStatus,
 }
 
 /// Response structure for the `channels.list` API call.
@@ -607,13 +672,13 @@ struct ChannelListResponse {
 ///
 /// See: <https://developers.google.com/youtube/v3/docs/channels#resource>
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Channel {
+pub(crate) struct Channel {
     /// The ID that YouTube uses to uniquely identify the channel.
-    pub id: String,
+    pub(crate)id: String,
     /// Contains basic details about the channel.
     ///
     /// Includes the channel's title, description, and other metadata.
-    pub snippet: ChannelSnippet,
+    pub(crate)snippet: ChannelSnippet,
 }
 
 /// The snippet object contains basic details about the channel.
@@ -623,17 +688,17 @@ pub struct Channel {
 ///
 /// See: <https://developers.google.com/youtube/v3/docs/channels#snippet>
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ChannelSnippet {
+pub(crate) struct ChannelSnippet {
     /// The channel's title.
-    pub title: String,
+    pub(crate)title: String,
     /// The channel's description.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub(crate)description: Option<String>,
     /// The date and time that the channel was created.
     ///
     /// The value is specified in ISO 8601 format.
     #[serde(rename = "publishedAt")]
-    pub published_at: Timestamp,
+    pub(crate)published_at: Timestamp,
 }
 
 impl YouTubeClient {
@@ -646,7 +711,7 @@ impl YouTubeClient {
     ///
     /// * `token` - A valid [`BasicTokenResponse`] containing the OAuth2 access token
     /// * `oauth_manager` - Shared OAuth manager for token refresh operations
-    pub fn new(token: Token, oauth_manager: OAuthManager) -> Self {
+    pub(crate) fn new(token: TimeBoundAccessToken, oauth_manager: OAuthManager) -> Self {
         let client = reqwest::Client::new();
 
         Self {
@@ -661,7 +726,7 @@ impl YouTubeClient {
     /// This is useful when you need to extract the token for storage or
     /// passing to another component. Since the token is protected by a mutex,
     /// this method is async.
-    pub async fn token(&self) -> BasicTokenResponse {
+    pub(crate) async fn token(&self) -> BasicTokenResponse {
         self.token.lock().await.token.clone()
     }
 
@@ -675,6 +740,7 @@ impl YouTubeClient {
     ///
     /// * `Ok(token)` - A guaranteed-fresh access token
     /// * `Err(_)` - Token refresh failed or network error occurred
+    ///
     #[instrument(skip(self), ret)]
     async fn fresh_access_token(&self) -> eyre::Result<String> {
         let mut token = self.token.lock().await;
@@ -777,7 +843,7 @@ impl YouTubeClient {
     /// * `Ok(false)` - Token is invalid or refresh failed
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
-    pub async fn validate_token(&self) -> eyre::Result<bool> {
+    pub(crate) async fn validate_token(&self) -> eyre::Result<bool> {
         match self.list_live_broadcasts_internal(1, None).await {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
@@ -818,7 +884,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
     #[instrument(skip(self))]
-    pub fn list_my_live_broadcasts(
+    pub(crate) fn list_my_live_broadcasts(
         &self,
     ) -> impl Stream<Item = eyre::Result<LiveBroadcast>> + use<'_> {
         PagedStream::new(|page_token| async {
@@ -850,7 +916,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/transition>
     #[instrument(skip(self), ret)]
-    pub async fn transition_live_broadcast(
+    pub(crate) async fn transition_live_broadcast(
         &self,
         broadcast_id: &str,
         status: BroadcastStatus,
@@ -908,7 +974,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/cuepoint>
     #[instrument(skip(self), ret)]
-    pub async fn insert_cuepoint(
+    pub(crate) async fn insert_cuepoint(
         &self,
         broadcast_id: &str,
         cuepoint: &CuepointRequest,
@@ -958,7 +1024,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/live/docs/liveStreams/list>
     #[instrument(skip(self))]
-    pub fn list_my_live_streams(&self) -> impl Stream<Item = eyre::Result<LiveStream>> + use<'_> {
+    pub(crate) fn list_my_live_streams(&self) -> impl Stream<Item = eyre::Result<LiveStream>> + use<'_> {
         PagedStream::new(|page_token| async {
             let response = self.list_live_streams_internal(50, page_token).await?;
             Ok((response.items, response.next_page_token))
@@ -987,7 +1053,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/docs/channels/list>
     #[instrument(skip(self))]
-    pub fn list_my_channels(&self) -> impl Stream<Item = eyre::Result<Channel>> + use<'_> {
+    pub(crate) fn list_my_channels(&self) -> impl Stream<Item = eyre::Result<Channel>> + use<'_> {
         PagedStream::new(|page_token| async {
             let response = self.list_channels_internal(50, page_token).await?;
             Ok((response.items, response.next_page_token))

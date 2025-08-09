@@ -2,22 +2,25 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.touch-portal.com)",
+      "WebFetch(domain:developers.google.com)",
       "WebFetch(domain:doc.rust-lang.org)",
       "WebFetch(domain:docs.rs)",
-      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:www.touch-portal.com)",
       "Bash(RUST_BACKTRACE=1 cargo check)",
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
       "Bash(cargo build:*)",
       "Bash(cargo clippy:*)",
       "Bash(cargo metadata:*)",
+      "Bash(./package.sh:*)",
+      "Bash(./run_all_tests.sh)",
       "Bash(./test_validation_failures.sh:*)",
-      "Bash(find:*)",
-      "Bash(mkdir:*)",
-      "Bash(touch:*)",
+      "Bash(grep:*)",
       "Bash(git mv:*)",
-      "Bash(shellcheck:*)"
+      "Bash(mkdir:*)",
+      "Bash(shellcheck:*)",
+      "Bash(touch:*)",
+      "Bash(zipinfo:*)"
     ],
     "deny": []
   }

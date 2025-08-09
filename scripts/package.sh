@@ -105,6 +105,100 @@ fi
 echo "    Built: $plugin_exe"
 echo "    Entry: $entry_tp"
 
+# Validate that the plugin_start_cmd in entry.tp matches our build configuration.
+# This ensures TouchPortal will be able to find and execute the plugin correctly.
+echo "==> Validating plugin_start_cmd consistency"
+
+# Helper function to validate a single plugin start command
+validate_plugin_start_cmd() {
+    local cmd_name="$1"
+    local cmd_value="$2"
+    local is_os_specific="$3"  # true for OS-specific commands
+
+    if [[ -z "$cmd_value" || "$cmd_value" == "null" ]]; then
+        return 0  # Skip validation for absent optional commands
+    fi
+
+    echo "    Validating $cmd_name: $cmd_value"
+
+    # Extract the path portion (before any space-separated arguments)
+    local cmd_path
+    cmd_path=$(echo "$cmd_value" | cut -d' ' -f1)
+
+    # Validate the directory structure: should start with %TP_PLUGIN_FOLDER% followed by plugin name
+    if [[ ! "$cmd_path" =~ ^%TP_PLUGIN_FOLDER%([^/]+)/(.+)$ ]]; then
+        echo "ERROR: $cmd_name has invalid format: $cmd_value" >&2
+        echo "       Expected format: %TP_PLUGIN_FOLDER%<plugin_name>/<binary_name> [args...]" >&2
+        return 1
+    fi
+
+    local expected_plugin_dir="${BASH_REMATCH[1]}"
+    local expected_binary_name="${BASH_REMATCH[2]}"
+
+    # Validate that the plugin directory matches the metadata plugin_name
+    if [[ "$expected_plugin_dir" != "$plugin_name" ]]; then
+        echo "ERROR: Plugin directory mismatch in $cmd_name" >&2
+        echo "       Expected: $plugin_name" >&2
+        echo "       Found: $expected_plugin_dir" >&2
+        echo "       This usually means the build.rs hardcoded directory doesn't match Cargo.toml metadata" >&2
+        return 1
+    fi
+
+    # For OS-specific commands, we allow different exe suffixes since they target different platforms
+    # For the main command, we validate against the current platform's built binary
+    if [[ "$is_os_specific" == "true" ]]; then
+        # For OS-specific commands, just validate that the base binary name matches (ignoring suffixes)
+        local expected_base_name="$expected_binary_name"
+        local actual_base_name
+        actual_base_name=$(basename "$plugin_exe")
+
+        # Strip known extensions for comparison
+        expected_base_name="${expected_base_name%.exe}"
+        actual_base_name="${actual_base_name%.exe}"
+
+        if [[ "$expected_base_name" != "$actual_base_name" ]]; then
+            echo "ERROR: Binary base name mismatch in $cmd_name" >&2
+            echo "       Expected: $expected_base_name (ignoring OS suffix)" >&2
+            echo "       Built: $actual_base_name (ignoring OS suffix)" >&2
+            echo "       This usually means the build.rs hardcoded binary name doesn't match Cargo.toml metadata" >&2
+            return 1
+        fi
+    else
+        # For main plugin_start_cmd, validate exact match with current platform binary
+        local actual_binary_name
+        actual_binary_name=$(basename "$plugin_exe")
+        if [[ "$expected_binary_name" != "$actual_binary_name" ]]; then
+            echo "ERROR: Binary name mismatch in $cmd_name" >&2
+            echo "       Expected: $expected_binary_name" >&2
+            echo "       Built: $actual_binary_name" >&2
+            echo "       This usually means the build.rs hardcoded binary name doesn't match Cargo.toml metadata" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# Extract and validate all plugin start command variants
+plugin_start_cmd=$(jq -r '.plugin_start_cmd' "$entry_tp")
+plugin_start_cmd_windows=$(jq -r '.plugin_start_cmd_windows // empty' "$entry_tp")
+plugin_start_cmd_mac=$(jq -r '.plugin_start_cmd_mac // empty' "$entry_tp")
+plugin_start_cmd_linux=$(jq -r '.plugin_start_cmd_linux // empty' "$entry_tp")
+
+# The main plugin_start_cmd is required
+if [[ -z "$plugin_start_cmd" || "$plugin_start_cmd" == "null" ]]; then
+    echo "ERROR: plugin_start_cmd not found in entry.tp" >&2
+    exit 1
+fi
+
+# Validate all present plugin start commands
+validate_plugin_start_cmd "plugin_start_cmd" "$plugin_start_cmd" "false" || exit 1
+validate_plugin_start_cmd "plugin_start_cmd_windows" "$plugin_start_cmd_windows" "true" || exit 1
+validate_plugin_start_cmd "plugin_start_cmd_mac" "$plugin_start_cmd_mac" "true" || exit 1
+validate_plugin_start_cmd "plugin_start_cmd_linux" "$plugin_start_cmd_linux" "true" || exit 1
+
+echo "    All plugin_start_cmd validations passed"
+
 # Now we create the .tpp package file.
 # A .tpp file is simply a ZIP archive containing the plugin directory.
 echo "==> Creating .tpp package: $tpp_file"

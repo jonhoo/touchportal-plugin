@@ -30,6 +30,7 @@
 
 use crate::oauth::OAuthManager;
 use eyre::Context;
+use http::Method;
 use oauth2::basic::BasicTokenResponse;
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
@@ -582,7 +583,7 @@ impl YouTubeClient {
         self.token.lock().await.token.clone()
     }
 
-    /// Ensures the access token is fresh by checking expiry and refreshing if necessary.
+    /// Gets a guaranteed-fresh access token, refreshing if necessary.
     ///
     /// This method is called automatically before each API request to ensure the token
     /// is valid. It checks if the token expires within the safety buffer and refreshes
@@ -590,37 +591,104 @@ impl YouTubeClient {
     ///
     /// # Returns
     ///
-    /// * `Ok(true)` - Token is fresh (either was valid or successfully refreshed)
-    /// * `Ok(false)` - Token refresh failed, client is unusable
-    /// * `Err(_)` - Network or other error occurred during refresh
+    /// * `Ok(token)` - A guaranteed-fresh access token
+    /// * `Err(_)` - Token refresh failed or network error occurred
     #[instrument(skip(self), ret)]
-    async fn ensure_fresh_token(&self) -> eyre::Result<bool> {
+    async fn fresh_access_token(&self) -> eyre::Result<String> {
         let mut token = self.token.lock().await;
         let now = SystemTime::now();
 
-        if now < token.expires_at {
-            // Token is still fresh
-            return Ok(true);
-        }
+        if now >= token.expires_at {
+            tracing::info!("access token expired, attempting refresh");
 
-        tracing::info!("access token expired, attempting refresh");
-
-        // Token needs refresh
-        match self
-            .oauth_manager
-            .refresh_token(token.token.clone())
-            .await?
-        {
-            Some(new_token) => {
-                *token = Token::from_fresh_token(new_token);
-                tracing::info!("access token successfully refreshed");
-                Ok(true)
-            }
-            None => {
-                tracing::error!("access token refresh failed, client is unusable");
-                Ok(false)
+            // Token needs refresh
+            match self
+                .oauth_manager
+                .refresh_token(token.token.clone())
+                .await?
+            {
+                Some(new_token) => {
+                    *token = Token::from_fresh_token(new_token);
+                    tracing::info!("access token successfully refreshed");
+                }
+                None => {
+                    tracing::error!("access token refresh failed, client is unusable");
+                    return Err(eyre::eyre!("Unable to refresh expired access token"));
+                }
             }
         }
+
+        // Return the guaranteed-fresh access token
+        Ok(token.token.access_token().secret().to_string())
+    }
+
+    /// Makes an authenticated HTTP request to the YouTube API with common error handling.
+    ///
+    /// This method consolidates the shared logic across all YouTube API requests:
+    /// - Token freshness validation and refresh
+    /// - Authorization header setup
+    /// - Request building based on HTTP method
+    /// - Query parameters (for both GET and POST requests)
+    /// - JSON body (for POST requests that need a body)
+    /// - Status code validation and error handling
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - The HTTP method to use (GET, POST, etc.)
+    /// * `url` - The API endpoint URL
+    /// * `query_params` - Optional query parameters
+    /// * `json_body` - Optional JSON body for POST requests
+    ///
+    /// # Returns
+    ///
+    /// The raw [`reqwest::Response`] for method-specific JSON parsing.
+    #[instrument(skip(self, json_body), ret, level = tracing::Level::TRACE)]
+    async fn make_authenticated_request(
+        &self,
+        method: Method,
+        url: &str,
+        query_params: Option<&[(&str, &str)]>,
+        json_body: Option<&impl Serialize>,
+    ) -> eyre::Result<reqwest::Response> {
+        let access_token = self.fresh_access_token().await?;
+
+        let mut request = self
+            .client
+            .request(method.clone(), url)
+            .header("Authorization", format!("Bearer {}", access_token));
+
+        // Add query parameters if provided
+        if let Some(params) = query_params {
+            request = request.query(params);
+        }
+
+        // Add JSON body and content-type if provided
+        if let Some(body) = json_body {
+            request = request
+                .header("Content-Type", "application/json")
+                .json(body);
+        }
+
+        let response = request
+            .send()
+            .await
+            .with_context(|| format!("send {} request to YouTube API: {}", method, url))?;
+
+        let status_code = response.status();
+        if !status_code.is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".to_string());
+            return Err(eyre::eyre!(
+                "YouTube API {} request failed with status {}: {}",
+                method,
+                status_code,
+                error_text
+            ));
+        }
+
+        Ok(response)
     }
 
     /// Validates the OAuth2 token by making a test API call to the YouTube Data API.
@@ -636,11 +704,6 @@ impl YouTubeClient {
     /// * `Err(_)` - Network or other error occurred during validation
     #[instrument(skip(self), ret)]
     pub async fn validate_token(&self) -> eyre::Result<bool> {
-        // Ensure token is fresh before validation
-        if !self.ensure_fresh_token().await? {
-            return Ok(false);
-        }
-
         match self.list_live_broadcasts_internal(1, None, None).await {
             Ok(_) => {
                 tracing::info!("YouTube API token validation successful");
@@ -807,51 +870,21 @@ impl YouTubeClient {
         broadcast_id: &str,
         status: BroadcastStatus,
     ) -> eyre::Result<LiveBroadcast> {
-        // Ensure token is fresh before making API call
-        if !self.ensure_fresh_token().await? {
-            return Err(eyre::eyre!("Unable to refresh expired access token"));
-        }
-
-        let access_token = self
-            .token
-            .lock()
-            .await
-            .token
-            .access_token()
-            .secret()
-            .to_string();
-
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/transition";
-        let response = self
-            .client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .query(&[
-                ("part", "id,snippet,status"),
-                ("id", broadcast_id),
-                (
-                    "broadcastStatus",
-                    serde_json::to_string(&status)
-                        .context("serialize broadcast status")?
-                        .trim_matches('"'),
-                ), // Remove JSON quotes for query param
-            ])
-            .send()
-            .await
-            .context("send transition request to YouTube API")?;
+        let status_string = serde_json::to_string(&status)
+            .context("serialize broadcast status")?
+            .trim_matches('"')
+            .to_string(); // Remove JSON quotes for query param
 
-        let status_code = response.status();
-        if !status_code.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(eyre::eyre!(
-                "YouTube API transition request failed with status {}: {}",
-                status_code,
-                error_text
-            ));
-        }
+        let query_params = [
+            ("part", "id,snippet,status"),
+            ("id", broadcast_id),
+            ("broadcastStatus", &status_string),
+        ];
+
+        let response = self
+            .make_authenticated_request(Method::POST, url, Some(&query_params), None::<&()>)
+            .await?;
 
         let broadcast: LiveBroadcast = response
             .json()
@@ -895,44 +928,12 @@ impl YouTubeClient {
         broadcast_id: &str,
         cuepoint: &CuepointRequest,
     ) -> eyre::Result<()> {
-        // Ensure token is fresh before making API call
-        if !self.ensure_fresh_token().await? {
-            return Err(eyre::eyre!("Unable to refresh expired access token"));
-        }
-
-        let access_token = self
-            .token
-            .lock()
-            .await
-            .token
-            .access_token()
-            .secret()
-            .to_string();
-
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts/cuepoint";
-        let response = self
-            .client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .header("Content-Type", "application/json")
-            .query(&[("id", broadcast_id)])
-            .json(cuepoint)
-            .send()
-            .await
-            .context("send cuepoint request to YouTube API")?;
+        let query_params = [("id", broadcast_id)];
 
-        let status_code = response.status();
-        if !status_code.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(eyre::eyre!(
-                "YouTube API cuepoint request failed with status {}: {}",
-                status_code,
-                error_text
-            ));
-        }
+        let _response = self
+            .make_authenticated_request(Method::POST, url, Some(&query_params), Some(cuepoint))
+            .await?;
 
         tracing::debug!(
             broadcast_id,
@@ -1032,20 +1033,6 @@ impl YouTubeClient {
         status_filter: Option<BroadcastStatusFilter>,
         page_token: Option<String>,
     ) -> eyre::Result<LiveBroadcastListResponse> {
-        // Ensure token is fresh before making API call
-        if !self.ensure_fresh_token().await? {
-            return Err(eyre::eyre!("Unable to refresh expired access token"));
-        }
-
-        let access_token = self
-            .token
-            .lock()
-            .await
-            .token
-            .access_token()
-            .secret()
-            .to_string();
-
         let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
 
         let max_results_string = max_results.to_string();
@@ -1071,26 +1058,8 @@ impl YouTubeClient {
         }
 
         let response = self
-            .client
-            .get(url)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .query(&query_params)
-            .send()
-            .await
-            .context("send request to YouTube API")?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(eyre::eyre!(
-                "YouTube API request failed with status {}: {}",
-                status,
-                error_text
-            ));
-        }
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
 
         let live_broadcasts: LiveBroadcastListResponse = response
             .json()
@@ -1128,20 +1097,6 @@ impl YouTubeClient {
         max_results: u32,
         page_token: Option<String>,
     ) -> eyre::Result<LiveStreamListResponse> {
-        // Ensure token is fresh before making API call
-        if !self.ensure_fresh_token().await? {
-            return Err(eyre::eyre!("Unable to refresh expired access token"));
-        }
-
-        let access_token = self
-            .token
-            .lock()
-            .await
-            .token
-            .access_token()
-            .secret()
-            .to_string();
-
         let url = "https://www.googleapis.com/youtube/v3/liveStreams";
         let max_results_string = max_results.to_string();
         let mut query_params = vec![
@@ -1156,26 +1111,8 @@ impl YouTubeClient {
         }
 
         let response = self
-            .client
-            .get(url)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .query(&query_params)
-            .send()
-            .await
-            .context("send request to YouTube liveStreams API")?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(eyre::eyre!(
-                "YouTube liveStreams API request failed with status {}: {}",
-                status,
-                error_text
-            ));
-        }
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
 
         let live_streams: LiveStreamListResponse = response
             .json()
@@ -1214,20 +1151,6 @@ impl YouTubeClient {
         max_results: u32,
         page_token: Option<String>,
     ) -> eyre::Result<ChannelListResponse> {
-        // Ensure token is fresh before making API call
-        if !self.ensure_fresh_token().await? {
-            return Err(eyre::eyre!("Unable to refresh expired access token"));
-        }
-
-        let access_token = self
-            .token
-            .lock()
-            .await
-            .token
-            .access_token()
-            .secret()
-            .to_string();
-
         let url = "https://www.googleapis.com/youtube/v3/channels";
         let max_results_string = max_results.to_string();
         let mut query_params = vec![
@@ -1242,26 +1165,8 @@ impl YouTubeClient {
         }
 
         let response = self
-            .client
-            .get(url)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .query(&query_params)
-            .send()
-            .await
-            .context("send request to YouTube channels API")?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(eyre::eyre!(
-                "YouTube channels API request failed with status {}: {}",
-                status,
-                error_text
-            ));
-        }
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
 
         let channels: ChannelListResponse = response
             .json()

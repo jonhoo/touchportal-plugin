@@ -2052,6 +2052,7 @@ version = "0.1.0"
 dependencies = [
  "eyre",
  "form_urlencoded",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",

@@ -282,6 +282,8 @@ pub struct LiveBroadcast {
     ///
     /// Includes the broadcast's title, description, and thumbnail images.
     pub snippet: LiveBroadcastSnippet,
+    /// Contains information about the broadcast's status.
+    pub status: LiveBroadcastStatus,
 }
 
 /// The snippet object contains basic details about the broadcast.
@@ -291,6 +293,7 @@ pub struct LiveBroadcast {
 ///
 /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#snippet>
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LiveBroadcastSnippet {
     /// The broadcast's title.
     ///
@@ -299,8 +302,58 @@ pub struct LiveBroadcastSnippet {
     /// The date and time that the broadcast is scheduled to start.
     ///
     /// The value is specified in ISO 8601 format.
-    #[serde(rename = "scheduledStartTime")]
     pub scheduled_start_time: Option<String>,
+}
+
+/// The status object contains information about the live broadcast's status and settings.
+///
+/// This includes the broadcast's lifecycle status (ready, testing, live, complete),
+/// privacy settings, recording status, and monetization settings.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveBroadcastStatus {
+    /// The broadcast's lifecycle status.
+    pub life_cycle_status: BroadcastLifeCycleStatus,
+    /// The broadcast's privacy status.
+    pub privacy_status: BroadcastPrivacyStatus,
+    /// Whether the broadcast is made for kids.
+    pub made_for_kids: bool,
+}
+
+/// The broadcast's current lifecycle status.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.lifeCycleStatus>
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BroadcastLifeCycleStatus {
+    /// The broadcast is ready to be activated but has not yet been activated.
+    Ready,
+    /// The broadcast is in testing mode and can be seen by viewers who have access to the URL.
+    Testing,
+    /// The broadcast is active and visible to anyone who has access to the URL.
+    Live,
+    /// The broadcast has finished and is no longer live.
+    Complete,
+    /// The broadcast was created but never activated.
+    Created,
+    /// The broadcast has been revoked and can no longer be activated.
+    Revoked,
+}
+
+/// The broadcast's privacy status.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.privacyStatus>
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BroadcastPrivacyStatus {
+    /// The broadcast is public and can be viewed by anyone.
+    Public,
+    /// The broadcast is unlisted and can only be viewed by people with the link.
+    Unlisted,
+    /// The broadcast is private and can only be viewed by the owner and authorized viewers.
+    Private,
 }
 
 /// Paging details for lists of resources.
@@ -1080,7 +1133,7 @@ impl YouTubeClient {
 
         let max_results_string = max_results.to_string();
         let mut query_params = vec![
-            ("part", "id,snippet"),
+            ("part", "id,snippet,status"),
             ("mine", "true"),
             ("maxResults", max_results_string.as_str()),
         ];

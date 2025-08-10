@@ -307,7 +307,7 @@ pub struct StaticAction {
     /// This a Mac only functionality.
     #[cfg(target_os = "macos")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, skip_option), default)]
+    #[builder(setter(into, strip_option), default)]
     execution_type: Option<ExecutionType>,
 
     /// Specify the path of execution here.

@@ -21,7 +21,7 @@ impl PluginCallbacks for Plugin {
                     "mode": mode
                 }),
             )
-            .await;
+            .await?;
 
         Ok(())
     }
@@ -38,7 +38,7 @@ impl PluginCallbacks for Plugin {
                     "mode": mode
                 }),
             )
-            .await;
+            .await?;
 
         Ok(())
     }

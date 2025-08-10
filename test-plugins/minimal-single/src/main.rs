@@ -22,7 +22,7 @@ impl PluginCallbacks for Plugin {
                     "mode": mode
                 }),
             )
-            .await;
+            .await?;
 
         Ok(())
     }
@@ -53,8 +53,20 @@ async fn main() -> eyre::Result<()> {
     let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
     let addr = mock_server.local_addr()?;
 
+    // Set up expectations for action calls
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_single_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+
+    let expectations = mock_server.expectations().clone();
+
     // Add a simple test scenario to trigger the single action
-    // The action callback will log when it is called, which serves as verification
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Single Action Test")
             .with_action("single_action", Vec::<(&str, &str)>::new())
@@ -68,5 +80,15 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    Plugin::run_dynamic(addr).await
+    let expectations_for_verification = expectations.clone();
+    let result = Plugin::run_dynamic_with_setup(addr, |mut plugin| {
+        plugin.mocks = expectations;
+        plugin
+    })
+    .await;
+
+    // Verify mock expectations after plugin completes
+    expectations_for_verification.verify().await?;
+
+    result
 }

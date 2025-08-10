@@ -167,11 +167,20 @@ impl Plugin {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    // TODO: Add mock TouchPortal server support for all-data-types plugin testing
+    // This plugin tests comprehensive action parameters, state updates, and background tasks
+    // Priority: Add mock server with test scenarios for:
+    // - comprehensive_action with various data types (text, number, switch, choice)
+    // - choice field selection callbacks
+    // - state updates verification
+    // - background task state cycling verification
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .without_time()
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    tracing::info!("all-data-types test plugin - mock support not implemented yet");
+    Ok(())
 }

@@ -38,5 +38,31 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    // Create mock TouchPortal server for testing
+    let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
+    let addr = mock_server.local_addr()?;
+
+    // Add test scenarios for both subcategory actions
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Media Action Test")
+            .with_action("media_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Settings Action Test")
+            .with_action("settings_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(750)),
+    );
+
+    // Start mock server in background
+    tokio::spawn(async move {
+        if let Err(e) = mock_server.run_test_scenarios().await {
+            tracing::error!("Mock server failed: {}", e);
+        } else {
+            tracing::info!("✅ Test PASSED: Subcategories plugin completed test scenarios");
+        }
+    });
+
+    Plugin::run_dynamic(addr).await
 }

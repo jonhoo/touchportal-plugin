@@ -22,6 +22,9 @@ pub fn entry_tp(plugin: &PluginDescription) -> String {
 
 pub mod protocol;
 
+#[cfg(feature = "mock")]
+pub mod mock;
+
 /// Mapping from TouchPortal version to API version.
 #[derive(Debug, Clone, Copy, Deserialize_repr, Serialize_repr)]
 #[non_exhaustive]

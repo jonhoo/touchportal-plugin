@@ -1,0 +1,343 @@
+//! Mock TouchPortal server for testing plugins.
+//!
+//! This module provides a mock TouchPortal server that can be used to test plugins
+//! without requiring a real TouchPortal instance. The mock server implements the
+//! TouchPortal JSON protocol and can simulate actions, events, and other interactions.
+//!
+//! ## Message Flow
+//! - **Incoming to mock server**: Commands from plugin to TouchPortal (e.g., state updates, events)
+//!   - These are captured and can be validated with test assertions
+//! - **Outgoing from mock server**: Messages from TouchPortal to plugin (e.g., actions, broadcasts)
+//!   - These are sent by test scenarios to simulate TouchPortal behavior
+
+use crate::protocol::{self, TouchPortalCommand, TouchPortalOutput};
+use eyre::{Context, Result};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, Mutex};
+
+/// A mock TouchPortal server for testing plugins.
+///
+/// This server listens on a TCP port and implements the TouchPortal JSON protocol,
+/// allowing plugins to be tested without requiring a real TouchPortal instance.
+#[derive(Debug)]
+pub struct MockTouchPortalServer {
+    listener: TcpListener,
+    captured_messages: Arc<Mutex<Vec<TouchPortalCommand>>>,
+    test_scenarios: Vec<TestScenario>,
+}
+
+/// A test scenario that can be executed by the mock server.
+pub struct TestScenario {
+    /// Name of the test scenario for logging purposes
+    pub name: String,
+    /// Messages to send to the plugin in order
+    pub messages: Vec<TouchPortalOutput>,
+    /// Delay between sending messages
+    pub delay: Duration,
+    /// Optional assertion function to validate commands sent from plugin to TouchPortal
+    pub assertions: Option<Box<dyn Fn(&[TouchPortalCommand]) -> Result<()> + Send + Sync>>,
+}
+
+// Manual Debug implementation since Box<dyn Fn> doesn't implement Debug
+impl std::fmt::Debug for TestScenario {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestScenario")
+            .field("name", &self.name)
+            .field("messages", &self.messages)
+            .field("delay", &self.delay)
+            .field("assertions", &self.assertions.is_some())
+            .finish()
+    }
+}
+
+// Manual Clone implementation since assertion functions can't be cloned
+impl Clone for TestScenario {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            messages: self.messages.clone(),
+            delay: self.delay,
+            assertions: None, // Can't clone function pointers
+        }
+    }
+}
+
+impl MockTouchPortalServer {
+    /// Create a new mock TouchPortal server.
+    ///
+    /// The server will bind to an available port on localhost.
+    pub async fn new() -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .context("bind mock TouchPortal server")?;
+
+        Ok(Self {
+            listener,
+            captured_messages: Arc::new(Mutex::new(Vec::new())),
+            test_scenarios: Vec::new(),
+        })
+    }
+
+    /// Get the local address the server is bound to.
+    ///
+    /// Plugins should connect to this address.
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        self.listener
+            .local_addr()
+            .context("get mock TouchPortal server address")
+    }
+
+    /// Add a test scenario to be executed when a plugin connects.
+    pub fn add_test_scenario(&mut self, scenario: TestScenario) {
+        self.test_scenarios.push(scenario);
+    }
+
+    /// Get all messages that have been captured from plugin communications.
+    pub async fn captured_messages(&self) -> Vec<TouchPortalCommand> {
+        self.captured_messages.lock().await.clone()
+    }
+
+    /// Clear all captured messages.
+    pub async fn clear_captured_messages(&self) {
+        self.captured_messages.lock().await.clear();
+    }
+
+    /// Run the mock server and execute test scenarios.
+    ///
+    /// This method will accept connections from plugins and handle the TouchPortal protocol.
+    /// It will also execute any configured test scenarios and run assertions.
+    pub async fn run_test_scenarios(self) -> Result<()> {
+        tracing::info!(
+            "mock TouchPortal server listening on {}",
+            self.local_addr()?
+        );
+
+        // Accept the first connection (assuming single plugin testing)
+        let (stream, addr) = self
+            .listener
+            .accept()
+            .await
+            .context("accept plugin connection")?;
+
+        tracing::info!("plugin connected from {}", addr);
+
+        self.handle_connection(stream).await
+    }
+
+    /// Handle a single plugin connection.
+    async fn handle_connection(&self, stream: TcpStream) -> Result<()> {
+        let (read_half, write_half) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+        let mut writer = BufWriter::new(write_half);
+
+        // Channel for sending messages to the plugin (outgoing from TouchPortal's perspective)
+        let (tx, mut rx) = mpsc::channel::<TouchPortalOutput>(32);
+
+        // Spawn task to handle messages going to plugin (outgoing from mock TouchPortal)
+        let mut writer_task = {
+            tokio::spawn(async move {
+                while let Some(message) = rx.recv().await {
+                    let json =
+                        serde_json::to_string(&message).context("serialize message to plugin")?;
+
+                    tracing::trace!(?json, "mock TouchPortal -> plugin");
+
+                    writer
+                        .write_all(json.as_bytes())
+                        .await
+                        .context("write message to plugin")?;
+                    writer
+                        .write_all(b"\n")
+                        .await
+                        .context("write newline to plugin")?;
+                    writer.flush().await.context("flush to plugin")?;
+                }
+                Ok::<(), eyre::Report>(())
+            })
+        };
+
+        // Spawn task to execute test scenarios (send messages to plugin)
+        let mut scenario_task = {
+            let tx = tx.clone();
+            let scenarios = self.test_scenarios.clone();
+            let captured_messages = self.captured_messages.clone();
+            tokio::spawn(async move {
+                // Wait a bit for the plugin to initialize
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                for scenario in scenarios {
+                    tracing::info!(scenario.name, "executing test scenario");
+
+                    for message in scenario.messages {
+                        if tx.send(message).await.is_err() {
+                            tracing::warn!("failed to send test message to plugin");
+                            break;
+                        }
+
+                        if !scenario.delay.is_zero() {
+                            tokio::time::sleep(scenario.delay).await;
+                        }
+                    }
+
+                    // Run assertions if provided
+                    if let Some(assertions) = &scenario.assertions {
+                        // Wait a moment for any plugin responses to be captured
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                        let messages = captured_messages.lock().await;
+                        match assertions(&messages) {
+                            Ok(()) => {
+                                tracing::info!(scenario.name, "✅ assertions passed");
+                            }
+                            Err(e) => {
+                                tracing::error!(scenario.name, error = %e, "❌ assertions failed");
+                            }
+                        }
+                    }
+                }
+
+                // Keep the channel open for a bit
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            })
+        };
+
+        // Main message handling loop
+        let mut line = String::new();
+        loop {
+            tokio::select! {
+                result = reader.read_line(&mut line) => {
+                    let n = result.context("read from plugin")?;
+                    if n == 0 {
+                        tracing::info!("plugin disconnected");
+                        break;
+                    }
+
+                    let json: serde_json::Value = serde_json::from_str(&line.trim())
+                        .context("parse JSON from plugin")?;
+
+                    tracing::trace!(?json, "plugin -> mock TouchPortal");
+
+                    // Parse the command from plugin and store it (incoming to TouchPortal)
+                    if let Ok(command) = serde_json::from_value::<TouchPortalCommand>(json.clone()) {
+                        self.captured_messages.lock().await.push(command.clone());
+
+                        // Handle specific commands
+                        match command {
+                            TouchPortalCommand::Pair(_pair_cmd) => {
+                                // Respond with mock info message
+                                let info = protocol::InfoMessage {
+                                    sdk_version: crate::ApiVersion::V4_3,
+                                    tp_version_string: "Mock TouchPortal v4.3.0".to_string(),
+                                    tp_version_code: 430000,
+                                    plugin_version: None,
+                                    settings: vec![],
+                                    current_page_path_main_device: Some("mock-page.tml".to_string()),
+                                    current_page_path_secondary_devices: vec![],
+                                };
+
+                                if tx.send(TouchPortalOutput::Info(info)).await.is_err() {
+                                    tracing::warn!("failed to send info response to plugin");
+                                    break;
+                                }
+                            }
+                            _ => {
+                                // For other commands from plugin, just log them
+                                tracing::debug!(?command, "received command from plugin");
+                            }
+                        }
+                    }
+
+                    line.clear();
+                }
+                _ = &mut writer_task, if !writer_task.is_finished() => {
+                    tracing::info!("writer task completed");
+                    break;
+                }
+                _ = &mut scenario_task, if !scenario_task.is_finished() => {
+                    tracing::info!("scenario task completed");
+                    // Continue running to handle plugin responses
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl TestScenario {
+    /// Create a new test scenario.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            messages: Vec::new(),
+            delay: Duration::from_millis(100),
+            assertions: None,
+        }
+    }
+
+    /// Set the delay between messages.
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
+
+    /// Add an assertion function to validate commands sent from plugin to TouchPortal.
+    ///
+    /// The assertion function receives all TouchPortalCommand messages that the plugin
+    /// has sent to the mock TouchPortal server (e.g., StateUpdate, Pair, TriggerEvent).
+    pub fn with_assertions<F>(mut self, assertions: F) -> Self
+    where
+        F: Fn(&[TouchPortalCommand]) -> Result<()> + Send + Sync + 'static,
+    {
+        self.assertions = Some(Box::new(assertions));
+        self
+    }
+
+    /// Add a message to be sent to the plugin.
+    pub fn with_message(mut self, message: TouchPortalOutput) -> Self {
+        self.messages.push(message);
+        self
+    }
+
+    /// Add an action message to trigger the plugin.
+    pub fn with_action(
+        self,
+        action_id: impl Into<String>,
+        data: Vec<(impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        let message = TouchPortalOutput::Action(protocol::ActionMessage {
+            plugin_id: "mock-plugin".to_string(),
+            action_id: action_id.into(),
+            data: data
+                .into_iter()
+                .map(|(id, value)| protocol::IdValuePair {
+                    id: id.into(),
+                    value: value.into(),
+                })
+                .collect(),
+        });
+        self.with_message(message)
+    }
+
+    /// Add a broadcast page change event.
+    pub fn with_page_change(
+        self,
+        page_name: impl Into<String>,
+        previous_page_name: Option<impl Into<String>>,
+    ) -> Self {
+        let message = TouchPortalOutput::Broadcast(protocol::BroadcastEvent::PageChange(
+            protocol::BroadcastPageChangeEvent {
+                page_name: page_name.into(),
+                previous_page_name: previous_page_name.map(|s| s.into()),
+                device_ip: Some("127.0.0.1".to_string()),
+                device_name: Some("Mock Device".to_string()),
+                device_id: Some("mock-device-1".to_string()),
+            },
+        ));
+        self.with_message(message)
+    }
+}

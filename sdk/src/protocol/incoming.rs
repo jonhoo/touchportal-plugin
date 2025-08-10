@@ -18,7 +18,7 @@ pub enum TouchPortalOutput {
     NotificationOptionClicked(NotificationClickedMessage),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ActionInteractionMode {
     Execute,
@@ -80,7 +80,7 @@ pub struct DevicePage {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ActionMessage {
-    plugin_id: String,
+    pub plugin_id: String,
     #[doc(hidden = "handled transparently by codegen")]
     pub action_id: String,
     #[doc(hidden = "handled transparently by codegen")]
@@ -111,13 +111,13 @@ pub struct ActionMessage {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ConnectorChangeMessage {
-    plugin_id: String,
-    connector_id: String,
+    pub plugin_id: String,
+    pub connector_id: String,
     /// Value between 0 and 100 for sliders.
-    value: Option<u32>,
+    pub value: Option<u32>,
     /// Double value for dials.
-    value_decimal: Option<f64>,
-    data: Vec<HashMap<String, String>>,
+    pub value_decimal: Option<f64>,
+    pub data: Vec<HashMap<String, String>>,
 }
 
 /// Whenever a user creates a connector for the first time a `shortId` is generated for that

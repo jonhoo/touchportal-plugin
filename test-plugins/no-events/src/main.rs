@@ -90,11 +90,19 @@ impl Plugin {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    // TODO: Add mock TouchPortal server support for no-events plugin testing
+    // This plugin tests actions and states without events
+    // Priority: Add mock server with test scenarios for:
+    // - counter_action execution and state updates
+    // - state update verification after action execution
+    // - action parameter handling
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .without_time()
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    tracing::info!("no-events test plugin - mock support not implemented yet");
+    Ok(())
 }

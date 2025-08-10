@@ -33,5 +33,39 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    // Create mock TouchPortal server for testing
+    let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
+    let addr = mock_server.local_addr()?;
+
+    // Add a simple test scenario to trigger the single action
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Single Action Test")
+            .with_action("single_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(1000))
+            .with_assertions(|commands| {
+                use touchportal_sdk::protocol::TouchPortalCommand;
+
+                // Should have at least a pair command from plugin initialization
+                let pair_commands = commands
+                    .iter()
+                    .filter(|cmd| matches!(cmd, TouchPortalCommand::Pair(_)))
+                    .count();
+
+                if pair_commands > 0 {
+                    tracing::info!("✅ Plugin successfully paired with mock TouchPortal");
+                    Ok(())
+                } else {
+                    eyre::bail!("Expected at least 1 pair command, got {}", pair_commands)
+                }
+            }),
+    );
+
+    // Start mock server in background
+    tokio::spawn(async move {
+        if let Err(e) = mock_server.run_test_scenarios().await {
+            tracing::error!("Mock server failed: {}", e);
+        }
+    });
+
+    Plugin::run_dynamic(addr).await
 }

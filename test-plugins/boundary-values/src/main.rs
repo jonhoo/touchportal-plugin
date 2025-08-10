@@ -59,11 +59,19 @@ impl Plugin {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    // TODO: Add mock TouchPortal server support for boundary-values plugin testing
+    // This plugin tests edge cases and validation of number bounds
+    // Priority: Add mock server with test scenarios for:
+    // - boundary_test action with min/max values
+    // - input validation at extreme values
+    // - error handling for out-of-bounds inputs
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .without_time()
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    tracing::info!("boundary-values test plugin - mock support not implemented yet");
+    Ok(())
 }

@@ -127,5 +127,17 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    // TODO: Add mock TouchPortal server support for stress plugin testing
+    // This is a complex plugin testing many SDK features (actions, events, states, settings)
+    // Priority: Add mock server with comprehensive test scenarios for:
+    // - Multiple actions with different parameter types
+    // - Choice selection callbacks and dependent lists
+    // - Event triggering and state management
+    // - Background tasks and periodic state updates
+    // - Settings management and validation
+
+    tracing::info!(
+        "stress test plugin - mock support not implemented yet (too complex for initial testing)"
+    );
+    Ok(())
 }

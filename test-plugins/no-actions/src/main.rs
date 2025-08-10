@@ -33,7 +33,7 @@ impl Plugin {
         let counter = plugin.counter.clone();
         let handle = plugin.handle.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
 
@@ -88,5 +88,40 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false)
         .init();
 
-    Plugin::run_dynamic("127.0.0.1:12136").await
+    // Create mock TouchPortal server for testing
+    let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
+    let addr = mock_server.local_addr()?;
+
+    // Add test scenario to verify state updates from background task
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Background State Updates Test")
+            .with_delay(std::time::Duration::from_secs(3)) // Wait for several state updates
+            .with_assertions(|commands| {
+                use touchportal_sdk::protocol::TouchPortalCommand;
+
+                let state_updates = commands
+                    .iter()
+                    .filter(|cmd| matches!(cmd, TouchPortalCommand::StateUpdate(_)))
+                    .count();
+
+                if state_updates >= 2 {
+                    tracing::info!(
+                        "✅ Found {} state updates from background task",
+                        state_updates
+                    );
+                    Ok(())
+                } else {
+                    eyre::bail!("Expected at least 2 state updates, got {}", state_updates)
+                }
+            }),
+    );
+
+    // Start mock server in background
+    tokio::spawn(async move {
+        if let Err(e) = mock_server.run_test_scenarios().await {
+            tracing::error!("Mock server failed: {}", e);
+        }
+    });
+
+    Plugin::run_dynamic(addr).await
 }

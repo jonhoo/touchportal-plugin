@@ -760,6 +760,12 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
     });
 
     quote! {
+        #[diagnostic::on_unimplemented(
+            message = "`{Self}` must implement `PluginCallbacks` to receive updates from TouchPortal ",
+            label = "the trait `PluginCallbacks` is not implemented for `{Self}`",
+            note = "Add `impl PluginCallbacks for {Self} {{}}` and let your IDE or the compiler guide you.",
+            note = "This trait has methods for all possible \"incoming\" messages based on your plugin description in `build.rs`.",
+        )]
         trait PluginCallbacks {
             #( #action_signatures )*
             #( #list_signatures )*
@@ -779,7 +785,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
         #action_data_choices
 
-        impl Plugin {
+        impl Plugin where Self: PluginCallbacks {
             async fn handle_incoming(&mut self, msg: protocol::TouchPortalOutput) -> eyre::Result<bool> {
                 use protocol::TouchPortalOutput;
                 use ::eyre::Context as _;
@@ -843,7 +849,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
 fn gen_connect(plugin_id: &str) -> TokenStream {
     quote! {
-        impl Plugin {
+        impl Plugin where Self: PluginCallbacks {
             pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
                 Self::run_dynamic_with_setup(addr, std::convert::identity).await
             }

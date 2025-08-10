@@ -13,7 +13,7 @@ use youtube_client::YouTubeClient;
 // You can look at the generated code for a plugin using this command:
 //
 // ```bash
-// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")"
+// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/entry.rs"
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 

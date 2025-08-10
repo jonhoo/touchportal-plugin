@@ -91,7 +91,7 @@ jobs:
       - name: Install cargo-docs-rs
         uses: dtolnay/install@982daea0f5d846abc3c83e01a6a1d73c040047c1 # branch=cargo-docs-rs
       - name: cargo docs-rs
-        run: cargo docs-rs
+        run: cargo docs-rs -p touchportal-sdk
   hack:
     # cargo-hack checks combinations of feature flags to ensure that features are all additive
     # which is required for feature unification
@@ -120,7 +120,7 @@ jobs:
     # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
     strategy:
       matrix:
-        msrv: ["1.56.1"] # 2021 edition requires 1.56
+        msrv: ["1.85.1"] # 2024 edition
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # tag=v4.2.2

@@ -47,10 +47,8 @@ def show_usage() -> None:
     print("Available plugins:")
     
     # List available plugins
-    current_dir = Path.cwd()
-    for plugin_dir in current_dir.iterdir():
-        if plugin_dir.is_dir() and (plugin_dir / "Cargo.toml").exists():
-            print(f"  - {plugin_dir.name}")
+    for plugin in find_available_plugins():
+        print(f"  - {plugin}")
 
 
 def find_available_plugins() -> List[str]:
@@ -167,14 +165,14 @@ def main() -> None:
     available_plugins = find_available_plugins()
     
     if args.plugins:
-        invalid_plugins = []
+        unknown_plugins = []
         for plugin in args.plugins:
             plugin_dir = Path(plugin)
             if not plugin_dir.is_dir() or not (plugin_dir / "Cargo.toml").exists():
-                invalid_plugins.append(plugin)
+                unknown_plugins.append(plugin)
         
-        if invalid_plugins:
-            print(f"{Fore.RED}Error: Invalid plugin names: {', '.join(invalid_plugins)}{Style.RESET_ALL}")
+        if unknown_plugins:
+            print(f"{Fore.RED}Error: Unknown plugin names: {', '.join(unknown_plugins)}{Style.RESET_ALL}")
             print("")
             show_usage()
             sys.exit(1)

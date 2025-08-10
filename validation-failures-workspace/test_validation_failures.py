@@ -12,24 +12,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-# Try to import TOML parser
-try:
-    import tomllib  # Python 3.11+
-    def parse_toml(content: str) -> dict:
-        return tomllib.loads(content)
-except ImportError:
-    try:
-        import tomli  # tomli package
-        def parse_toml(content: str) -> dict:
-            return tomli.loads(content)
-    except ImportError:
-        try:
-            import toml  # toml package
-            def parse_toml(content: str) -> dict:
-                return toml.loads(content)
-        except ImportError:
-            print("ERROR: No TOML parser available. Please install tomli: pip install tomli")
-            sys.exit(1)
+import tomllib
 
 try:
     import colorama
@@ -59,8 +42,8 @@ def get_workspace_members() -> List[str]:
     cargo_toml_path = Path("Cargo.toml")
     
     try:
-        with open(cargo_toml_path, 'r') as f:
-            cargo_data = parse_toml(f.read())
+        with open(cargo_toml_path, 'rb') as f:
+            cargo_data = tomllib.load(f)
         
         workspace = cargo_data.get("workspace", {})
         members = workspace.get("members", [])
@@ -95,8 +78,8 @@ def get_package_name(plugin_dir: Path) -> Optional[str]:
         return None
     
     try:
-        with open(cargo_toml_path, 'r') as f:
-            cargo_data = parse_toml(f.read())
+        with open(cargo_toml_path, 'rb') as f:
+            cargo_data = tomllib.load(f)
         
         package = cargo_data.get("package", {})
         return package.get("name")
@@ -105,26 +88,18 @@ def get_package_name(plugin_dir: Path) -> Optional[str]:
         return None
 
 
-def get_expected_error(plugin_dir: Path) -> Optional[str]:
+def find_available_plugins() -> List[str]:
     """
-    Get expected error message from the plugin directory.
+    Find all available plugins in the current workspace.
     
-    Args:
-        plugin_dir: Path to the plugin directory
-        
     Returns:
-        Expected error message or None if file doesn't exist
+        List of available plugin names
     """
-    expected_error_file = plugin_dir / "expected-error.txt"
-    
-    if not expected_error_file.exists():
-        return None
-    
-    try:
-        with open(expected_error_file, 'r') as f:
-            return f.read().strip()
-    except IOError:
-        return None
+    plugins = []
+    for plugin_dir in Path(".").iterdir():
+        if plugin_dir.is_dir() and (plugin_dir / "Cargo.toml").exists():
+            plugins.append(plugin_dir.name)
+    return plugins
 
 
 def test_plugin(plugin: str) -> Tuple[str, bool]:
@@ -146,10 +121,9 @@ def test_plugin(plugin: str) -> Tuple[str, bool]:
     if not package_name:
         return f"{Fore.RED}ERROR: {plugin}/Cargo.toml not found or invalid{Style.RESET_ALL}", False
     
-    expected_error = get_expected_error(plugin_dir)
-    
     # Check if this is an uncaught validation test (no expected-error.txt)
-    if expected_error is None:
+    expected_error_file = plugin_dir / "expected-error.txt"
+    if not expected_error_file.exists():
         print(f"⚠️  UNCAUGHT VALIDATION TEST: This plugin tests a validation gap that is not currently caught by the SDK")
         print(f"Running: cargo check -p {package_name}")
         
@@ -165,6 +139,13 @@ def test_plugin(plugin: str) -> Tuple[str, bool]:
         except subprocess.CalledProcessError:
             return (f"{Fore.RED}⚠️{Style.RESET_ALL}  Plugin {plugin} failed compilation - validation may have been implemented!\n"
                    "This uncaught test should be moved to proper validation test with expected-error.txt"), False
+    
+    # Read expected error
+    try:
+        with open(expected_error_file, 'r') as f:
+            expected_error = f.read().strip()
+    except IOError:
+        return f"{Fore.RED}ERROR: Could not read expected-error.txt for {plugin}{Style.RESET_ALL}", False
     
     print(f"Expected error: {expected_error}")
     print(f"Running: cargo check -p {package_name}")
@@ -241,7 +222,7 @@ def main() -> None:
             if plugin in all_plugins:
                 plugins.append(plugin)
             else:
-                print(f"{Fore.RED}ERROR: Plugin '{plugin}' not found in workspace members.{Style.RESET_ALL}")
+                print(f"{Fore.RED}ERROR: Unknown plugin '{plugin}'.{Style.RESET_ALL}")
                 print("Available plugins:")
                 for available_plugin in all_plugins:
                     print(f"  - {available_plugin}")
@@ -259,8 +240,8 @@ def main() -> None:
         print(f"=== Testing plugin: {plugin} ===")
         total_plugins += 1
         
-        expected_error = get_expected_error(Path(plugin))
-        is_uncaught = expected_error is None
+        expected_error_file = Path(plugin) / "expected-error.txt"
+        is_uncaught = not expected_error_file.exists()
         
         status_message, success = test_plugin(plugin)
         print(status_message)

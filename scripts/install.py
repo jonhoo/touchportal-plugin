@@ -31,14 +31,6 @@ from plugin_common import (
 )
 
 
-def show_help() -> None:
-    """Show help information."""
-    print("install.py - Install a TouchPortal plugin to your system")
-    print("")
-    print("Packages the plugin (if needed) and installs it to TouchPortal's plugin directory.")
-    print("Modifies your system by copying files to ~/.config/TouchPortal/plugins/")
-
-
 def ensure_plugin_packaged() -> None:
     """
     Ensure the plugin is packaged by running package.py.
@@ -71,79 +63,42 @@ def install_plugin(plugin_name: str, tpp_file: str) -> None:
     log_step("Installing plugin files")
     log_info(f"Destination: {install_dir}")
     
-    # Create a temporary directory to extract the .tpp file
-    # We extract first to avoid partial installations if the .tpp is corrupted
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
+    # Remove existing installation directory for clean installation
+    if install_dir.exists():
+        shutil.rmtree(install_dir)
+    
+    # Create the parent directory
+    install_dir.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Extract the .tpp file (which is a ZIP archive) directly to the plugins directory
+        with zipfile.ZipFile(tpp_file, 'r') as zip_ref:
+            zip_ref.extractall(install_dir.parent)
         
-        try:
-            # Extract the .tpp file (which is a ZIP archive) to the temporary directory
-            with zipfile.ZipFile(tpp_file, 'r') as zip_ref:
-                zip_ref.extractall(temp_path)
-            
-            # Find the plugin directory inside the extracted archive
-            # There should be exactly one directory containing the plugin files
-            extracted_dirs = [d for d in temp_path.iterdir() if d.is_dir()]
-            
-            if not extracted_dirs:
-                log_error(f"No plugin directory found in {tpp_file}")
-                sys.exit(1)
-            
-            if len(extracted_dirs) > 1:
-                log_error(f"Multiple directories found in {tpp_file}, expected exactly one")
-                sys.exit(1)
-            
-            extracted_dir = extracted_dirs[0]
-            
-            # Create the target directory if it doesn't exist
-            # This ensures we have a clean installation location
-            install_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Remove existing files in the install directory to ensure clean installation
-            if install_dir.exists():
-                for item in install_dir.iterdir():
-                    if item.is_file():
-                        item.unlink()
-                    elif item.is_dir():
-                        shutil.rmtree(item)
-            
-            # Copy all plugin files to the installation directory
-            for item in extracted_dir.iterdir():
-                dest_path = install_dir / item.name
-                if item.is_file():
-                    shutil.copy2(item, dest_path)
-                elif item.is_dir():
-                    shutil.copytree(item, dest_path)
-            
-            # Count installed files
-            file_count = sum(1 for _ in install_dir.rglob('*') if _.is_file())
-            log_info(f"Installed: {file_count} files")
-            
-        except zipfile.BadZipFile:
-            log_error(f"Invalid .tpp file: {tpp_file}")
-            sys.exit(1)
-        except (OSError, shutil.Error) as e:
-            log_error(f"Failed to install plugin files: {e}")
-            sys.exit(1)
+        # Count installed files
+        file_count = sum(1 for _ in install_dir.rglob('*') if _.is_file())
+        log_info(f"Installed: {file_count} files")
+        
+    except zipfile.BadZipFile:
+        log_error(f"Invalid .tpp file: {tpp_file}")
+        sys.exit(1)
+    except (OSError, shutil.Error) as e:
+        log_error(f"Failed to install plugin files: {e}")
+        sys.exit(1)
 
 
 def main() -> None:
     """Main function."""
     parser = argparse.ArgumentParser(
-        description="Install a TouchPortal plugin to your system",
+        description="""Install a TouchPortal plugin to your system.
+
+Packages the plugin (if needed) and installs it to TouchPortal's plugin directory.
+Modifies your system by copying files to ~/.config/TouchPortal/plugins/""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--help-extended",
-        action="store_true",
-        help="Show extended help information",
+        add_help=True,
     )
     
     args = parser.parse_args()
-    
-    if args.help_extended:
-        show_help()
-        return
     
     log_step("TouchPortal Plugin Installer")
     

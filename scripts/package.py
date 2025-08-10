@@ -34,14 +34,6 @@ from plugin_common import (
 )
 
 
-def show_help() -> None:
-    """Show help information."""
-    print("package.py - Build a TouchPortal plugin into a .tpp package file")
-    print("")
-    print("Creates a .tpp package from the plugin in the current directory.")
-    print("Only rebuilds if source files have changed since the last build.")
-
-
 def get_newest_source_time() -> float:
     """
     Get the modification time of the newest source file.
@@ -315,20 +307,15 @@ def create_tpp_package(plugin_name: str, plugin_exe: str, entry_tp: str, tpp_fil
 def main() -> None:
     """Main function."""
     parser = argparse.ArgumentParser(
-        description="Build a TouchPortal plugin into a .tpp package file",
+        description="""Build a TouchPortal plugin into a .tpp package file.
+
+Creates a .tpp package from the plugin in the current directory.
+Only rebuilds if source files have changed since the last build.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--help-extended",
-        action="store_true",
-        help="Show extended help information",
+        add_help=True,
     )
     
     args = parser.parse_args()
-    
-    if args.help_extended:
-        show_help()
-        return
     
     log_step("TouchPortal Plugin Packager")
     

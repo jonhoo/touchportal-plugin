@@ -80,6 +80,11 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Media Action Test")
+            .with_action("media_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
 
     mock_server
         .expectations()
@@ -90,6 +95,11 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Settings Action Test")
+            .with_action("settings_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
 
     // Expect both actions to be called again in the comprehensive test
     mock_server
@@ -101,7 +111,6 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
-
     mock_server
         .expectations()
         .expect_action_call(
@@ -111,30 +120,15 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
-
-    // Take expectations for injection into plugin
-    let expectations = mock_server.take_expectations();
-
-    // Add test scenarios for both subcategory actions
-    mock_server.add_test_scenario(
-        touchportal_sdk::mock::TestScenario::new("Media Action Test")
-            .with_action("media_action", Vec::<(&str, &str)>::new())
-            .with_delay(std::time::Duration::from_millis(500)),
-    );
-
-    mock_server.add_test_scenario(
-        touchportal_sdk::mock::TestScenario::new("Settings Action Test")
-            .with_action("settings_action", Vec::<(&str, &str)>::new())
-            .with_delay(std::time::Duration::from_millis(500)),
-    );
-
-    // Add comprehensive test to ensure both actions work in sequence
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Both Actions Test")
             .with_action("media_action", Vec::<(&str, &str)>::new())
             .with_action("settings_action", Vec::<(&str, &str)>::new())
             .with_delay(std::time::Duration::from_millis(300)),
     );
+
+    // Take expectations for injection into plugin
+    let expectations = mock_server.take_expectations();
 
     // Start mock server in background
     tokio::spawn(async move {

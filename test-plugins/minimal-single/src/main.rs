@@ -63,15 +63,13 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
-
-    let expectations = mock_server.expectations().clone();
-
-    // Add a simple test scenario to trigger the single action
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Single Action Test")
             .with_action("single_action", Vec::<(&str, &str)>::new())
             .with_delay(std::time::Duration::from_millis(300)),
     );
+
+    let expectations = mock_server.expectations().clone();
 
     // Start mock server in background
     tokio::spawn(async move {

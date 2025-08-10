@@ -101,35 +101,6 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
-
-    mock_server
-        .expectations()
-        .expect_action_call(
-            "on_boundary_action",
-            serde_json::json!({
-                "mode": "Execute",
-                "max_text": "",
-                "boundary_number": -999999.99
-            }),
-        )
-        .await;
-
-    mock_server
-        .expectations()
-        .expect_action_call(
-            "on_boundary_action",
-            serde_json::json!({
-                "mode": "Execute",
-                "max_text": "Normal text",
-                "boundary_number": 0.0
-            }),
-        )
-        .await;
-
-    let expectations = mock_server.expectations().clone();
-
-    // Add test scenarios for boundary values
-    let max_text = "X".repeat(1000);
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Maximum Boundary Values Test")
             .with_action(
@@ -142,6 +113,17 @@ async fn main() -> eyre::Result<()> {
             .with_delay(std::time::Duration::from_millis(500)),
     );
 
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_boundary_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "max_text": "",
+                "boundary_number": -999999.99
+            }),
+        )
+        .await;
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Minimum Boundary Values Test")
             .with_action(
@@ -151,6 +133,17 @@ async fn main() -> eyre::Result<()> {
             .with_delay(std::time::Duration::from_millis(500)),
     );
 
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_boundary_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "max_text": "Normal text",
+                "boundary_number": 0.0
+            }),
+        )
+        .await;
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Normal Boundary Values Test")
             .with_action(
@@ -177,6 +170,8 @@ async fn main() -> eyre::Result<()> {
                 }
             }),
     );
+
+    let expectations = mock_server.expectations().clone();
 
     // Start mock server in background
     tokio::spawn(async move {

@@ -233,6 +233,7 @@ async fn main() -> eyre::Result<()> {
             )
             .with_delay(std::time::Duration::from_millis(500)),
     );
+
     mock_server
         .expectations()
         .expect_action_call(

@@ -135,6 +135,26 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Simple Action Test 1")
+            .with_action("simple_action", vec![("text_input", "Hello World")])
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_counter_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Counter Action Test 1")
+            .with_action("counter_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
 
     mock_server
         .expectations()
@@ -146,49 +166,21 @@ async fn main() -> eyre::Result<()> {
             }),
         )
         .await;
-
-    // Set up expectations for counter action
-    mock_server
-        .expectations()
-        .expect_action_call(
-            "on_counter_action",
-            serde_json::json!({
-                "mode": "Execute"
-            }),
-        )
-        .await;
-
-    mock_server
-        .expectations()
-        .expect_action_call(
-            "on_counter_action",
-            serde_json::json!({
-                "mode": "Execute"
-            }),
-        )
-        .await;
-
-    let expectations = mock_server.expectations().clone();
-
-    // Add test scenarios for actions and state updates
-    mock_server.add_test_scenario(
-        touchportal_sdk::mock::TestScenario::new("Simple Action Test 1")
-            .with_action("simple_action", vec![("text_input", "Hello World")])
-            .with_delay(std::time::Duration::from_millis(500)),
-    );
-
-    mock_server.add_test_scenario(
-        touchportal_sdk::mock::TestScenario::new("Counter Action Test 1")
-            .with_action("counter_action", Vec::<(&str, &str)>::new())
-            .with_delay(std::time::Duration::from_millis(500)),
-    );
-
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Simple Action Test 2")
             .with_action("simple_action", vec![("text_input", "Test input")])
             .with_delay(std::time::Duration::from_millis(500)),
     );
 
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_counter_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Counter Action Test 2")
             .with_action("counter_action", Vec::<(&str, &str)>::new())
@@ -212,6 +204,8 @@ async fn main() -> eyre::Result<()> {
                 }
             }),
     );
+
+    let expectations = mock_server.expectations().clone();
 
     // Start mock server in background
     tokio::spawn(async move {

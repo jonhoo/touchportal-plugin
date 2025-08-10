@@ -92,9 +92,15 @@ def get_plugin_config() -> Tuple[str, str, str]:
 
     except subprocess.CalledProcessError as e:
         log_error(f"Failed to get cargo metadata: {e}")
+        if e.stderr:
+            log_error("Cargo stderr output:")
+            for line in e.stderr.strip().split('\n'):
+                log_error(f"  {line}")
+        log_error("Please ensure you're in a valid Rust crate directory with Cargo.toml")
         sys.exit(1)
     except json.JSONDecodeError as e:
         log_error(f"Failed to parse cargo metadata JSON: {e}")
+        log_error("This usually indicates a problem with the cargo installation")
         sys.exit(1)
 
 

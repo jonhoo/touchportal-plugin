@@ -145,6 +145,10 @@ def build_plugin(crate_binary: str) -> Tuple[str, str]:
 
     except subprocess.CalledProcessError as e:
         log_error(f"Failed to build plugin: {e}")
+        if e.stderr:
+            log_error("Build stderr output:")
+            for line in e.stderr.strip().split('\n'):
+                log_error(f"  {line}")
         sys.exit(1)
 
 
@@ -266,8 +270,13 @@ def validate_entry_tp(entry_tp_path: str, plugin_name: str, plugin_exe: str) -> 
 
         log_info("All plugin_start_cmd validations passed")
 
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        log_error(f"Failed to validate entry.tp: {e}")
+    except FileNotFoundError as e:
+        log_error(f"Failed to read entry.tp: {e}")
+        log_error("This usually means the build script failed to generate entry.tp")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        log_error(f"Failed to parse entry.tp JSON: {e}")
+        log_error("The entry.tp file appears to be corrupted or malformed")
         sys.exit(1)
 
 
@@ -325,7 +334,7 @@ Only rebuilds if source files have changed since the last build.""",
 
     # Verify all required tools are available before we start building.
     # This prevents partial builds when dependencies are missing.
-    check_requirements(["cargo", "zip"])
+    check_requirements(["cargo"])
 
     log_info(f"Plugin: {plugin_name}")
     log_info(f"Binary: {crate_binary}")

@@ -124,6 +124,7 @@ RUST_LOG=trace cargo run --release --bin touchportal-youtube-live
 ## Architecture Overview
 
 This is an SDK that allows writing **TouchPortal plugins** written in Rust that integrates with the TouchPortal automation platform, as well as two plugins using that SDK.
+**Only `touchportal-sdk` is published to crates.io, as a library.**
 
 ### Project Structure
 

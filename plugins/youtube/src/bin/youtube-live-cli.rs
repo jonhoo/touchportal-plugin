@@ -2,7 +2,7 @@ use crate::youtube_client::BroadcastLifeCycleStatus;
 use eyre::Context;
 use std::io::IsTerminal;
 use tokio_stream::StreamExt;
-use touchportal_youtube_live::{setup_youtube_clients, youtube_client, Channel};
+use touchportal_youtube_live::{Channel, setup_youtube_clients, youtube_client};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 

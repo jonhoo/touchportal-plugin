@@ -64,13 +64,18 @@ def get_plugin_config() -> Tuple[str, str, str]:
 
         if not current_package:
             log_error(f"Could not find package with ID {current_package_id}")
+            log_error("This usually means the current directory is not a valid Rust crate")
             sys.exit(1)
 
         # Extract plugin name from metadata
-        plugin_metadata = current_package.get("metadata", {}).get("touchportal", {})
+        metadata_dict = current_package.get("metadata") or {}
+        plugin_metadata = metadata_dict.get("touchportal", {})
         plugin_name = plugin_metadata.get("plugin_name")
         if not plugin_name:
             log_error("package.metadata.touchportal.plugin_name not found in Cargo.toml")
+            log_error("Please add the following to your Cargo.toml:")
+            log_error("[package.metadata.touchportal]")
+            log_error("plugin_name = \"YourPluginName\"")
             sys.exit(1)
 
         # Extract plugin binary name from metadata, fallback to default-run, then package name

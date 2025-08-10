@@ -810,7 +810,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
         #action_data_choices
 
         impl Plugin {
-            async fn handle_incoming(&mut self, msg: protocol::TouchPortalOutput) -> eyre::Result<()> {
+            async fn handle_incoming(&mut self, msg: protocol::TouchPortalOutput) -> eyre::Result<bool> {
                 use protocol::TouchPortalOutput;
                 use ::eyre::Context as _;
 
@@ -854,6 +854,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     }
                     TouchPortalOutput::ClosePlugin(_) => {
                         self.on_close(false).await.context("handle graceful plugin close")?;
+                        return Ok(true); // Signal to exit the main loop
                     },
                     TouchPortalOutput::Broadcast(event) => {
                         self.on_broadcast(event).await.context("handle broadcast event")?;
@@ -864,7 +865,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
                 }
 
-                Ok(())
+                Ok(false) // Continue running
             }
         }
     }
@@ -874,6 +875,13 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
     quote! {
         impl Plugin {
             pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
+                Self::run_dynamic_with_setup(addr, std::convert::identity).await
+            }
+
+            pub async fn run_dynamic_with_setup(
+                addr: impl tokio::net::ToSocketAddrs,
+                mutate: impl FnOnce(Plugin) -> Plugin,
+            ) -> eyre::Result<()> {
                 use protocol::*;
                 use ::eyre::Context as _;
                 use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -931,9 +939,13 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
 
                 ::tracing::debug!("construct Plugin proper");
                 let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
-                let mut plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
+                let plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
                     .await
                     .context("Plugin::new")?;
+
+                // Allow caller to make last-minute adjustments to `Plugin` before we start using
+                // it for real. Handy for injecting references to things like mock expectations.
+                let mut plugin = mutate(plugin);
 
                 // Set up re-use buffers
                 let mut line = String::new();
@@ -955,10 +967,14 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                             let msg: TouchPortalOutput =
                                 serde_json::from_value(json)
                                 .context("parse as TouchPortalOutput")?;
-                            plugin
+                            let should_exit = plugin
                                 .handle_incoming(msg)
                                 .await
                                 .with_context(|| format!("respond to {kind}"))?;
+                            if should_exit {
+                                ::tracing::info!("plugin received close signal, exiting gracefully");
+                                break;
+                            }
                             line.clear();
                         }
                         cmd = outgoing.recv(), if !outgoing.is_closed() => {

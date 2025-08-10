@@ -1,20 +1,45 @@
+use serde_json;
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
 #[derive(Debug)]
-struct Plugin;
+struct Plugin {
+    mocks: touchportal_sdk::mock::MockExpectations,
+}
 
 impl PluginCallbacks for Plugin {
     #[tracing::instrument(skip(self), ret)]
     async fn on_media_action(&mut self, mode: ActionInteractionMode) -> eyre::Result<()> {
         tracing::info!("Media action executed with mode: {:?}", mode);
+
+        // Record this action call for mock verification
+        self.mocks
+            .check_action_call(
+                "on_media_action",
+                serde_json::json!({
+                    "mode": mode
+                }),
+            )
+            .await;
+
         Ok(())
     }
 
     #[tracing::instrument(skip(self), ret)]
     async fn on_settings_action(&mut self, mode: ActionInteractionMode) -> eyre::Result<()> {
         tracing::info!("Settings action executed with mode: {:?}", mode);
+
+        // Record this action call for mock verification
+        self.mocks
+            .check_action_call(
+                "on_settings_action",
+                serde_json::json!({
+                    "mode": mode
+                }),
+            )
+            .await;
+
         Ok(())
     }
 }
@@ -26,7 +51,10 @@ impl Plugin {
         info: InfoMessage,
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
-        Ok(Self)
+
+        Ok(Self {
+            mocks: touchportal_sdk::mock::MockExpectations::new(),
+        })
     }
 }
 
@@ -42,6 +70,51 @@ async fn main() -> eyre::Result<()> {
     let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
     let addr = mock_server.local_addr()?;
 
+    // Set up expectations for action calls
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_media_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_settings_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+
+    // Expect both actions to be called again in the comprehensive test
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_media_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_settings_action",
+            serde_json::json!({
+                "mode": "Execute"
+            }),
+        )
+        .await;
+
+    // Take expectations for injection into plugin
+    let expectations = mock_server.take_expectations();
+
     // Add test scenarios for both subcategory actions
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Media Action Test")
@@ -52,7 +125,15 @@ async fn main() -> eyre::Result<()> {
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Settings Action Test")
             .with_action("settings_action", Vec::<(&str, &str)>::new())
-            .with_delay(std::time::Duration::from_millis(750)),
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    // Add comprehensive test to ensure both actions work in sequence
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Both Actions Test")
+            .with_action("media_action", Vec::<(&str, &str)>::new())
+            .with_action("settings_action", Vec::<(&str, &str)>::new())
+            .with_delay(std::time::Duration::from_millis(300)),
     );
 
     // Start mock server in background
@@ -64,5 +145,15 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    Plugin::run_dynamic(addr).await
+    let expectations_for_verification = expectations.clone();
+    let result = Plugin::run_dynamic_with_setup(addr, |mut plugin| {
+        plugin.mocks = expectations;
+        plugin
+    })
+    .await;
+
+    // Verify mock expectations after plugin completes
+    expectations_for_verification.verify().await?;
+
+    result
 }

@@ -190,7 +190,7 @@ pub struct IdValuePair {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ClosePluginMessage {
-    plugin_id: String,
+    pub plugin_id: String,
 }
 
 /// Touch Portal will send messages to the plug-in at certain events.

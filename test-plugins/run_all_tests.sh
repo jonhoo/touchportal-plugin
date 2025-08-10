@@ -32,15 +32,15 @@ run_plugin_test() {
         # Plugin has mock support, run the test
         cd "$plugin_dir"
         
-        # Set timeout to prevent hanging tests
-        if timeout 10s cargo run --quiet 2>/dev/null; then
+        # Set timeout to prevent hanging tests - timeout is a failure as plugins should exit gracefully
+        if timeout 30s cargo run --quiet 2>/dev/null; then
             echo -e "${GREEN}PASSED${NC}"
             tested_plugins=$((tested_plugins + 1))
         else
-            # Check if it was a timeout (expected for successful tests)
+            # Check if it was a timeout
             if [ $? -eq 124 ]; then
-                echo -e "${GREEN}PASSED${NC} (timed out as expected)"
-                tested_plugins=$((tested_plugins + 1))
+                echo -e "${RED}FAILED${NC} (timed out - plugin should exit gracefully)"
+                failed_plugins=$((failed_plugins + 1))
             else
                 echo -e "${RED}FAILED${NC}"
                 failed_plugins=$((failed_plugins + 1))

@@ -258,6 +258,13 @@ RUST_LOG=trace cargo run --release
 - State updates visible in tracing logs with `RUST_LOG=trace`
 - Action handlers are instrumented to show parameter values and return results
 
+## Mock Testing System
+
+- **Action Verification**: Use `mocks.check_action_call("callback_name", json_args)` in action callbacks and `mock_server.expectations().expect_action_call()` in main for explicit verification
+- **Mock Injection**: Use `Plugin::run_dynamic_with_setup(addr, |mut plugin| { plugin.mocks = expectations; plugin })` to inject MockExpectations from `main`
+- **Automatic Protocol**: MockTouchPortalServer automatically tests for Pair (plugin → mock) and sends ClosePlugin (mock → plugin) at the end
+- **Test Runner**: `./run_all_tests.sh` treats timeouts as failures since plugins should exit gracefully via ClosePlugin
+
 ## Code Generation Notes
 
 - **Important Reminder**: Some test plugins may fail to compile because of bugs in our code generation rather than errors you make, since bugs in code generation cause compile-time errors.

@@ -12,12 +12,124 @@
 
 use crate::protocol::{self, TouchPortalCommand, TouchPortalOutput};
 use eyre::{Context, Result};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
+
+/// Tracks expected action calls and their arguments for testing.
+#[derive(Debug, Clone)]
+pub struct MockExpectations {
+    expected_calls: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
+    actual_calls: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
+}
+
+impl MockExpectations {
+    /// Create a new expectations tracker.
+    pub fn new() -> Self {
+        Self {
+            expected_calls: Arc::new(Mutex::new(HashMap::new())),
+            actual_calls: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Expect a specific action callback to be called with given arguments.
+    pub async fn expect_action_call(
+        &self,
+        callback_name: impl Into<String>,
+        args: serde_json::Value,
+    ) {
+        let callback_name = callback_name.into();
+        let mut expected = self.expected_calls.lock().await;
+        expected
+            .entry(callback_name)
+            .or_insert_with(Vec::new)
+            .push(args);
+    }
+
+    /// Record that an action callback was actually called (called from within action callbacks).
+    pub async fn check_action_call(
+        &self,
+        callback_name: impl Into<String>,
+        args: serde_json::Value,
+    ) {
+        let callback_name = callback_name.into();
+        tracing::debug!(callback = %callback_name, ?args, "action callback invoked");
+
+        let mut actual = self.actual_calls.lock().await;
+        actual
+            .entry(callback_name)
+            .or_insert_with(Vec::new)
+            .push(args);
+    }
+
+    /// Verify that all expected calls were made with correct arguments.
+    pub async fn verify(&self) -> Result<()> {
+        let expected = self.expected_calls.lock().await;
+        let actual = self.actual_calls.lock().await;
+
+        // Check that all expected calls were made with correct arguments
+        for (callback_name, expected_calls) in expected.iter() {
+            let empty_vec = Vec::new();
+            let actual_calls = actual.get(callback_name).unwrap_or(&empty_vec);
+
+            if actual_calls.len() != expected_calls.len() {
+                eyre::bail!(
+                    "Expected {} calls to '{}', but got {}. Expected: {:?}, Actual: {:?}",
+                    expected_calls.len(),
+                    callback_name,
+                    actual_calls.len(),
+                    expected_calls,
+                    actual_calls
+                );
+            }
+
+            for (i, (expected_args, actual_args)) in
+                expected_calls.iter().zip(actual_calls.iter()).enumerate()
+            {
+                if expected_args != actual_args {
+                    eyre::bail!(
+                        "Call {} to '{}' had wrong arguments. Expected: {:?}, Actual: {:?}",
+                        i + 1,
+                        callback_name,
+                        expected_args,
+                        actual_args
+                    );
+                }
+            }
+        }
+
+        // Check that no unexpected calls were made
+        for (callback_name, actual_calls) in actual.iter() {
+            if !expected.contains_key(callback_name) {
+                eyre::bail!(
+                    "Unexpected action callback '{}' was called {} times with arguments: {:?}",
+                    callback_name,
+                    actual_calls.len(),
+                    actual_calls
+                );
+            }
+        }
+
+        tracing::info!("✅ All expected action calls were verified");
+        Ok(())
+    }
+
+    /// Clear all expectations and recorded calls.
+    pub async fn clear(&self) {
+        self.expected_calls.lock().await.clear();
+        self.actual_calls.lock().await.clear();
+    }
+}
+
+impl Default for MockExpectations {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// A mock TouchPortal server for testing plugins.
 ///
@@ -27,7 +139,9 @@ use tokio::sync::{mpsc, Mutex};
 pub struct MockTouchPortalServer {
     listener: TcpListener,
     captured_messages: Arc<Mutex<Vec<TouchPortalCommand>>>,
+    action_invocations: Arc<Mutex<Vec<String>>>,
     test_scenarios: Vec<TestScenario>,
+    expectations: MockExpectations,
 }
 
 /// A test scenario that can be executed by the mock server.
@@ -39,7 +153,8 @@ pub struct TestScenario {
     /// Delay between sending messages
     pub delay: Duration,
     /// Optional assertion function to validate commands sent from plugin to TouchPortal
-    pub assertions: Option<Box<dyn Fn(&[TouchPortalCommand]) -> Result<()> + Send + Sync>>,
+    pub assertions:
+        Option<Box<dyn Fn(&[TouchPortalCommand], &[String]) -> Result<()> + Send + Sync>>,
 }
 
 // Manual Debug implementation since Box<dyn Fn> doesn't implement Debug
@@ -78,7 +193,9 @@ impl MockTouchPortalServer {
         Ok(Self {
             listener,
             captured_messages: Arc::new(Mutex::new(Vec::new())),
+            action_invocations: Arc::new(Mutex::new(Vec::new())),
             test_scenarios: Vec::new(),
+            expectations: MockExpectations::new(),
         })
     }
 
@@ -96,6 +213,21 @@ impl MockTouchPortalServer {
         self.test_scenarios.push(scenario);
     }
 
+    /// Get all action IDs that have been invoked during testing.
+    pub async fn action_invocations(&self) -> Vec<String> {
+        self.action_invocations.lock().await.clone()
+    }
+
+    /// Clear all captured action invocations.
+    pub async fn clear_action_invocations(&self) {
+        self.action_invocations.lock().await.clear();
+    }
+
+    /// Get access to the mock expectations for setting up test expectations.
+    pub fn expectations(&self) -> &MockExpectations {
+        &self.expectations
+    }
+
     /// Get all messages that have been captured from plugin communications.
     pub async fn captured_messages(&self) -> Vec<TouchPortalCommand> {
         self.captured_messages.lock().await.clone()
@@ -104,6 +236,11 @@ impl MockTouchPortalServer {
     /// Clear all captured messages.
     pub async fn clear_captured_messages(&self) {
         self.captured_messages.lock().await.clear();
+    }
+
+    /// Get the mock expectations and remove them from the server (for passing to plugin).
+    pub fn take_expectations(&mut self) -> MockExpectations {
+        std::mem::take(&mut self.expectations)
     }
 
     /// Run the mock server and execute test scenarios.
@@ -163,17 +300,61 @@ impl MockTouchPortalServer {
         // Spawn task to execute test scenarios (send messages to plugin)
         let mut scenario_task = {
             let tx = tx.clone();
-            let scenarios = self.test_scenarios.clone();
+            let mut scenarios = self.test_scenarios.clone();
             let captured_messages = self.captured_messages.clone();
+            let action_invocations = self.action_invocations.clone();
+
             tokio::spawn(async move {
                 // Wait a bit for the plugin to initialize
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
+                // Add automatic Pair test at the beginning
+                let pair_scenario = TestScenario {
+                    name: "Automatic Pair Test".to_string(),
+                    messages: Vec::new(),
+                    delay: Duration::from_millis(50),
+                    assertions: Some(Box::new(|commands, _actions| {
+                        let pair_commands = commands
+                            .iter()
+                            .filter(|cmd| matches!(cmd, TouchPortalCommand::Pair(_)))
+                            .count();
+
+                        if pair_commands == 1 {
+                            tracing::info!("✅ Plugin successfully paired with mock TouchPortal");
+                            Ok(())
+                        } else {
+                            eyre::bail!("Expected exactly 1 pair command, got {}", pair_commands)
+                        }
+                    })),
+                };
+                scenarios.insert(0, pair_scenario);
+
+                // Add automatic ClosePlugin at the end
+                let close_scenario = TestScenario {
+                    name: "Automatic ClosePlugin".to_string(),
+                    messages: vec![TouchPortalOutput::ClosePlugin(
+                        protocol::ClosePluginMessage {
+                            plugin_id: "mock-plugin".to_string(),
+                        },
+                    )],
+                    delay: Duration::from_millis(100),
+                    assertions: None,
+                };
+                scenarios.push(close_scenario);
+
                 for scenario in scenarios {
                     tracing::info!(scenario.name, "executing test scenario");
 
-                    for message in scenario.messages {
-                        if tx.send(message).await.is_err() {
+                    for message in &scenario.messages {
+                        // Track action invocations
+                        if let TouchPortalOutput::Action(action_msg) = message {
+                            action_invocations
+                                .lock()
+                                .await
+                                .push(action_msg.action_id.clone());
+                        }
+
+                        if tx.send(message.clone()).await.is_err() {
                             tracing::warn!("failed to send test message to plugin");
                             break;
                         }
@@ -189,7 +370,8 @@ impl MockTouchPortalServer {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                         let messages = captured_messages.lock().await;
-                        match assertions(&messages) {
+                        let actions = action_invocations.lock().await;
+                        match assertions(&messages, &actions) {
                             Ok(()) => {
                                 tracing::info!(scenario.name, "✅ assertions passed");
                             }
@@ -200,8 +382,10 @@ impl MockTouchPortalServer {
                     }
                 }
 
-                // Keep the channel open for a bit
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                // Give a brief moment for final cleanup
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+                tracing::info!("Mock server scenarios completed");
             })
         };
 
@@ -288,10 +472,11 @@ impl TestScenario {
     /// Add an assertion function to validate commands sent from plugin to TouchPortal.
     ///
     /// The assertion function receives all TouchPortalCommand messages that the plugin
-    /// has sent to the mock TouchPortal server (e.g., StateUpdate, Pair, TriggerEvent).
+    /// has sent to the mock TouchPortal server (e.g., StateUpdate, Pair, TriggerEvent)
+    /// and a list of action IDs that were invoked during the test.
     pub fn with_assertions<F>(mut self, assertions: F) -> Self
     where
-        F: Fn(&[TouchPortalCommand]) -> Result<()> + Send + Sync + 'static,
+        F: Fn(&[TouchPortalCommand], &[String]) -> Result<()> + Send + Sync + 'static,
     {
         self.assertions = Some(Box::new(assertions));
         self

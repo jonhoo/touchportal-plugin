@@ -96,7 +96,7 @@ async fn main() -> eyre::Result<()> {
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("Background State Updates Test")
             .with_delay(std::time::Duration::from_secs(3)) // Wait for several state updates
-            .with_assertions(|commands| {
+            .with_assertions(|commands, _actions| {
                 use touchportal_sdk::protocol::TouchPortalCommand;
 
                 let state_updates = commands

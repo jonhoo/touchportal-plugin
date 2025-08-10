@@ -1,9 +1,18 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
 # Script to test that all validation-failure plugins fail compilation with expected errors
 # Usage: ./test_validation_failures.sh [plugin-name1] [plugin-name2] ...
 # If plugin names are provided, only those plugins will be tested
+
+echo "🧪 TouchPortal Validation Failure Test Suite"
+echo "=============================================="
 
 if [ $# -gt 0 ]; then
     if [ $# -eq 1 ]; then
@@ -12,7 +21,7 @@ if [ $# -gt 0 ]; then
         echo "Testing specific validation failure plugins: $*..."
     fi
 else
-    echo "Testing validation failure plugins..."
+    echo "Testing all validation failure plugins..."
 fi
 
 WORKSPACE_DIR="$(dirname "$0")"
@@ -40,19 +49,19 @@ else
     PLUGINS=("${ALL_PLUGINS[@]}")
 fi
 
-TOTAL=0
-PASSED=0
-FAILED=0
-UNCAUGHT=0
+total_plugins=0
+passed_plugins=0
+failed_plugins=0
+uncaught_plugins=0
 
 for plugin in "${PLUGINS[@]}"; do
     echo ""
     echo "=== Testing plugin: $plugin ==="
-    TOTAL=$((TOTAL + 1))
+    total_plugins=$((total_plugins + 1))
 
     if [ ! -d "$plugin" ]; then
         echo "ERROR: Plugin directory $plugin does not exist"
-        FAILED=$((FAILED + 1))
+        failed_plugins=$((failed_plugins + 1))
         continue
     fi
 
@@ -61,7 +70,7 @@ for plugin in "${PLUGINS[@]}"; do
         package_name=$(grep "^name = " "$plugin/Cargo.toml" | sed 's/name = "\(.*\)"/\1/')
     else
         echo "ERROR: $plugin/Cargo.toml not found"
-        FAILED=$((FAILED + 1))
+        failed_plugins=$((failed_plugins + 1))
         continue
     fi
 
@@ -72,12 +81,12 @@ for plugin in "${PLUGINS[@]}"; do
 
         # For uncaught tests, we expect them to compile successfully
         if cargo check -p "$package_name" > /dev/null 2>&1; then
-            echo "✓ Plugin $plugin compiled successfully (expected - validation gap)"
-            UNCAUGHT=$((UNCAUGHT + 1))
+            echo -e "${GREEN}✓${NC} Plugin $plugin compiled successfully (expected - validation gap)"
+            uncaught_plugins=$((uncaught_plugins + 1))
         else
-            echo "⚠️  Plugin $plugin failed compilation - validation may have been implemented!"
+            echo -e "${RED}⚠️${NC}  Plugin $plugin failed compilation - validation may have been implemented!"
             echo "This uncaught test should be moved to proper validation test with expected-error.txt"
-            FAILED=$((FAILED + 1))
+            failed_plugins=$((failed_plugins + 1))
         fi
         continue
     fi
@@ -89,40 +98,39 @@ for plugin in "${PLUGINS[@]}"; do
 
     # Capture stderr from cargo check
     if actual_error=$(cargo check -p "$package_name" 2>&1); then
-        echo "ERROR: Plugin $plugin compiled successfully, but it should have failed!"
-        FAILED=$((FAILED + 1))
+        echo -e "${RED}ERROR${NC}: Plugin $plugin compiled successfully, but it should have failed!"
+        failed_plugins=$((failed_plugins + 1))
         continue
     fi
 
     # Check if the expected error is contained in the actual error output
     if echo "$actual_error" | grep -F "$expected_error" > /dev/null; then
-        echo "✓ Plugin $plugin failed with expected error"
-        PASSED=$((PASSED + 1))
+        echo -e "${GREEN}✓${NC} Plugin $plugin failed with expected error"
+        passed_plugins=$((passed_plugins + 1))
     else
-        echo "✗ Plugin $plugin failed with unexpected error:"
+        echo -e "${RED}✗${NC} Plugin $plugin failed with unexpected error:"
         echo "Actual error: $actual_error"
         echo ""
         echo "Expected error: $expected_error"
-        FAILED=$((FAILED + 1))
+        failed_plugins=$((failed_plugins + 1))
     fi
 done
 
-echo ""
-echo "=== Summary ==="
-echo "Total plugins tested: $TOTAL"
-echo "Validation tests passed: $PASSED"
-echo "Uncaught validation gaps: $UNCAUGHT"
-echo "Failed tests: $FAILED"
+echo
+echo "=============================================="
+echo "📊 Test Summary:"
+echo "  Total plugins: $total_plugins"
+echo -e "  ${GREEN}Passed: $passed_plugins${NC}"
+echo -e "  ${YELLOW}Uncaught: $uncaught_plugins${NC}"
+echo -e "  ${RED}Failed: $failed_plugins${NC}"
 
-if [ $FAILED -eq 0 ]; then
-    echo ""
-    echo "All tests completed successfully! ✓"
-    if [ $UNCAUGHT -gt 0 ]; then
-        echo "Note: $UNCAUGHT validation gaps were confirmed as still uncaught by the SDK"
+if [ $failed_plugins -eq 0 ]; then
+    echo -e "${GREEN}✅ All tests passed!${NC}"
+    if [ $uncaught_plugins -gt 0 ]; then
+        echo "Note: $uncaught_plugins validation gaps were confirmed as still uncaught by the SDK"
     fi
     exit 0
 else
-    echo ""
-    echo "Some tests failed! ✗"
+    echo -e "${RED}❌ Some tests failed${NC}"
     exit 1
 fi

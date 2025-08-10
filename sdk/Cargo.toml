@@ -25,3 +25,8 @@ syn = { version = "2.0.104", default-features = false, features = ["parsing"] }
 tokio = { version = "1.47.1", features = ["net", "sync", "time", "macros", "rt", "io-util"], optional = true }
 tracing = { version = "0.1.41", optional = true }
 zip = { version = "4.3.0", default-features = false, features = ["deflate"] }
+
+# to make -Zminimal-versions work
+[target.'cfg(any())'.dependencies]
+openssl = { version = "0.10.60", optional = true }
+openssl-macros = { version = "0.1.1", optional = true }

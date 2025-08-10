@@ -149,7 +149,8 @@ pub struct ShortConnectorIdMessage {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ListChangeMessage {
-    plugin_id: String,
+    #[doc(hidden = "handled transparently by codegen")]
+    pub plugin_id: String,
     #[doc(hidden = "handled transparently by codegen")]
     pub action_id: String,
     #[doc(hidden = "handled transparently by codegen")]
@@ -167,7 +168,7 @@ pub struct ListChangeMessage {
     ///
     /// Only available on API version 7 and above.
     #[serde(default)]
-    values: Vec<IdValuePair>,
+    pub values: Vec<IdValuePair>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

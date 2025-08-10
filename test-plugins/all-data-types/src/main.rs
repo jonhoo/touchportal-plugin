@@ -261,9 +261,27 @@ async fn main() -> eyre::Result<()> {
             .with_delay(std::time::Duration::from_millis(500)),
     );
 
-    // Note: choice field selection (`on_select_choice_field_in_comprehensive_action`) is not
-    // automatically triggered by test scenarios It would require more complex mock TouchPortal
-    // interaction to test.
+    // Test choice field selection (listChange event)
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_select_choice_field_in_comprehensive_action",
+            serde_json::json!({
+                "instance": "mock-instance-123",
+                "selected": "Green",
+            }),
+        )
+        .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Choice Field Selection Test")
+            .with_select_in_action(
+                "comprehensive_action",
+                "choice_field",
+                "mock-instance-123",
+                "Green",
+            )
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
 
     // Add final test scenario with state update validation
     mock_server.add_test_scenario(

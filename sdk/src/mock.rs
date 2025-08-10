@@ -528,4 +528,26 @@ impl TestScenario {
         ));
         self.with_message(message)
     }
+
+    /// Add a choice field selection event to simulate selecting a dropdown value in action editing.
+    ///
+    /// This simulates when a user selects a value in a choice dropdown during action editing
+    /// in TouchPortal, which triggers the corresponding listChange callback in the plugin.
+    pub fn with_select_in_action(
+        self,
+        action_id: impl Into<String>,
+        list_id: impl Into<String>,
+        instance_id: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        let message = TouchPortalOutput::ListChange(protocol::ListChangeMessage {
+            plugin_id: "mock-plugin".to_string(),
+            action_id: action_id.into(),
+            list_id: list_id.into(),
+            instance_id: instance_id.into(),
+            value: value.into(),
+            values: Vec::new(), // Not needed for testing
+        });
+        self.with_message(message)
+    }
 }

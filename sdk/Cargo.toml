@@ -1,6 +1,9 @@
 [package]
 name = "touchportal-sdk"
-version = "0.1.0"
+version = "0.0.1"
+repository = "https://github.com/jonhoo/touchportal-plugin/"
+description = "SDK for authoring TouchPortal plugins in Rust"
+license = "MIT OR Apache-2.0"
 edition = "2024"
 
 [features]

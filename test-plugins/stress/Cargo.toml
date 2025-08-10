@@ -8,7 +8,7 @@ publish = false
 plugin_name = "StressTest"
 
 [build-dependencies]
-touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
+touchportal-sdk = { version = "0.0.1", path = "../../sdk" }
 serde_json = "1.0.142"
 
 [dependencies]
@@ -16,6 +16,6 @@ eyre = "0.6.12"
 serde = { version = "1.0.219" }
 serde_json = "1.0.142"
 tokio = { version = "1.47.1", features = ["full"] }
-touchportal-sdk = { version = "0.1.0", path = "../../sdk" }
+touchportal-sdk = { version = "0.0.1", path = "../../sdk" }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

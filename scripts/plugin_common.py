@@ -21,7 +21,7 @@ except ImportError:
         RED = ""
         GREEN = ""
         YELLOW = ""
-    
+
     class Style:
         RESET_ALL = ""
 
@@ -29,10 +29,10 @@ except ImportError:
 def get_plugin_config() -> Tuple[str, str, str]:
     """
     Get plugin configuration from cargo metadata.
-    
+
     Returns:
         Tuple of (plugin_name, crate_binary, tpp_file)
-    
+
     Raises:
         SystemExit: If plugin configuration cannot be found
     """
@@ -45,7 +45,7 @@ def get_plugin_config() -> Tuple[str, str, str]:
             check=True,
         )
         metadata = json.loads(metadata_result.stdout)
-        
+
         # Get the current package ID using cargo pkgid
         pkgid_result = subprocess.run(
             ["cargo", "pkgid"],
@@ -54,37 +54,37 @@ def get_plugin_config() -> Tuple[str, str, str]:
             check=True,
         )
         current_package_id = pkgid_result.stdout.strip()
-        
+
         # Get the current package by matching the ID
         current_package = None
         for package in metadata["packages"]:
             if package["id"] == current_package_id:
                 current_package = package
                 break
-        
+
         if not current_package:
             log_error(f"Could not find package with ID {current_package_id}")
             sys.exit(1)
-        
+
         # Extract plugin name from metadata
         plugin_metadata = current_package.get("metadata", {}).get("touchportal", {})
         plugin_name = plugin_metadata.get("plugin_name")
         if not plugin_name:
             log_error("package.metadata.touchportal.plugin_name not found in Cargo.toml")
             sys.exit(1)
-        
+
         # Extract plugin binary name from metadata, fallback to default-run, then package name
         crate_binary = (
             plugin_metadata.get("plugin_binary") or
             current_package.get("default_run") or
             current_package["name"]
         )
-        
+
         # Derive tpp filename
         tpp_file = f"{plugin_name}.tpp"
-        
+
         return plugin_name, crate_binary, tpp_file
-        
+
     except subprocess.CalledProcessError as e:
         log_error(f"Failed to get cargo metadata: {e}")
         sys.exit(1)
@@ -96,19 +96,19 @@ def get_plugin_config() -> Tuple[str, str, str]:
 def check_requirements(tools: List[str]) -> None:
     """
     Check if required tools are available.
-    
+
     Args:
         tools: List of tool names to check for
-        
+
     Raises:
         SystemExit: If any required tools are missing
     """
     missing_tools = []
-    
+
     for tool in tools:
         if not shutil.which(tool):
             missing_tools.append(tool)
-    
+
     if missing_tools:
         log_error(f"Missing required tools: {', '.join(missing_tools)}")
         log_error("Please install the missing tools and try again.")

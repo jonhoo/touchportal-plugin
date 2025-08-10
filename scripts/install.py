@@ -37,11 +37,11 @@ def ensure_plugin_packaged() -> None:
     This handles rebuild checking automatically and only rebuilds if needed.
     """
     log_step("Ensuring plugin is packaged")
-    
+
     # Get the directory where this script lives
     script_dir = Path(__file__).parent
     package_script = script_dir / "package.py"
-    
+
     try:
         subprocess.run([sys.executable, str(package_script)], check=True)
     except subprocess.CalledProcessError as e:
@@ -52,33 +52,33 @@ def ensure_plugin_packaged() -> None:
 def install_plugin(plugin_name: str, tpp_file: str) -> None:
     """
     Install the plugin to TouchPortal's plugin directory.
-    
+
     Args:
         plugin_name: Name of the plugin
         tpp_file: Path to the .tpp file
     """
     # TouchPortal expects plugins to be in ~/.config/TouchPortal/plugins/<plugin-name>/
     install_dir = Path.home() / ".config" / "TouchPortal" / "plugins" / plugin_name
-    
+
     log_step("Installing plugin files")
     log_info(f"Destination: {install_dir}")
-    
+
     # Remove existing installation directory for clean installation
     if install_dir.exists():
         shutil.rmtree(install_dir)
-    
+
     # Create the parent directory
     install_dir.parent.mkdir(parents=True, exist_ok=True)
-    
+
     try:
         # Extract the .tpp file (which is a ZIP archive) directly to the plugins directory
         with zipfile.ZipFile(tpp_file, 'r') as zip_ref:
             zip_ref.extractall(install_dir.parent)
-        
+
         # Count installed files
         file_count = sum(1 for _ in install_dir.rglob('*') if _.is_file())
         log_info(f"Installed: {file_count} files")
-        
+
     except zipfile.BadZipFile:
         log_error(f"Invalid .tpp file: {tpp_file}")
         sys.exit(1)
@@ -97,28 +97,28 @@ Modifies your system by copying files to ~/.config/TouchPortal/plugins/""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=True,
     )
-    
+
     args = parser.parse_args()
-    
+
     log_step("TouchPortal Plugin Installer")
-    
+
     # First, we extract the plugin configuration from Cargo.toml metadata.
     # This gives us the plugin name and expected .tpp filename.
     plugin_name, _, tpp_file = get_plugin_config()
-    
+
     # Verify all required tools are available before we start the installation.
     # We don't need rsync since we use Python's built-in file operations.
     check_requirements(["python3"])
-    
+
     log_info(f"Plugin: {plugin_name}")
     log_info(f"Package: {tpp_file}")
-    
+
     # Ensure the plugin is packaged first
     ensure_plugin_packaged()
-    
+
     # Now we proceed with the actual installation
     install_plugin(plugin_name, tpp_file)
-    
+
     log_step("Installation complete")
     print("")
     print("The plugin has been installed to TouchPortal.")

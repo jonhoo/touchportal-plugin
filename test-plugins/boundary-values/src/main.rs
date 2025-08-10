@@ -1,6 +1,6 @@
+// for Plugin::run_dynamic
 #![allow(dead_code)]
 
-use serde_json;
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));

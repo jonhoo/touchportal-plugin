@@ -282,6 +282,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
             ),*
         }
 
+        #[automatically_derived]
         impl Default for PluginSettings {
             fn default() -> Self {
                 Self {

@@ -36,7 +36,7 @@ const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
 /// The OAuthManager encapsulates all OAuth operations, providing a consistent interface
 /// for both initial user authentication and token refresh operations. It uses constant
 /// OAuth client configuration and handles the security aspects of the authorization flow.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct OAuthManager;
 
 impl OAuthManager {

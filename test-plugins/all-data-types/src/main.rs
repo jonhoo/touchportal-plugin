@@ -1,6 +1,6 @@
+// for Plugin::run_dynamic
 #![allow(dead_code)]
 
-use serde_json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};

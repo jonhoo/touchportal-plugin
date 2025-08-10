@@ -107,7 +107,7 @@ where
 
         // Create client with refreshed/fresh token and shared OAuth manager
         refreshed_tokens.push(final_token.raw_token().clone());
-        let client = YouTubeClient::new(final_token, oauth_manager.clone());
+        let client = YouTubeClient::new(final_token, oauth_manager);
         yt_clients.push(client);
     }
 

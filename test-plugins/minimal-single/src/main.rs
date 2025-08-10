@@ -1,4 +1,6 @@
-use serde_json;
+// for Plugin::run_dynamic
+#![allow(dead_code)]
+
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 use tracing_subscriber::EnvFilter;
 

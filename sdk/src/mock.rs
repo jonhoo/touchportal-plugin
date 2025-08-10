@@ -146,6 +146,8 @@ pub struct MockTouchPortalServer {
     expectations: MockExpectations,
 }
 
+type AssertionFn = Box<dyn Fn(&[TouchPortalCommand], &[String]) -> Result<()> + Send + Sync>;
+
 /// A test scenario that can be executed by the mock server.
 pub struct TestScenario {
     /// Name of the test scenario for logging purposes
@@ -155,8 +157,7 @@ pub struct TestScenario {
     /// Delay between sending messages
     pub delay: Duration,
     /// Optional assertion function to validate commands sent from plugin to TouchPortal
-    pub assertions:
-        Option<Box<dyn Fn(&[TouchPortalCommand], &[String]) -> Result<()> + Send + Sync>>,
+    pub assertions: Option<AssertionFn>,
 }
 
 // Manual Debug implementation since Box<dyn Fn> doesn't implement Debug
@@ -402,7 +403,7 @@ impl MockTouchPortalServer {
                         break;
                     }
 
-                    let json: serde_json::Value = serde_json::from_str(&line.trim())
+                    let json: serde_json::Value = serde_json::from_str(line.trim())
                         .context("parse JSON from plugin")?;
 
                     tracing::trace!(?json, "plugin -> mock TouchPortal");

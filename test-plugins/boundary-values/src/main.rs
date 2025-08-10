@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 
+use serde_json;
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
 
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
 #[derive(Debug)]
-struct Plugin(TouchPortalHandle);
+struct Plugin {
+    handle: TouchPortalHandle,
+    mocks: touchportal_sdk::mock::MockExpectations,
+}
 
 impl PluginCallbacks for Plugin {
     #[tracing::instrument(skip(self), ret)]
@@ -22,6 +26,18 @@ impl PluginCallbacks for Plugin {
             boundary_number
         );
 
+        // Record this action call for mock verification
+        self.mocks
+            .check_action_call(
+                "on_boundary_action",
+                serde_json::json!({
+                    "mode": mode,
+                    "max_text": max_text,
+                    "boundary_number": boundary_number
+                }),
+            )
+            .await?;
+
         // Update the long text state with the processed input
         let result = format!(
             "Processed boundary input: text_len={}, number={}",
@@ -29,8 +45,8 @@ impl PluginCallbacks for Plugin {
             boundary_number
         );
 
-        self.0
-             .0
+        self.handle
+            .0
             .send(touchportal_sdk::protocol::TouchPortalCommand::StateUpdate(
                 touchportal_sdk::protocol::UpdateStateCommand::builder()
                     .state_id("long_text_state")
@@ -53,25 +69,133 @@ impl Plugin {
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::info!("Boundary values plugin - testing edge cases and validation");
-        Ok(Self(outgoing))
+        Ok(Self {
+            handle: outgoing,
+            mocks: touchportal_sdk::mock::MockExpectations::new(),
+        })
     }
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    // TODO: Add mock TouchPortal server support for boundary-values plugin testing
-    // This plugin tests edge cases and validation of number bounds
-    // Priority: Add mock server with test scenarios for:
-    // - boundary_test action with min/max values
-    // - input validation at extreme values
-    // - error handling for out-of-bounds inputs
-
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .without_time()
         .with_ansi(false)
         .init();
 
-    tracing::info!("boundary-values test plugin - mock support not implemented yet");
+    // Create mock TouchPortal server for testing
+    let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
+    let addr = mock_server.local_addr()?;
+
+    // Set up expectations for boundary action with various edge case values
+    let max_text = "X".repeat(1000);
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_boundary_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "max_text": max_text,
+                "boundary_number": 999999.99
+            }),
+        )
+        .await;
+
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_boundary_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "max_text": "",
+                "boundary_number": -999999.99
+            }),
+        )
+        .await;
+
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_boundary_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "max_text": "Normal text",
+                "boundary_number": 0.0
+            }),
+        )
+        .await;
+
+    let expectations = mock_server.expectations().clone();
+
+    // Add test scenarios for boundary values
+    let max_text = "X".repeat(1000);
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Maximum Boundary Values Test")
+            .with_action(
+                "boundary_action",
+                vec![
+                    ("max_text", max_text.as_str()),
+                    ("boundary_number", "999999.99"),
+                ],
+            )
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Minimum Boundary Values Test")
+            .with_action(
+                "boundary_action",
+                vec![("max_text", ""), ("boundary_number", "-999999.99")],
+            )
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Normal Boundary Values Test")
+            .with_action(
+                "boundary_action",
+                vec![("max_text", "Normal text"), ("boundary_number", "0.0")],
+            )
+            .with_delay(std::time::Duration::from_millis(500))
+            .with_assertions(|commands, _actions| {
+                use touchportal_sdk::protocol::TouchPortalCommand;
+
+                let state_updates = commands
+                    .iter()
+                    .filter(|cmd| matches!(cmd, TouchPortalCommand::StateUpdate(_)))
+                    .count();
+
+                if state_updates >= 3 {
+                    tracing::info!(
+                        "✅ Found {} state updates from boundary value actions",
+                        state_updates
+                    );
+                    Ok(())
+                } else {
+                    eyre::bail!("Expected at least 3 state updates, got {}", state_updates)
+                }
+            }),
+    );
+
+    // Start mock server in background
+    tokio::spawn(async move {
+        if let Err(e) = mock_server.run_test_scenarios().await {
+            tracing::error!("Mock server failed: {}", e);
+        } else {
+            tracing::info!("✅ Test PASSED: Boundary values plugin completed test scenarios");
+        }
+    });
+
+    let expectations_for_verification = expectations.clone();
+    Plugin::run_dynamic_with_setup(addr, |mut plugin| {
+        plugin.mocks = expectations;
+        plugin
+    })
+    .await?;
+
+    // Verify mock expectations after plugin completes
+    expectations_for_verification.verify().await?;
+
     Ok(())
 }

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use serde_json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use touchportal_sdk::protocol::{ActionInteractionMode, InfoMessage};
@@ -11,6 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 struct Plugin {
     handle: TouchPortalHandle,
     counter: Arc<RwLock<i32>>,
+    mocks: touchportal_sdk::mock::MockExpectations,
 }
 
 impl PluginCallbacks for Plugin {
@@ -27,6 +29,20 @@ impl PluginCallbacks for Plugin {
             "Processing comprehensive action with mode: {:?} - text: '{}', number: {}, switch: {}, choice: {:?}",
             mode, text_field, number_field, switch_field, choice_field
         );
+
+        // Record this action call for mock verification (excluding choice field for now)
+        self.mocks
+            .check_action_call(
+                "on_comprehensive_action",
+                serde_json::json!({
+                    "mode": mode,
+                    "text_field": text_field,
+                    "number_field": number_field,
+                    "switch_field": switch_field,
+                    "choice_field": choice_field,
+                }),
+            )
+            .await?;
 
         let mut counter_val = self.counter.write().await;
         *counter_val += 1;
@@ -99,6 +115,18 @@ impl PluginCallbacks for Plugin {
             instance,
             selected
         );
+
+        // Record this action call for mock verification
+        self.mocks
+            .check_action_call(
+                "on_select_choice_field_in_comprehensive_action",
+                serde_json::json!({
+                    "instance": instance,
+                    "selected": selected,
+                }),
+            )
+            .await?;
+
         Ok(())
     }
 }
@@ -115,6 +143,7 @@ impl Plugin {
         let plugin = Self {
             handle: outgoing,
             counter: Arc::new(RwLock::new(0)),
+            mocks: touchportal_sdk::mock::MockExpectations::new(),
         };
 
         // Start background task to cycle color states
@@ -167,20 +196,118 @@ impl Plugin {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    // TODO: Add mock TouchPortal server support for all-data-types plugin testing
-    // This plugin tests comprehensive action parameters, state updates, and background tasks
-    // Priority: Add mock server with test scenarios for:
-    // - comprehensive_action with various data types (text, number, switch, choice)
-    // - choice field selection callbacks
-    // - state updates verification
-    // - background task state cycling verification
-
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .without_time()
         .with_ansi(false)
         .init();
 
-    tracing::info!("all-data-types test plugin - mock support not implemented yet");
+    // Create mock TouchPortal server for testing
+    let mut mock_server = touchportal_sdk::mock::MockTouchPortalServer::new().await?;
+    let addr = mock_server.local_addr()?;
+
+    // Add test scenarios for comprehensive action with various data types
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_comprehensive_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "text_field": "test input",
+                "number_field": 42.5,
+                "switch_field": true,
+                "choice_field": "Red",
+            }),
+        )
+        .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Comprehensive Action Test 1")
+            .with_action(
+                "comprehensive_action",
+                vec![
+                    ("text_field", "test input"),
+                    ("number_field", "42.5"),
+                    ("switch_field", "On"),
+                    ("choice_field", "Red"),
+                ],
+            )
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+    mock_server
+        .expectations()
+        .expect_action_call(
+            "on_comprehensive_action",
+            serde_json::json!({
+                "mode": "Execute",
+                "text_field": "another test",
+                "number_field": 100.0,
+                "switch_field": false,
+                "choice_field": "Blue"
+            }),
+        )
+        .await;
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("Comprehensive Action Test 2")
+            .with_action(
+                "comprehensive_action",
+                vec![
+                    ("text_field", "another test"),
+                    ("number_field", "100.0"),
+                    ("switch_field", "Off"),
+                    ("choice_field", "Blue"),
+                ],
+            )
+            .with_delay(std::time::Duration::from_millis(500)),
+    );
+
+    // Note: choice field selection (`on_select_choice_field_in_comprehensive_action`) is not
+    // automatically triggered by test scenarios It would require more complex mock TouchPortal
+    // interaction to test.
+
+    // Add final test scenario with state update validation
+    mock_server.add_test_scenario(
+        touchportal_sdk::mock::TestScenario::new("State Updates Validation")
+            .with_delay(std::time::Duration::from_millis(1000))
+            .with_assertions(|commands, _actions| {
+                use touchportal_sdk::protocol::TouchPortalCommand;
+
+                let state_updates = commands
+                    .iter()
+                    .filter(|cmd| matches!(cmd, TouchPortalCommand::StateUpdate(_)))
+                    .count();
+
+                if state_updates >= 4 {
+                    tracing::info!(
+                        "✅ Found {} state updates from comprehensive actions and background tasks",
+                        state_updates
+                    );
+                    Ok(())
+                } else {
+                    eyre::bail!("Expected at least 4 state updates, got {}", state_updates)
+                }
+            }),
+    );
+
+    let expectations = mock_server.expectations().clone();
+
+    // Start mock server in background
+    tokio::spawn(async move {
+        if let Err(e) = mock_server.run_test_scenarios().await {
+            tracing::error!("Mock server failed: {}", e);
+        } else {
+            tracing::info!("✅ Test PASSED: All data types plugin completed test scenarios");
+        }
+    });
+
+    let expectations_for_verification = expectations.clone();
+    Plugin::run_dynamic_with_setup(addr, |mut plugin| {
+        plugin.mocks = expectations;
+        plugin
+    })
+    .await?;
+
+    // Verify mock expectations after plugin completes
+    expectations_for_verification.verify().await?;
+
     Ok(())
 }

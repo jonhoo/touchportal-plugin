@@ -81,14 +81,14 @@ async fn main() -> eyre::Result<()> {
     });
 
     let expectations_for_verification = expectations.clone();
-    let result = Plugin::run_dynamic_with_setup(addr, |mut plugin| {
+    Plugin::run_dynamic_with_setup(addr, |mut plugin| {
         plugin.mocks = expectations;
         plugin
     })
-    .await;
+    .await?;
 
     // Verify mock expectations after plugin completes
     expectations_for_verification.verify().await?;
 
-    result
+    Ok(())
 }

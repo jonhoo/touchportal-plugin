@@ -10,12 +10,9 @@ use std::collections::BTreeSet;
 use syn::Ident;
 
 #[allow(clippy::needless_doctest_main)]
-/// Generates the binding code for your plugin.
+/// Generates the binding code for your plugin and exports it to `$OUT_DIR`.
 ///
-/// You'll into `$OUT_DIR/touch-portal.rs`.
-///
-/// You'll usually want to place this into a `.rs` file in `$OUT_DIR` so that you can then include
-/// it from your plugin's `main.rs`. That is, in `build.rs`, you'll want:
+/// This is the recommended way to handle plugin build outputs in your `build.rs`:
 ///
 /// ```rust,no_run
 /// use touchportal_sdk::{PluginDescription, codegen};
@@ -25,23 +22,13 @@ use syn::Ident;
 ///       .build()
 ///       .unwrap();
 ///
-///     // write out generated code to somewhere your main.rs can include! it from:
-///     std::fs::write(
-///         format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
-///         codegen::build(&plugin),
-///     )
-///     .unwrap();
-///
-///     // also write out your serialized plugin manifest (`entry.tp`) to the same place:
-///     std::fs::write(
-///         format!("{}/entry.tp", std::env::var("OUT_DIR").unwrap()),
-///         serde_json::to_vec(&plugin).unwrap(),
-///     )
-///     .unwrap();
+///     // Generate and write all build outputs
+///     codegen::export(&plugin);
 /// }
 /// ```
 ///
-/// Then, in `main.rs`, you'll want:
+/// The generated Rust code will go to `$OUT_DIR/entry.rs`, which you should then include form your
+/// plugin's `main.rs`, like so:
 ///
 /// ```rust,ignore
 /// include!(concat!(env!("OUT_DIR"), "/entry.rs"));
@@ -69,54 +56,30 @@ use syn::Ident;
 /// }
 /// ```
 ///
-/// To generate your manifest, you can use a bash script like what's below.
-/// It ain't pretty, but it works. There are probably nicer ways.
-///
-/// ```bash
-/// #!/bin/bash
-///
-/// set -euo pipefail
-///
-/// plugin_name=YouTubeLive
-/// crate_binary=touchportal-youtube-live
-///
-/// build=$(cargo build --release --bin "$crate_binary" -q --message-format=json)
-/// exe=$(jq -r "select(.reason == \"compiler-artifact\" and .target.name == \"$crate_binary\").executable" <<<"$build")
-/// out_dir="$(dirname "$(jq -r "select(.reason == \"build-script-executed\") | select(.package_id | contains(\"#$crate_binary@\")).out_dir" <<<"$build")")"/out/
-/// entry_tp="$out_dir"/entry.tp
-///
-/// tmp=$(mktemp -d)
-/// mkdir "$tmp/$plugin_name"
-/// cp "$exe" "$entry_tp" "$tmp/$plugin_name"
-/// here=$(pwd)
-/// pushd "$tmp"
-/// zip -r "$plugin_name.tpp" "$plugin_name"
-/// rsync -a "$plugin_name/" ~/.config/TouchPortal/plugins/"$plugin_name"/
-/// cp "$plugin_name.tpp" "$here"
-/// popd
-/// rm -r "$tmp"
-/// ```
-/// Generates and writes the build outputs for a TouchPortal plugin.
-///
-/// This function handles the complete build process for a plugin:
-/// - Generates the Rust binding code and writes it to `$OUT_DIR/entry.rs`
-/// - Serializes the plugin description and writes it to `$OUT_DIR/entry.tp`
-/// - Outputs appropriate cargo build directives for rebuild detection
-///
-/// This is the recommended way to handle plugin build outputs in your `build.rs`:
+/// Internally, this is a combination of [`generate`] and JSON-serializing `plugin` to generate an
+/// `entry.tp` file, both of which end up in `$OUT_DIR`. That is, it's roughly equivalent to:
 ///
 /// ```rust,no_run
-/// use touchportal_sdk::{PluginDescription, codegen};
-/// fn main() {
-///     let plugin = PluginDescription::builder()
-///       /* build your plugin manifest here */
-///       .build()
-///       .unwrap();
+/// # use touchportal_sdk::{PluginDescription, codegen};
+/// # let plugin = PluginDescription::builder().build().unwrap();
 ///
-///     // Generate and write all build outputs
-///     codegen::export(&plugin);
-/// }
+/// // write out generated code to somewhere your main.rs can include! it from:
+/// std::fs::write(
+///     format!("{}/entry.rs", std::env::var("OUT_DIR").unwrap()),
+///     codegen::generate(&plugin),
+/// )
+/// .unwrap();
+///
+/// // also write out your serialized plugin manifest (`entry.tp`) to the same place:
+/// std::fs::write(
+///     format!("{}/entry.tp", std::env::var("OUT_DIR").unwrap()),
+///     serde_json::to_vec(&plugin).unwrap(),
+/// )
+/// .unwrap();
 /// ```
+///
+/// Note that `package.py` (and thus also `install.py`) expect to find the `entry.tp` file
+/// `$OUT_DIR`.
 pub fn export(plugin: &PluginDescription) {
     // Generate the Rust binding code
     let rust_code = generate(plugin);
@@ -139,6 +102,12 @@ pub fn export(plugin: &PluginDescription) {
     println!("cargo::rerun-if-changed=build.rs");
 }
 
+/// Generates the Rust binding code for your plugin and returns it.
+///
+/// You'll generally want to put this code in `$OUT_DIR` so you can `include!` it from your
+/// plugin's `main.rs`.
+///
+/// Prefer using [`export`].
 pub fn generate(plugin: &PluginDescription) -> String {
     // also write out &'static PluginDescription
     // defs probably go to lib, and so does the static (const?) construction of the instance.

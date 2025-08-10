@@ -748,6 +748,17 @@ fn serialize_tutorial_sdk_plugin_with_category_example() {
                         .id("tp_tut_001_cat_01")
                         .name("Tools")
                         .imagepath("%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png")
+                        .event(
+                            Event::builder()
+                                .id("event002")
+                                .name("On breakfast eating")
+                                .format("When we eat $val as breakfast")
+                                .value(EventValueType::Text(
+                                    EventTextConfiguration::builder().build().unwrap()
+                                ))
+                                .build()
+                                .unwrap()
+                        )
                         .build()
                         .unwrap()
                 )
@@ -772,7 +783,16 @@ fn serialize_tutorial_sdk_plugin_with_category_example() {
               "name":"Tools",
               "imagepath":"%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png",
               "actions": [ ],
-              "events": [ ],
+              "events": [
+                {
+                  "id":"event002",
+                  "name":"On breakfast eating",
+                  "format":"When we eat $val as breakfast",
+                  "type":"communicate",
+                  "valueType":"text",
+                  "valueStateId":""
+                }
+              ],
               "connectors": [ ],
               "states": [ ],
             }

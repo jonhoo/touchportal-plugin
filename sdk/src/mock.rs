@@ -12,7 +12,7 @@
 
 use crate::protocol::{self, TouchPortalCommand, TouchPortalOutput};
 use eyre::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,8 +23,7 @@ use tokio::sync::{mpsc, Mutex};
 /// Tracks expected action calls and their arguments for testing.
 #[derive(Debug, Clone)]
 pub struct MockExpectations {
-    expected_calls: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
-    actual_calls: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
+    expected_calls: Arc<Mutex<HashMap<String, VecDeque<serde_json::Value>>>>,
 }
 
 impl MockExpectations {
@@ -32,7 +31,6 @@ impl MockExpectations {
     pub fn new() -> Self {
         Self {
             expected_calls: Arc::new(Mutex::new(HashMap::new())),
-            actual_calls: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -46,82 +44,86 @@ impl MockExpectations {
         let mut expected = self.expected_calls.lock().await;
         expected
             .entry(callback_name)
-            .or_insert_with(Vec::new)
-            .push(args);
+            .or_insert_with(VecDeque::new)
+            .push_back(args);
     }
 
     /// Record that an action callback was actually called (called from within action callbacks).
+    ///
+    /// This method immediately checks the call against expectations, it does not wait for
+    /// `verify()`.
     pub async fn check_action_call(
         &self,
         callback_name: impl Into<String>,
         args: serde_json::Value,
-    ) {
+    ) -> Result<()> {
         let callback_name = callback_name.into();
         tracing::debug!(callback = %callback_name, ?args, "action callback invoked");
 
-        let mut actual = self.actual_calls.lock().await;
-        actual
-            .entry(callback_name)
-            .or_insert_with(Vec::new)
-            .push(args);
-    }
+        let mut expected = self.expected_calls.lock().await;
 
-    /// Verify that all expected calls were made with correct arguments.
-    pub async fn verify(&self) -> Result<()> {
-        let expected = self.expected_calls.lock().await;
-        let actual = self.actual_calls.lock().await;
+        // Check if this callback was expected
+        let Some(expected_calls) = expected.get_mut(&callback_name) else {
+            eyre::bail!(
+                "Unexpected action callback '{}' was called with arguments: {:?}",
+                callback_name,
+                args
+            );
+        };
 
-        // Check that all expected calls were made with correct arguments
-        for (callback_name, expected_calls) in expected.iter() {
-            let empty_vec = Vec::new();
-            let actual_calls = actual.get(callback_name).unwrap_or(&empty_vec);
-
-            if actual_calls.len() != expected_calls.len() {
-                eyre::bail!(
-                    "Expected {} calls to '{}', but got {}. Expected: {:?}, Actual: {:?}",
-                    expected_calls.len(),
-                    callback_name,
-                    actual_calls.len(),
-                    expected_calls,
-                    actual_calls
-                );
-            }
-
-            for (i, (expected_args, actual_args)) in
-                expected_calls.iter().zip(actual_calls.iter()).enumerate()
-            {
-                if expected_args != actual_args {
-                    eyre::bail!(
-                        "Call {} to '{}' had wrong arguments. Expected: {:?}, Actual: {:?}",
-                        i + 1,
-                        callback_name,
-                        expected_args,
-                        actual_args
-                    );
-                }
-            }
+        // Check if we have any more expected calls for this callback
+        if expected_calls.is_empty() {
+            eyre::bail!(
+                "Action callback '{}' was called more times than expected",
+                callback_name
+            );
         }
 
-        // Check that no unexpected calls were made
-        for (callback_name, actual_calls) in actual.iter() {
-            if !expected.contains_key(callback_name) {
-                eyre::bail!(
-                    "Unexpected action callback '{}' was called {} times with arguments: {:?}",
-                    callback_name,
-                    actual_calls.len(),
-                    actual_calls
-                );
-            }
+        // Check if the arguments match the next expected call
+        let Some(expected_args) = expected_calls.front() else {
+            // This should never happen since we already checked is_empty() above
+            eyre::bail!("Internal error: expected_calls was empty after is_empty() check");
+        };
+        if expected_args != &args {
+            eyre::bail!(
+                "Call to '{}' had wrong arguments. Expected: {:?}, Actual: {:?}",
+                callback_name,
+                expected_args,
+                args
+            );
         }
 
-        tracing::info!("✅ All expected action calls were verified");
+        // Remove the matched expectation
+        expected_calls.pop_front();
+
+        tracing::info!(callback = %callback_name, "✅ action callback matches expectations");
         Ok(())
     }
 
-    /// Clear all expectations and recorded calls.
+    /// Verify that all expected calls were consumed.
+    /// Note: Individual call validation happens immediately in check_action_call().
+    /// This method only verifies that all expectations were satisfied.
+    pub async fn verify(&self) -> Result<()> {
+        let expected = self.expected_calls.lock().await;
+
+        // Check that all expected calls were consumed
+        for (callback_name, expected_calls) in expected.iter() {
+            if !expected_calls.is_empty() {
+                eyre::bail!(
+                    "Expected {} more calls to '{}' but plugin finished",
+                    expected_calls.len(),
+                    callback_name
+                );
+            }
+        }
+
+        tracing::info!("✅ All expected action calls were satisfied");
+        Ok(())
+    }
+
+    /// Clear all expectations.
     pub async fn clear(&self) {
         self.expected_calls.lock().await.clear();
-        self.actual_calls.lock().await.clear();
     }
 }
 

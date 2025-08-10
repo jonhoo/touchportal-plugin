@@ -15,11 +15,11 @@ cargo test
 
 ### Building the plugins
 
-Each plugin has two scripts:
-- `package.sh` - Builds the plugin and creates a `.tpp` file (safe to run in automated environments)
-- `install.sh` - Installs the plugin to `~/.config/TouchPortal/plugins/` (modifies user system, should not be run automatically)
+Plugins are built and installed using Python scripts in the `scripts/` directory:
+- `scripts/package.py` - Builds the plugin and creates a `.tpp` file (safe to run in automated environments)
+- `scripts/install.py` - Installs the plugin to `~/.config/TouchPortal/plugins/` (modifies user system, should not be run automatically)
 
-The `package.sh` script includes smart rebuild detection and only rebuilds when source files have changed.
+The packaging script includes smart rebuild detection and only rebuilds when source files have changed.
 
 ### Production Plugins (plugins/ directory)
 
@@ -31,10 +31,10 @@ While inside the `plugins/youtube/` directory:
 
 ```bash
 # Package the plugin into a .tpp file for TouchPortal (safe for automation)
-./package.sh
+python3 ../../scripts/package.py
 
 # Install the plugin to TouchPortal (DO NOT run automatically - modifies user system)
-./install.sh
+python3 ../../scripts/install.py
 ```
 
 ### Test Plugins (test-plugins/ directory) 
@@ -47,10 +47,10 @@ While inside the `test-plugins/stress/` directory:
 
 ```bash
 # Package the plugin into a .tpp file for TouchPortal (safe for automation)
-./package.sh
+python3 ../../scripts/package.py
 
 # Install the plugin to TouchPortal (DO NOT run automatically - modifies user system)  
-./install.sh
+python3 ../../scripts/install.py
 ```
 
 ### Validation Failure Tests (validation-failures-workspace/ directory)
@@ -63,13 +63,13 @@ Validation failure tests are plugins that intentionally contain build-time valid
 cd validation-failures-workspace/
 
 # Run all validation tests
-./test_validation_failures.sh
+python3 ./test_validation_failures.py
 
 # Run a specific validation test by name
-./test_validation_failures.sh missing-connector-data
+python3 ./test_validation_failures.py missing-connector-data
 
 # Run multiple specific validation tests
-./test_validation_failures.sh missing-connector-data choice-event-text-state
+python3 ./test_validation_failures.py missing-connector-data choice-event-text-state
 ```
 
 This script:
@@ -85,7 +85,7 @@ This script:
 3. Write a `build.rs` with intentional validation errors
 4. Create an `expected-error.txt` file with the exact error message expected
 5. Add a `src/main.rs` that just contains an `fn main`. Generated code does not need to be included here since the `build.rs` will fail first.
-6. Run `./test_validation_failures.sh` to verify it works
+6. Run `python3 ./test_validation_failures.py` to verify it works
 
 #### Current Validation Tests
 
@@ -264,7 +264,7 @@ RUST_LOG=trace cargo run --release
 - **Action Verification**: Use `mocks.check_action_call("callback_name", json_args)` in action callbacks and `mock_server.expectations().expect_action_call()` in main for explicit verification
 - **Mock Injection**: Use `Plugin::run_dynamic_with_setup(addr, |mut plugin| { plugin.mocks = expectations; plugin })` to inject MockExpectations from `main`
 - **Automatic Protocol**: MockTouchPortalServer automatically tests for Pair (plugin → mock) and sends ClosePlugin (mock → plugin) at the end
-- **Test Runner**: `./run_all_tests.sh` treats timeouts as failures since plugins should exit gracefully via ClosePlugin
+- **Test Runner**: `python3 ./test_runtime_behaviours.py` treats timeouts as failures since plugins should exit gracefully via ClosePlugin
 
 ## Code Generation Notes
 

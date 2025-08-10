@@ -20,5 +20,6 @@ You can also package and install the plugin for manual testing with
 TouchPortal using:
 
 ```bash
-./package.sh
+python3 ../scripts/package.py
+python3 ../scripts/install.py  # Only if you want to install to TouchPortal
 ```

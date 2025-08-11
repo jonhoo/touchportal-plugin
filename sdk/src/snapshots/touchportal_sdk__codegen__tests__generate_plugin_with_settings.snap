@@ -1,0 +1,402 @@
+---
+source: sdk/src/codegen.rs
+assertion_line: 1244
+expression: generated
+---
+use ::touchportal_sdk::protocol;
+///Valid choices for setting [`choice_setting`]
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub enum ChoiceSettingSettingOptions {
+    #[serde(rename = "Option A")]
+    OptionA,
+    #[serde(rename = "Option B")]
+    OptionB,
+    #[serde(rename = "Option C")]
+    OptionC,
+}
+impl ::std::fmt::Display for ChoiceSettingSettingOptions {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f, "{}", match self { Self::OptionA => "Option A", Self::OptionB =>
+            "Option B", Self::OptionC => "Option C" }
+        )
+    }
+}
+impl ::std::str::FromStr for ChoiceSettingSettingOptions {
+    type Err = eyre::Report;
+    fn from_str(s: &str) -> ::eyre::Result<Self> {
+        match s {
+            "Option A" => Ok(Self::OptionA),
+            "Option B" => Ok(Self::OptionB),
+            "Option C" => Ok(Self::OptionC),
+            _ => eyre::bail!("'{s}' is not a valid setting value"),
+        }
+    }
+}
+impl protocol::TouchPortalToString for ChoiceSettingSettingOptions {
+    fn stringify(&self) -> String {
+        self.to_string()
+    }
+}
+impl protocol::TouchPortalFromStr for ChoiceSettingSettingOptions {
+    fn destringify(s: &str) -> eyre::Result<Self> {
+        ::std::str::FromStr::from_str(s)
+    }
+}
+fn defaults_for_setting_text_setting() -> String {
+    protocol::TouchPortalFromStr::destringify("default_text")
+        .expect(
+            concat!(
+                "initial value '", "default_text", "' is valid for setting `",
+                "text_setting", "`"
+            ),
+        )
+}
+fn defaults_for_setting_choice_setting() -> ChoiceSettingSettingOptions {
+    protocol::TouchPortalFromStr::destringify("Option A")
+        .expect(
+            concat!(
+                "initial value '", "Option A", "' is valid for setting `",
+                "choice_setting", "`"
+            ),
+        )
+}
+fn defaults_for_setting_number_setting() -> f64 {
+    protocol::TouchPortalFromStr::destringify("42")
+        .expect(
+            concat!(
+                "initial value '", "42", "' is valid for setting `", "number_setting",
+                "`"
+            ),
+        )
+}
+fn defaults_for_setting_switch_setting() -> bool {
+    protocol::TouchPortalFromStr::destringify("On")
+        .expect(
+            concat!(
+                "initial value '", "On", "' is valid for setting `", "switch_setting",
+                "`"
+            ),
+        )
+}
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PluginSettings {
+    #[serde(with = "protocol::serde_tp_stringly")]
+    #[serde(rename = "text_setting", default = "defaults_for_setting_text_setting")]
+    text_setting: String,
+    #[serde(with = "protocol::serde_tp_stringly")]
+    #[serde(rename = "choice_setting", default = "defaults_for_setting_choice_setting")]
+    choice_setting: ChoiceSettingSettingOptions,
+    #[serde(with = "protocol::serde_tp_stringly")]
+    #[serde(rename = "number_setting", default = "defaults_for_setting_number_setting")]
+    number_setting: f64,
+    #[serde(with = "protocol::serde_tp_stringly")]
+    #[serde(rename = "switch_setting", default = "defaults_for_setting_switch_setting")]
+    switch_setting: bool,
+}
+#[automatically_derived]
+impl Default for PluginSettings {
+    fn default() -> Self {
+        Self {
+            text_setting: defaults_for_setting_text_setting(),
+            choice_setting: defaults_for_setting_choice_setting(),
+            number_setting: defaults_for_setting_number_setting(),
+            switch_setting: defaults_for_setting_switch_setting(),
+        }
+    }
+}
+impl PluginSettings {
+    pub fn from_info_settings(
+        info: Vec<::std::collections::HashMap<String, ::serde_json::Value>>,
+    ) -> ::eyre::Result<Self> {
+        use ::eyre::Context as _;
+        let value = info.into_iter().flatten().collect();
+        serde_json::from_value(value).context("parse settings")
+    }
+}
+impl Plugin
+where
+    Self: PluginCallbacks,
+{
+    pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
+        Self::run_dynamic_with_setup(addr, std::convert::identity).await
+    }
+    pub async fn run_dynamic_with_setup(
+        addr: impl tokio::net::ToSocketAddrs,
+        mutate: impl FnOnce(Plugin) -> Plugin,
+    ) -> eyre::Result<()> {
+        use protocol::*;
+        use ::eyre::Context as _;
+        use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        ::tracing::info!("connect to TouchPortal");
+        let mut connection = tokio::net::TcpStream::connect(addr)
+            .await
+            .context("connect to TouchPortal host")?;
+        ::tracing::info!("connected to TouchPortal");
+        let (read, write) = connection.split();
+        let mut writer = tokio::io::BufWriter::new(write);
+        let mut reader = tokio::io::BufReader::new(read);
+        ::tracing::debug!("connected to TouchPortal");
+        let mut json = serde_json::to_string(
+                &TouchPortalCommand::Pair(PairCommand {
+                    id: "com.test.settings".to_string(),
+                }),
+            )
+            .context("write out pair command")?;
+        ::tracing::trace!(? json, "send");
+        json.push('\n');
+        writer.write_all(json.as_bytes()).await.context("send trailing newline")?;
+        writer.flush().await.context("flush pair command")?;
+        ::tracing::debug!("await info response");
+        let mut line = String::new();
+        let n = reader
+            .read_line(&mut line)
+            .await
+            .context("retrieve plugin info from server")?;
+        if n == 0 {
+            eyre::bail!("TouchPortal closed connection on pair");
+        }
+        let json = serde_json::from_str(&line).context("parse plugin info from server")?;
+        ::tracing::trace!(? json, "recv");
+        let output: TouchPortalOutput = serde_json::from_value(json)
+            .context("parse as TouchPortalOutput")?;
+        let TouchPortalOutput::Info(mut info) = output else {
+            eyre::bail!("did not receive info in response to pair, got {output:?}");
+        };
+        let settings = if info.settings.is_empty() {
+            ::tracing::debug!("use default settings");
+            PluginSettings::default()
+        } else {
+            ::tracing::debug!("parse customized settings");
+            PluginSettings::from_info_settings(std::mem::take(&mut info.settings))
+                .context("parse settings from info")?
+        };
+        ::tracing::debug!("construct Plugin proper");
+        let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
+        let plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
+            .await
+            .context("Plugin::new")?;
+        let mut plugin = mutate(plugin);
+        let mut line = String::new();
+        let mut out_buf = Vec::new();
+        loop {
+            tokio::select! {
+                n = reader.read_line(& mut line) => { let n = n
+                .context("read incoming message from TouchPortal") ?; if n == 0 {
+                ::tracing::warn!("incoming channel from TouchPortal terminated"); plugin
+                .on_close(true). await .context("handle server-side EOF") ?; break; } let
+                json : serde_json::Value = serde_json::from_str(& line)
+                .context("parse JSON from TouchPortal") ?; let kind = json["type"]
+                .to_string(); ::tracing::trace!(? json, "recv"); let msg :
+                TouchPortalOutput = serde_json::from_value(json)
+                .context("parse as TouchPortalOutput") ?; let should_exit = plugin
+                .handle_incoming(msg). await .with_context(||
+                format!("respond to {kind}")) ?; if should_exit {
+                ::tracing::info!("plugin received close signal, exiting gracefully");
+                break; } line.clear(); } cmd = outgoing.recv(), if ! outgoing.is_closed()
+                => { let Some(cmd) = cmd else {
+                ::tracing::warn!("outgoing channel to TouchPortal terminated"); break; };
+                serde_json::to_writer(& mut out_buf, & cmd)
+                .context("serialize outgoing command") ?; let json =
+                std::str::from_utf8(& out_buf).expect("JSON is valid UTF-8");
+                ::tracing::trace!(? json, "send"); out_buf.push(b'\n'); writer
+                .write_all(& out_buf). await
+                .context("send outgoing command to TouchPortal") ?; writer.flush(). await
+                .context("flush outgoing command") ?; out_buf.clear(); }
+            };
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Debug)]
+pub struct TouchPortalHandle(::tokio::sync::mpsc::Sender<protocol::TouchPortalCommand>);
+impl TouchPortalHandle {
+    /// As a plug-in developer you can alert your users within Touch Portal for certain events.
+    ///
+    /// This system should only be used for important messages that the user has to act on. Examples
+    /// are new updates for the plugin or changing settings like credentials. Maybe your user has set
+    /// up the plug-in incorrectly which is also a good reason to send a notification to alert them to
+    /// the issue and propose a solution.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Rules of notifications**
+    ///
+    /// You are only allowed to send user critical notifications to help them on their way.
+    /// Advertisements, donation request and all other non-essential messages are not allowed and may
+    /// result in your plug-in be blacklisted from the notification center.
+    ///
+    /// </div>
+    pub async fn notify(&mut self, cmd: protocol::CreateNotificationCommand) {
+        let _ = self.0.send(protocol::TouchPortalCommand::CreateNotification(cmd)).await;
+    }
+    /// Create a state at runtime.
+    pub async fn create_state(&mut self, cmd: protocol::CreateStateCommand) {
+        let _ = self.0.send(protocol::TouchPortalCommand::CreateState(cmd)).await;
+    }
+    /// Remove a state at runtime.
+    pub async fn remove_state(&mut self, id: impl Into<String>) {
+        let _ = self
+            .0
+            .send(
+                protocol::TouchPortalCommand::RemoveState(
+                    protocol::RemoveStateCommand::builder().id(id).build().unwrap(),
+                ),
+            )
+            .await;
+    }
+    pub async fn set_text_setting(&mut self, value: String) {
+        let _ = self
+            .0
+            .send(
+                protocol::TouchPortalCommand::SettingUpdate(
+                    protocol::UpdateSettingCommand::builder()
+                        .name("text_setting")
+                        .value(value.to_string())
+                        .build()
+                        .unwrap(),
+                ),
+            )
+            .await;
+    }
+    pub async fn set_choice_setting(&mut self, value: ChoiceSettingSettingOptions) {
+        let _ = self
+            .0
+            .send(
+                protocol::TouchPortalCommand::SettingUpdate(
+                    protocol::UpdateSettingCommand::builder()
+                        .name("choice_setting")
+                        .value(value.to_string())
+                        .build()
+                        .unwrap(),
+                ),
+            )
+            .await;
+    }
+    pub async fn set_number_setting(&mut self, value: f64) {
+        let _ = self
+            .0
+            .send(
+                protocol::TouchPortalCommand::SettingUpdate(
+                    protocol::UpdateSettingCommand::builder()
+                        .name("number_setting")
+                        .value(value.to_string())
+                        .build()
+                        .unwrap(),
+                ),
+            )
+            .await;
+    }
+    pub async fn set_switch_setting(&mut self, value: bool) {
+        let _ = self
+            .0
+            .send(
+                protocol::TouchPortalCommand::SettingUpdate(
+                    protocol::UpdateSettingCommand::builder()
+                        .name("switch_setting")
+                        .value(value.to_string())
+                        .build()
+                        .unwrap(),
+                ),
+            )
+            .await;
+    }
+}
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` must implement `PluginCallbacks` to receive updates from TouchPortal ",
+    label = "the trait `PluginCallbacks` is not implemented for `{Self}`",
+    note = "Add `impl PluginCallbacks for {Self} {{}}` and let your IDE or the compiler guide you.",
+    note = "This trait has methods for all possible \"incoming\" messages based on your plugin description in `build.rs`.",
+)]
+trait PluginCallbacks {
+    async fn on_broadcast(
+        &mut self,
+        event: protocol::BroadcastEvent,
+    ) -> eyre::Result<()> {
+        tracing::debug!(? event, "on_broadcast noop");
+        Ok(())
+    }
+    async fn on_close(&mut self, eof: bool) -> eyre::Result<()> {
+        tracing::debug!(? eof, "on_close noop");
+        Ok(())
+    }
+    async fn on_notification_clicked(
+        &mut self,
+        event: protocol::NotificationClickedMessage,
+    ) -> eyre::Result<()> {
+        tracing::debug!(? event, "on_notification_clicked noop");
+        Ok(())
+    }
+}
+impl Plugin
+where
+    Self: PluginCallbacks,
+{
+    async fn handle_incoming(
+        &mut self,
+        msg: protocol::TouchPortalOutput,
+    ) -> eyre::Result<bool> {
+        use protocol::TouchPortalOutput;
+        use ::eyre::Context as _;
+        match msg {
+            TouchPortalOutput::Info(_) => eyre::bail!("got unexpected late info"),
+            TouchPortalOutput::Action(_)
+            | TouchPortalOutput::Up(_)
+            | TouchPortalOutput::Down(_) => {
+                #[allow(unused_variables)]
+                let (interaction_mode, action) = match msg {
+                    TouchPortalOutput::Action(action) => {
+                        (protocol::ActionInteractionMode::Execute, action)
+                    }
+                    TouchPortalOutput::Down(action) => {
+                        (protocol::ActionInteractionMode::HoldDown, action)
+                    }
+                    TouchPortalOutput::Up(action) => {
+                        (protocol::ActionInteractionMode::HoldUp, action)
+                    }
+                    _ => {
+                        unreachable!(
+                            "we would not have entered this outer match arm otherwise"
+                        )
+                    }
+                };
+                #[allow(clippy::match_single_binding)]
+                match &*action.action_id {
+                    id => eyre::bail!("action executed with unknown action id {id}"),
+                }
+            }
+            TouchPortalOutput::ConnectorChange(change) => {
+                ::tracing::error!(? change, "connector changes are not yet implemented");
+            }
+            TouchPortalOutput::ShortConnectorIdNotification(assoc) => {
+                ::tracing::error!(
+                    ? assoc, "short connector id support are not yet implemented"
+                );
+            }
+            TouchPortalOutput::ListChange(change) => {
+                #[allow(clippy::match_single_binding)]
+                match (&*change.list_id, &*change.action_id) {
+                    (lid, aid) => {
+                        eyre::bail!(
+                            "unknown list '{lid}' in unknown action '{aid}' changed"
+                        )
+                    }
+                }
+            }
+            TouchPortalOutput::ClosePlugin(_) => {
+                self.on_close(false).await.context("handle graceful plugin close")?;
+                return Ok(true);
+            }
+            TouchPortalOutput::Broadcast(event) => {
+                self.on_broadcast(event).await.context("handle broadcast event")?;
+            }
+            TouchPortalOutput::NotificationOptionClicked(event) => {
+                self.on_notification_clicked(event)
+                    .await
+                    .context("handle notification click")?;
+            }
+            _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
+        }
+        Ok(false)
+    }
+}

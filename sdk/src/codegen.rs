@@ -983,3 +983,512 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{reexport::HexColor, *};
+    use insta::assert_snapshot;
+
+    /// Helper function to create a minimal plugin for testing
+    fn minimal_plugin() -> PluginDescription {
+        PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.plugin")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x282828))
+                    .color_light(HexColor::from_u24(0xff0000))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("test-plugin.exe")
+            .build()
+            .unwrap()
+    }
+
+    /// Helper function to create a plugin with various settings for testing
+    fn plugin_with_settings() -> PluginDescription {
+        PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Settings Test Plugin")
+            .id("com.test.settings")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x123456))
+                    .color_light(HexColor::from_u24(0xffffff))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .setting(
+                Setting::builder()
+                    .name("text_setting")
+                    .initial("default_text")
+                    .kind(SettingType::Text(
+                        TextSetting::builder()
+                            .max_length(100)
+                            .is_password(false)
+                            .read_only(false)
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .setting(
+                Setting::builder()
+                    .name("choice_setting")
+                    .initial("Option A")
+                    .kind(SettingType::Choice(
+                        ChoiceSetting::builder()
+                            .choice("Option A")
+                            .choice("Option B")
+                            .choice("Option C")
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .setting(
+                Setting::builder()
+                    .name("number_setting")
+                    .initial("42")
+                    .kind(SettingType::Number(
+                        NumberSetting::builder()
+                            .min_value(0.0)
+                            .max_value(100.0)
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .setting(
+                Setting::builder()
+                    .name("switch_setting")
+                    .initial("On")
+                    .kind(SettingType::Switch(
+                        SwitchSetting::builder().build().unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("settings-test.exe")
+            .build()
+            .unwrap()
+    }
+
+    /// Helper function to create a plugin with actions for testing
+    fn plugin_with_actions() -> PluginDescription {
+        PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Actions Test Plugin")
+            .id("com.test.actions")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x000000))
+                    .color_light(HexColor::from_u24(0xffffff))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .category(
+                Category::builder()
+                    .id("test_category")
+                    .name("Test Actions")
+                    .action(
+                        Action::builder()
+                            .id("test_action")
+                            .name("Test Action")
+                            .implementation(ActionImplementation::Dynamic)
+                            .datum(
+                                Data::builder()
+                                    .id("text_data")
+                                    .format(DataFormat::Text(TextData::builder().build().unwrap()))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .datum(
+                                Data::builder()
+                                    .id("choice_data")
+                                    .format(DataFormat::Choice(
+                                        ChoiceData::builder()
+                                            .initial("First")
+                                            .choice("First")
+                                            .choice("Second")
+                                            .build()
+                                            .unwrap(),
+                                    ))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .lines(
+                                Lines::builder()
+                                    .action(
+                                        LingualLine::builder()
+                                            .datum(
+                                                Line::builder()
+                                                    .line_format(
+                                                        "Test {$text_data$} with {$choice_data$}",
+                                                    )
+                                                    .build()
+                                                    .unwrap(),
+                                            )
+                                            .build()
+                                            .unwrap(),
+                                    )
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("actions-test.exe")
+            .build()
+            .unwrap()
+    }
+
+    /// Helper function to create a plugin with events and states for testing
+    fn plugin_with_events_and_states() -> PluginDescription {
+        PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Events Test Plugin")
+            .id("com.test.events")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x333333))
+                    .color_light(HexColor::from_u24(0xcccccc))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .category(
+                Category::builder()
+                    .id("test_events_category")
+                    .name("Test Events")
+                    .event(
+                        Event::builder()
+                            .id("test_event")
+                            .name("Test Event")
+                            .format("When test value $compare $val")
+                            .value(EventValueType::Text(
+                                EventTextConfiguration::builder().build().unwrap(),
+                            ))
+                            .value_state_id("test_state")
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("test_state")
+                            .description("Test state for events")
+                            .initial("default")
+                            .kind(StateType::Text(TextState::builder().build().unwrap()))
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("choice_state")
+                            .description("Test choice state")
+                            .initial("Red")
+                            .kind(StateType::Choice(
+                                ChoiceState::builder()
+                                    .choice("Red")
+                                    .choice("Green")
+                                    .choice("Blue")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("events-test.exe")
+            .build()
+            .unwrap()
+    }
+
+    /// Verifies that generated code is syntactically valid Rust
+    fn assert_valid_rust_syntax(code: &str) {
+        syn::parse_str::<syn::File>(code).unwrap_or_else(|e| {
+            panic!("Generated code has invalid Rust syntax: {e}\n\nCode:\n{code}")
+        });
+    }
+
+    #[test]
+    fn generate_minimal_plugin() {
+        let plugin = minimal_plugin();
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn generate_plugin_with_settings() {
+        let plugin = plugin_with_settings();
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn generate_plugin_with_actions() {
+        let plugin = plugin_with_actions();
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn generate_plugin_with_events_and_states() {
+        let plugin = plugin_with_events_and_states();
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn generate_complex_plugin() {
+        let plugin = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(2)
+            .name("Complex Test Plugin")
+            .id("com.test.complex")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x123456))
+                    .color_light(HexColor::from_u24(0xabcdef))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .setting(
+                Setting::builder()
+                    .name("complex_choice")
+                    .initial("Default")
+                    .kind(SettingType::Choice(
+                        ChoiceSetting::builder()
+                            .choice("Default")
+                            .choice("Advanced")
+                            .choice("Expert")
+                            .build()
+                            .unwrap(),
+                    ))
+                    .tooltip(
+                        Tooltip::builder()
+                            .title("Complexity Level")
+                            .body("Choose your preferred complexity level")
+                            .doc_url("https://example.com/docs")
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .category(
+                Category::builder()
+                    .id("cat1")
+                    .name("Category One")
+                    .action(
+                        Action::builder()
+                            .id("action_with_multiple_data")
+                            .name("Multi Data Action")
+                            .implementation(ActionImplementation::Dynamic)
+                            .datum(
+                                Data::builder()
+                                    .id("text_input")
+                                    .format(DataFormat::Text(TextData::builder().build().unwrap()))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .datum(
+                                Data::builder()
+                                    .id("number_input")
+                                    .format(DataFormat::Number(
+                                        NumberData::builder().initial(50.0).build().unwrap()
+                                    ))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .datum(
+                                Data::builder()
+                                    .id("switch_input")
+                                    .format(DataFormat::Switch(
+                                        SwitchData::builder().initial(false).build().unwrap()
+                                    ))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .lines(
+                                Lines::builder()
+                                    .action(
+                                        LingualLine::builder()
+                                            .datum(
+                                                Line::builder()
+                                                    .line_format("Process {$text_input$} with number {$number_input$}")
+                                                    .build()
+                                                    .unwrap(),
+                                            )
+                                            .datum(
+                                                Line::builder()
+                                                    .line_format("Switch is {$switch_input$}")
+                                                    .build()
+                                                    .unwrap(),
+                                            )
+                                            .build()
+                                            .unwrap(),
+                                    )
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("status_state")
+                            .description("Current status")
+                            .initial("Ready")
+                            .parent_group("Status")
+                            .kind(StateType::Text(TextState::builder().build().unwrap()))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .category(
+                Category::builder()
+                    .id("cat2")
+                    .name("Category Two")
+                    .event(
+                        Event::builder()
+                            .id("value_changed")
+                            .name("Value Changed")
+                            .format("When value becomes $val")
+                            .value(EventValueType::Choice(
+                                EventChoiceValue::builder()
+                                    .choice("Low")
+                                    .choice("Medium")
+                                    .choice("High")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .value_state_id("value_state")
+                            .local_state(
+                                LocalState::builder()
+                                    .id("timestamp")
+                                    .name("Change Timestamp")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("value_state")
+                            .description("Current value level")
+                            .initial("Medium")
+                            .kind(StateType::Choice(
+                                ChoiceState::builder()
+                                    .choice("Low")
+                                    .choice("Medium")
+                                    .choice("High")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("complex-test.exe")
+            .build()
+            .unwrap();
+
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn generate_empty_plugin() {
+        let plugin = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Empty Plugin")
+            .id("com.test.empty")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0x000000))
+                    .color_light(HexColor::from_u24(0xffffff))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("empty.exe")
+            .build()
+            .unwrap();
+
+        let generated = generate(&plugin);
+
+        assert_valid_rust_syntax(&generated);
+        assert_snapshot!(generated);
+    }
+
+    #[test]
+    fn test_gen_settings_individual() {
+        let plugin = plugin_with_settings();
+        let settings_code = gen_settings(&plugin).to_string();
+
+        assert_valid_rust_syntax(&settings_code);
+        assert_snapshot!(settings_code);
+    }
+
+    #[test]
+    fn test_gen_outgoing_individual() {
+        let plugin = plugin_with_events_and_states();
+        let outgoing_code = gen_outgoing(&plugin).to_string();
+
+        assert_valid_rust_syntax(&outgoing_code);
+        assert_snapshot!(outgoing_code);
+    }
+
+    #[test]
+    fn test_gen_incoming_individual() {
+        let plugin = plugin_with_actions();
+        let incoming_code = gen_incoming(&plugin).to_string();
+
+        assert_valid_rust_syntax(&incoming_code);
+        assert_snapshot!(incoming_code);
+    }
+
+    #[test]
+    fn test_gen_connect_individual() {
+        let connect_code = gen_connect("com.test.connect").to_string();
+
+        assert_valid_rust_syntax(&connect_code);
+        assert_snapshot!(connect_code);
+    }
+}

@@ -1140,9 +1140,25 @@ impl YouTubeClient {
     /// <https://developers.google.com/youtube/v3/docs/videos/list>
     #[instrument(skip(self), ret)]
     pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
-        let response = self.get_video_statistics_internal(video_id).await?;
+        let url = "https://www.googleapis.com/youtube/v3/videos";
+        let query_params = [("part", "statistics"), ("id", video_id)];
 
-        response
+        let response = self
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
+
+        let videos: VideoListResponse = response
+            .json()
+            .await
+            .context("parse YouTube videos API response as JSON")?;
+
+        tracing::debug!(
+            video_id,
+            returned_items = videos.items.len(),
+            "fetched video statistics"
+        );
+
+        videos
             .items
             .into_iter()
             .next()
@@ -1309,46 +1325,5 @@ impl YouTubeClient {
         );
 
         Ok(channels)
-    }
-
-    /// Internal method to call the `videos.list` API for a specific video.
-    ///
-    /// This method handles the actual HTTP request to the YouTube API, including
-    /// authentication headers and query parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `video_id` - The video ID to get statistics for
-    ///
-    /// # Returns
-    ///
-    /// A [`VideoListResponse`] containing the API response data.
-    ///
-    /// # API Reference
-    ///
-    /// <https://developers.google.com/youtube/v3/docs/videos/list>
-    async fn get_video_statistics_internal(
-        &self,
-        video_id: &str,
-    ) -> eyre::Result<VideoListResponse> {
-        let url = "https://www.googleapis.com/youtube/v3/videos";
-        let query_params = [("part", "statistics"), ("id", video_id)];
-
-        let response = self
-            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
-            .await?;
-
-        let videos: VideoListResponse = response
-            .json()
-            .await
-            .context("parse YouTube videos API response as JSON")?;
-
-        tracing::debug!(
-            video_id,
-            returned_items = videos.items.len(),
-            "fetched video statistics"
-        );
-
-        Ok(videos)
     }
 }

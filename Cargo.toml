@@ -1,14 +1,7 @@
 [workspace]
 members = [
   "sdk",
-  "plugins/youtube",
-  "test-plugins/all-data-types",
-  "test-plugins/boundary-values",
-  "test-plugins/minimal-single",
-  "test-plugins/no-actions",
-  "test-plugins/no-events",
-  "test-plugins/stress",
-  "test-plugins/subcategories"
+  "plugins/youtube"
 ]
 resolver = "3"
 

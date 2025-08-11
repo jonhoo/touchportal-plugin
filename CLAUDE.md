@@ -37,19 +37,19 @@ python3 ../../scripts/package.py
 python3 ../../scripts/install.py
 ```
 
-### Test Plugins (test-plugins/ directory) 
+### Feature Tests (feature-tests-workspace/ directory)
 
-Test plugins are in the `test-plugins/` directory and are used for testing the SDK itself, serving as examples, and experimenting with new features. They are not intended for actual use.
+Feature test plugins are in the `feature-tests-workspace/` directory and are used for testing the SDK itself, serving as examples, and experimenting with new features. They are not intended for actual use.
 
 #### The Stress Test Plugin
 
-While inside the `test-plugins/stress/` directory:
+While inside the `feature-tests-workspace/stress/` directory:
 
 ```bash
 # Package the plugin into a .tpp file for TouchPortal (safe for automation)
 python3 ../../scripts/package.py
 
-# Install the plugin to TouchPortal (DO NOT run automatically - modifies user system)  
+# Install the plugin to TouchPortal (DO NOT run automatically - modifies user system)
 python3 ../../scripts/install.py
 ```
 
@@ -139,7 +139,7 @@ This is an SDK that allows writing **TouchPortal plugins** written in Rust that 
     - `src/lib.rs` - Shared code between binaries
     - `build.rs` - Build-time plugin definition and code generation
     - `Cargo.toml` - Plugin dependencies and metadata
-- **`test-plugins/`** - Test and development plugins for SDK testing
+- **`feature-tests-workspace/`** - Feature test plugins for SDK testing
   - **`stress/`** - Kitchen sink plugin aimed at stress-testing the SDK
     - `src/main.rs` - Plugin runtime and business logic
     - `build.rs` - Build-time plugin definition and code generation
@@ -171,7 +171,7 @@ This is an SDK that allows writing **TouchPortal plugins** written in Rust that 
      cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")"/out/entry.tp
      ```
 
-3. **Plugin Runtime** (`main.rs` for each plugin): 
+3. **Plugin Runtime** (`main.rs` for each plugin):
    - Implements the generated `PluginCallbacks` trait with action handlers
    - Manages async communication with TouchPortal via TCP (port 12136)
    - Reacts to events, updates states, and triggers events
@@ -234,7 +234,7 @@ cat "$OUT_DIR"/entry.tp  # Generated TouchPortal plugin description
 RUST_LOG=trace cargo run --release
 
 # Plugin uses structured logging with tracing - key log points:
-# - TouchPortal connection establishment 
+# - TouchPortal connection establishment
 # - Plugin pairing info at main.rs:44 (both plugins)
 # - Protocol message tracing (send/recv) in generated code
 ```
@@ -264,15 +264,15 @@ RUST_LOG=trace cargo run --release
 - **Action Verification**: Use `mocks.check_action_call("callback_name", json_args)` in action callbacks and `mock_server.expectations().expect_action_call()` in main for explicit verification
 - **Mock Injection**: Use `Plugin::run_dynamic_with_setup(addr, |mut plugin| { plugin.mocks = expectations; plugin })` to inject MockExpectations from `main`
 - **Automatic Protocol**: MockTouchPortalServer automatically tests for Pair (plugin → mock) and sends ClosePlugin (mock → plugin) at the end
-- **Test Runner**: `python3 ./test_runtime_behaviours.py` treats timeouts as failures since plugins should exit gracefully via ClosePlugin
+- **Test Runner**: `python3 ./run_feature_tests.py` treats timeouts as failures since plugins should exit gracefully via ClosePlugin
 
 ## Code Generation Notes
 
-- **Important Reminder**: Some test plugins may fail to compile because of bugs in our code generation rather than errors you make, since bugs in code generation cause compile-time errors.
+- **Important Reminder**: Some feature test plugins may fail to compile because of bugs in our code generation rather than errors you make, since bugs in code generation cause compile-time errors.
 
 ## Validation Testing
 
-The SDK includes comprehensive build-time validation to catch invalid plugin configurations early. The `validation-failures-workspace/` contains test plugins that intentionally trigger these validation errors to ensure they work correctly.
+The SDK includes comprehensive build-time validation to catch invalid plugin configurations early. The `validation-failures-workspace/` contains validation test plugins that intentionally trigger these validation errors to ensure they work correctly.
 
 ### Key Validation Rules
 
@@ -294,7 +294,7 @@ The validation test suite helps ensure that SDK changes don't accidentally break
 ### Uncaught Validation Tests
 
 Tests for validation gaps that aren't yet caught by the SDK:
-- Compile successfully (no expected-error.txt file) 
+- Compile successfully (no expected-error.txt file)
 - Include MISSING.md documenting the specific validation gap
 - Test script identifies them with ⚠️ and confirms they compile successfully
 - Convert to proper validation tests when SDK validation is implemented

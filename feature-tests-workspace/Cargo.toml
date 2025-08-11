@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = [
+    "all-data-types",
+    "boundary-values",
+    "minimal-single",
+    "no-actions",
+    "no-events",
+    "stress",
+    "subcategories",
+]
+
+# This workspace contains feature test plugins that exercise various SDK
+# features and serve as examples for plugin development. These plugins are
+# used for testing SDK functionality and demonstrating usage patterns.

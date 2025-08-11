@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Test TouchPortal plugin runtime behaviors.
+Test TouchPortal plugin features.
 
-This script tests plugins that have mock support by running them with a timeout.
+This script tests feature test plugins that have mock support by running them with a timeout.
 Plugins should exit gracefully via ClosePlugin, so timeouts are treated as failures.
 """
 
@@ -31,18 +31,18 @@ except ImportError:
 
 def show_usage() -> None:
     """Show usage information."""
-    print("Usage: test_runtime_behaviours.py [plugin-name...]")
+    print("Usage: run_feature_tests.py [plugin-name...]")
     print("")
-    print("Test TouchPortal plugin runtime behaviors.")
+    print("Test TouchPortal plugin features.")
     print("")
     print("Options:")
     print("  [plugin-name...]  Run tests only for specified plugins")
     print("  -h, --help        Show this help message")
     print("")
     print("Examples:")
-    print("  test_runtime_behaviours.py                      # Test all plugins")
-    print("  test_runtime_behaviours.py minimal-single       # Test only minimal-single plugin")
-    print("  test_runtime_behaviours.py all-data-types no-events  # Test multiple specific plugins")
+    print("  run_feature_tests.py                      # Test all plugins")
+    print("  run_feature_tests.py minimal-single       # Test only minimal-single plugin")
+    print("  run_feature_tests.py all-data-types no-events  # Test multiple specific plugins")
     print("")
     print("Available plugins:")
 
@@ -53,7 +53,7 @@ def show_usage() -> None:
 
 def find_available_plugins() -> List[str]:
     """
-    Find all available test plugin directories.
+    Find all available feature test plugin directories.
 
     Returns:
         List of plugin directory names
@@ -140,7 +140,7 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30) -> Tuple[bool, 
 def main() -> None:
     """Main function."""
     parser = argparse.ArgumentParser(
-        description="Test TouchPortal plugin runtime behaviors",
+        description="Test TouchPortal plugin feature tests",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,  # We'll handle help manually to match bash script behavior
     )
@@ -181,7 +181,7 @@ def main() -> None:
     else:
         plugins_to_test = available_plugins
 
-    print("🧪 TouchPortal Plugin Runtime Behavior Tests")
+    print("🧪 TouchPortal Plugin Feature Tests")
     print("==================================")
 
     # Counters

@@ -2,6 +2,9 @@ use derive_builder::Builder;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 /// In Touch Portal the user can use States which can be used by IF statement and with Events for
 /// example but can also be used in button texts or most actions.
 ///

@@ -3,6 +3,9 @@ use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]

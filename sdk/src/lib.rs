@@ -3,6 +3,9 @@ use hex_color::HexColor;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 // root should be single folder without spaces in the name
 // entry.tp -- "description file"
 // https://www.touch-portal.com/api/index.php?section=description_file

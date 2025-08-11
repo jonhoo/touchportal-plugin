@@ -547,6 +547,7 @@ impl Suggestions {
 mod tests {
     use super::*;
     use crate::{Data, DataFormat, TextData};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn serialize_tutorial_sdk_plugin_static_action() {

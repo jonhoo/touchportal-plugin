@@ -3,6 +3,9 @@ use derive_builder::Builder;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 /// In Touch Portal there are events which will be triggered when a certain state changes.
 ///
 /// You can create events for the plugin as well. These events can be triggered when a linked state

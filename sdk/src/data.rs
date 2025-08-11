@@ -3,6 +3,9 @@ use hex_color::HexColor;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 /// As a plug-in developer you can augment your actions with additional data that the user has to
 /// fill in.
 ///

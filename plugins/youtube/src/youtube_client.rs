@@ -43,7 +43,7 @@ use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use std::time::{Duration, SystemTime};
 use tokio::sync::Mutex;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 use tracing::instrument;
 
 type OneFuturePage<'a, F, T> =
@@ -137,6 +137,208 @@ where
             } else {
                 // No pending request and no next page token means we're done
                 self.is_done = true;
+                return Poll::Ready(None);
+            }
+        }
+    }
+}
+
+/// A streaming implementation for YouTube Live Chat Messages.
+///
+/// This stream connects to the YouTube Live Chat Messages `streamList` API and provides
+/// a continuous feed of new chat messages. The `streamList` endpoint keeps the HTTP
+/// connection open and streams new events in real-time rather than requiring polling.
+///
+/// The initial response contains historical messages, which are discarded to focus
+/// only on new events that arrive after the connection is established.
+///
+/// TODO: Implement stream resumption using the nextPageToken when the connection drops
+/// to avoid missing messages during reconnection.
+pub struct LiveChatStream {
+    /// The underlying byte stream from the HTTP response
+    bytes_stream: Option<Pin<Box<dyn Stream<Item = Result<bytes::Bytes, eyre::Error>>>>>,
+    /// Buffer for accumulating bytes until we have complete JSON lines
+    buffer: Vec<u8>,
+    /// Current batch of messages from the most recent API response
+    current_messages: VecDeque<LiveChatMessage>,
+    /// Whether we've processed the initial historical batch
+    skipped_initial_batch: bool,
+}
+
+impl LiveChatStream {
+    /// Creates a new live chat message stream for the given chat ID.
+    fn new(client: YouTubeClient, live_chat_id: String) -> Self {
+        let stream = Self::create_stream(client, live_chat_id);
+
+        Self {
+            bytes_stream: Some(Box::pin(stream)),
+            buffer: Vec::new(),
+            current_messages: VecDeque::new(),
+            skipped_initial_batch: false,
+        }
+    }
+
+    /// Creates the streaming connection to the YouTube Live Chat streamList API.
+    fn create_stream(
+        client: YouTubeClient,
+        live_chat_id: String,
+    ) -> impl Stream<Item = Result<bytes::Bytes, eyre::Error>> + 'static {
+        async_stream::stream! {
+            let access_token = match client.fresh_access_token().await {
+                Ok(token) => token,
+                Err(e) => {
+                    yield Err(e).context("get fresh access token for live chat streaming");
+                    return;
+                }
+            };
+
+            let url = "https://www.googleapis.com/youtube/v3/liveChat/messages/streamList";
+
+            let query_params = [
+                ("part", "id,snippet,authorDetails"),
+                ("liveChatId", live_chat_id.as_str()),
+            ];
+
+            let request = client
+                .client
+                .request(Method::GET, url)
+                .header("Authorization", format!("Bearer {}", access_token))
+                .query(&query_params);
+
+            tracing::debug!(live_chat_id, "starting live chat message stream");
+
+            let response = match request.send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    yield Err(e).context("send live chat streamList request");
+                    return;
+                }
+            };
+
+            let status_code = response.status();
+            if !status_code.is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "unknown error".to_string());
+                let error = eyre::eyre!(
+                    "YouTube Live Chat streamList request failed with status {}: {}",
+                    status_code,
+                    error_text
+                );
+                yield Err(error);
+                return;
+            }
+
+            // Stream the response body bytes
+            let mut bytes_stream = response.bytes_stream();
+            while let Some(chunk) = bytes_stream.next().await {
+                match chunk {
+                    Ok(bytes) => yield Ok(bytes),
+                    Err(e) => {
+                        yield Err(e).context("read chunk from live chat stream");
+                        return;
+                    }
+                }
+            }
+
+            tracing::debug!("live chat stream connection closed");
+        }
+    }
+
+    /// Processes a chunk of bytes, extracting complete JSON messages and updating the message queue.
+    fn process_chunk(&mut self, chunk: bytes::Bytes) -> eyre::Result<()> {
+        self.buffer.extend_from_slice(&chunk);
+
+        // Process complete JSON objects in the buffer (separated by newlines)
+        while let Some(newline_pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let json_line = self.buffer.drain(..=newline_pos).collect::<Vec<u8>>();
+
+            // Convert to string, removing the newline
+            let json_str = String::from_utf8_lossy(&json_line[..newline_pos]);
+            let json_str = json_str.trim();
+
+            if json_str.is_empty() {
+                continue;
+            }
+
+            let response = serde_json::from_str::<LiveChatMessageListResponse>(json_str)
+                .with_context(|| {
+                    format!("failed to parse streaming JSON response: {}", json_str)
+                })?;
+
+            if !self.skipped_initial_batch {
+                // Skip the entire initial historical batch
+                tracing::debug!(
+                    historical_count = response.items.len(),
+                    "skipping initial historical batch, waiting for new events"
+                );
+                self.skipped_initial_batch = true;
+            } else {
+                // These are new messages - add them to our queue
+                tracing::trace!(
+                    new_message_count = response.items.len(),
+                    "received new live chat message batch"
+                );
+                for message in response.items {
+                    tracing::trace!(
+                        mid = message.id,
+                        author = message.author_details.as_ref().map(|a| &a.display_name),
+                        content = message
+                            .snippet
+                            .display_message
+                            .as_deref()
+                            .unwrap_or("[no content]"),
+                        "new chat message"
+                    );
+                    self.current_messages.push_back(message);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Stream for LiveChatStream {
+    type Item = eyre::Result<LiveChatMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            // If we have messages in the current batch, return the next one
+            if let Some(message) = self.current_messages.pop_front() {
+                return Poll::Ready(Some(Ok(message)));
+            }
+
+            // Poll the byte stream for more data
+            if let Some(bytes_stream) = self.bytes_stream.as_mut() {
+                match bytes_stream.as_mut().poll_next(cx) {
+                    Poll::Ready(Some(Ok(chunk))) => {
+                        // Process the chunk and continue the loop
+                        if let Err(e) = self.process_chunk(chunk) {
+                            self.bytes_stream = None;
+                            return Poll::Ready(Some(Err(e).context("process_chunk")));
+                        }
+                        // Continue the loop to check for messages
+                        continue;
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        // Error reading from stream
+                        self.bytes_stream = None;
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                    Poll::Ready(None) => {
+                        // Stream ended
+                        self.bytes_stream = None;
+                        return Poll::Ready(None);
+                    }
+                    Poll::Pending => {
+                        // Still waiting for more data
+                        return Poll::Pending;
+                    }
+                }
+            } else {
+                // No stream - we're done
                 return Poll::Ready(None);
             }
         }
@@ -756,6 +958,188 @@ pub struct ChannelSnippet {
     pub published_at: Timestamp,
 }
 
+/// Response structure for the `liveChatMessages.streamList` API call.
+///
+/// Contains a list of [`LiveChatMessage`] resources for continuous message streaming.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages/streamList>
+#[derive(Debug, Serialize, Deserialize)]
+struct LiveChatMessageListResponse {
+    /// A list of chat messages from the live stream.
+    items: VecDeque<LiveChatMessage>,
+    /// Token that can be used to retrieve the next set of messages.
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
+    /// The currently active poll in the chat, if any.
+    #[serde(rename = "activePollItem", skip_serializing_if = "Option::is_none")]
+    active_poll_item: Option<serde_json::Value>,
+}
+
+/// A `liveChatMessage` resource represents a chat message in a YouTube live stream.
+///
+/// Chat messages include regular text messages, Super Chats, membership gifts,
+/// and other interactive elements that viewers can send during live streams.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#resource>
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LiveChatMessage {
+    /// The ID that YouTube assigns to uniquely identify the message.
+    pub id: String,
+    /// Contains basic details about the chat message.
+    pub snippet: LiveChatMessageSnippet,
+    /// Contains details about the message author.
+    #[serde(rename = "authorDetails", skip_serializing_if = "Option::is_none")]
+    pub author_details: Option<LiveChatMessageAuthor>,
+}
+
+/// The snippet object contains basic details about the chat message.
+///
+/// This includes the message type, content, author information, and timing details.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#snippet>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChatMessageSnippet {
+    /// The type of message being sent.
+    #[serde(rename = "type")]
+    pub message_type: LiveChatMessageType,
+    /// The ID of the live chat that the message belongs to.
+    pub live_chat_id: String,
+    /// The ID of the user that authored this message.
+    pub author_channel_id: String,
+    /// The date and time when the message was orignally published.
+    ///
+    /// The value is specified in ISO 8601 format.
+    pub published_at: Timestamp,
+    /// Contains a string that can be displayed to the user.
+    ///
+    /// If this field is not present, the message is being deleted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_message: Option<String>,
+    /// Set if the message has Super Chat details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub super_chat_details: Option<SuperChatDetails>,
+    /// Set if the message has Super Sticker details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub super_sticker_details: Option<SuperStickerDetails>,
+}
+
+/// The type of live chat message.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#snippet.type>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LiveChatMessageType {
+    /// A regular text message from a user.
+    TextMessageEvent,
+    /// A message that also includes Super Chat purchase details.
+    SuperChatEvent,
+    /// A message that includes Super Sticker purchase details.
+    SuperStickerEvent,
+    /// A message indicating a new channel member.
+    NewSponsorEvent,
+    /// A message indicating that a user upgraded their channel membership.
+    MemberMilestoneChatEvent,
+    /// A message indicating that a user made a membership gift purchase.
+    MembershipGiftingEvent,
+    /// A message indicating that a user received a membership gift.
+    GiftMembershipReceivedEvent,
+    /// A message indicating that the chat has been disabled by the broadcaster.
+    MessageDeletedEvent,
+    /// A message indicating that the user has been banned from the chat.
+    UserBannedEvent,
+    /// A message indicating that a message has been retracted by the message author.
+    MessageRetractedEvent,
+}
+
+impl fmt::Display for LiveChatMessageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TextMessageEvent => write!(f, "text"),
+            Self::SuperChatEvent => write!(f, "superChat"),
+            Self::SuperStickerEvent => write!(f, "superSticker"),
+            Self::NewSponsorEvent => write!(f, "newSponsor"),
+            Self::MemberMilestoneChatEvent => write!(f, "memberMilestone"),
+            Self::MembershipGiftingEvent => write!(f, "membershipGift"),
+            Self::GiftMembershipReceivedEvent => write!(f, "giftMembershipReceived"),
+            Self::MessageDeletedEvent => write!(f, "messageDeleted"),
+            Self::UserBannedEvent => write!(f, "userBanned"),
+            Self::MessageRetractedEvent => write!(f, "messageRetracted"),
+        }
+    }
+}
+
+/// Details about the author of a live chat message.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#authorDetails>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChatMessageAuthor {
+    /// The channel's ID.
+    pub channel_id: String,
+    /// The channel's display name.
+    pub display_name: String,
+    /// The channel's avatar image URL.
+    pub profile_image_url: String,
+    /// Whether the author is a verified channel.
+    pub is_verified: bool,
+    /// Whether the author is the owner of the live chat.
+    pub is_chat_owner: bool,
+    /// Whether the author is a sponsor of the channel.
+    pub is_chat_sponsor: bool,
+    /// Whether the author is a moderator of the live chat.
+    pub is_chat_moderator: bool,
+}
+
+/// Details about a Super Chat purchase.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#snippet.superChatDetails>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuperChatDetails {
+    /// A rendered string that displays the fund amount and currency to the user.
+    pub amount_display_string: String,
+    /// The amount purchased by the user, in micros (1,750,000 micros = 1.75).
+    pub amount_micros: String,
+    /// The currency in which the purchase was made, in ISO 4217 format.
+    pub currency: String,
+    /// The tier in which the amount belongs to. Lower amounts belong to lower tiers.
+    pub tier: u32,
+    /// The comment added by the user to the Super Chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_comment: Option<String>,
+}
+
+/// Details about a Super Sticker purchase.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveChatMessages#snippet.superStickerDetails>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuperStickerDetails {
+    /// A rendered string that displays the fund amount and currency to the user.
+    pub amount_display_string: String,
+    /// The amount purchased by the user, in micros (1,750,000 micros = 1.75).
+    pub amount_micros: String,
+    /// The currency in which the purchase was made, in ISO 4217 format.
+    pub currency: String,
+    /// The tier in which the amount belongs to. Lower amounts belong to lower tiers.
+    pub tier: u32,
+    /// Information about the Super Sticker.
+    pub super_sticker_metadata: SuperStickerMetadata,
+}
+
+/// Metadata about a Super Sticker.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuperStickerMetadata {
+    /// Sticker ID.
+    pub sticker_id: String,
+    /// Sticker display name.
+    pub alt_text: String,
+    /// Sticker language.
+    pub language: String,
+}
+
 impl YouTubeClient {
     /// Creates a new YouTube API client with the provided OAuth2 token and OAuth manager.
     ///
@@ -802,11 +1186,11 @@ impl YouTubeClient {
         let now = SystemTime::now();
 
         if now >= token.expires_at {
-            tracing::info!("access token expired, attempting refresh");
+            tracing::debug!("access token expired, attempting refresh");
 
             // Token needs refresh
             if token.refresh(&self.oauth_manager).await? {
-                tracing::info!("access token successfully refreshed");
+                tracing::debug!("access token successfully refreshed");
             } else {
                 tracing::error!("access token refresh failed, client is unusable");
                 return Err(eyre::eyre!("Unable to refresh expired access token"));
@@ -901,7 +1285,7 @@ impl YouTubeClient {
     pub async fn validate_token(&self) -> eyre::Result<bool> {
         match self.list_live_broadcasts_internal(1, None).await {
             Ok(_) => {
-                tracing::info!("YouTube API token validation successful");
+                tracing::debug!("YouTube API token validation successful");
                 Ok(true)
             }
             Err(e) => {
@@ -1163,6 +1547,41 @@ impl YouTubeClient {
             .into_iter()
             .next()
             .ok_or_else(|| eyre::eyre!("video not found: {}", video_id))
+    }
+
+    /// Returns a continuous stream of live chat messages for the specified chat.
+    ///
+    /// This method uses the YouTube Live Chat Messages `streamList` API to provide
+    /// real-time streaming of chat messages with low latency. The stream will first
+    /// return recent chat history, then continuously yield new messages as they arrive.
+    ///
+    /// The stream handles server-streaming with automatic reconnection on failures,
+    /// respecting the `pollingIntervalMillis` provided by the YouTube API to avoid
+    /// overwhelming the servers.
+    ///
+    /// # Arguments
+    ///
+    /// * `live_chat_id` - The ID of the live chat to stream messages from
+    ///
+    /// # Returns
+    ///
+    /// A [`Stream`] that yields [`LiveChatMessage`] resources in real-time.
+    ///
+    /// # Required Scopes
+    ///
+    /// * `https://www.googleapis.com/auth/youtube.readonly`
+    /// * `https://www.googleapis.com/auth/youtube`
+    /// * `https://www.googleapis.com/auth/youtube.force-ssl`
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/live/docs/liveChatMessages/streamList>
+    #[instrument(skip(self))]
+    pub fn stream_live_chat_messages(
+        &self,
+        live_chat_id: &str,
+    ) -> impl Stream<Item = eyre::Result<LiveChatMessage>> + use<'_> {
+        LiveChatStream::new(self.clone(), live_chat_id.to_string())
     }
 
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.

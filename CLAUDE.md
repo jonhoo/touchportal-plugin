@@ -13,6 +13,17 @@ While inside the `sdk/` directory:
 cargo test
 ```
 
+#### Snapshot Testing with Insta
+
+The SDK uses [insta](https://docs.rs/insta/) for snapshot testing of JSON serialization. To update snapshots after making changes:
+
+```bash
+cd sdk/
+cargo insta test       # Run tests and generate new snapshots
+```
+
+This will create `.snap.new` files in `snapshots/` for any tests whose snapshot output changed. Review the `.new` files, and if they are correct, remove the `.new` suffix, overwriting the corresponding `.snap` file.
+
 ### Building the plugins
 
 Plugins are built and installed using Python scripts in the `scripts/` directory:

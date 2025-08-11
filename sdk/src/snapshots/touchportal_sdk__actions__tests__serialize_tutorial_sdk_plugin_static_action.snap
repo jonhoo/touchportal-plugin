@@ -1,0 +1,23 @@
+---
+source: sdk/src/actions.rs
+expression: action
+---
+{
+  "id": "tp_pl_action_001",
+  "name": "Execute action",
+  "type": "execute",
+  "execution_cmd": "powershell [console]::beep(200,500)",
+  "data": [],
+  "lines": {
+    "action": [
+      {
+        "language": "default",
+        "data": [
+          {
+            "lineFormat": "Play Beep Sound"
+          }
+        ]
+      }
+    ]
+  }
+}

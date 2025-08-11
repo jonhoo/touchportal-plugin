@@ -3,9 +3,6 @@ use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-#[cfg(test)]
-use pretty_assertions::assert_eq;
-
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
 #[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
@@ -306,87 +303,62 @@ impl Tooltip {
     }
 }
 
-#[test]
-fn serialize_example_setting() {
-    assert_eq!(
-        serde_json::to_value(
-            Setting::builder()
-                .name("Age")
-                .initial("23")
-                .kind(SettingType::Number(
-                    NumberSetting::builder()
-                        .max_length(20)
-                        .is_password(false)
-                        .min_value(0.0)
-                        .max_value(120.0)
-                        .read_only(false)
-                        .build()
-                        .unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "name":"Age",
-          "default":"23",
-          "type":"number",
-          "maxLength":20,
-          "isPassword":false,
-          "minValue":0.,
-          "maxValue":120.,
-          "readOnly":false
-        }}
-    );
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_json_snapshot;
 
-#[test]
-fn serialize_example_setting_with_tooltip() {
-    assert_eq!(
-        serde_json::to_value(
-            Setting::builder()
-                .name("Age")
-                .initial("23")
-                .kind(SettingType::Number(
-                    NumberSetting::builder()
-                        .max_length(20)
-                        .is_password(false)
-                        .min_value(0.0)
-                        .max_value(120.0)
-                        .read_only(false)
-                        .build()
-                        .unwrap()
-                ))
-                .tooltip(
-                    Tooltip::builder()
-                        .title("Toolstip")
-                        .body(
-                            "Learn more about how tooltips work in the Touch Portal API documentation."
-                        )
-                        .doc_url(
-                            "https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
-                        )
-                        .build()
-                        .unwrap()
-                )
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "name":"Age",
-          "default":"23",
-          "type":"number",
-          "maxLength":20,
-          "isPassword":false,
-          "minValue":0.,
-          "maxValue":120.,
-          "readOnly":false,
-          "tooltip":{
-            "title":"Toolstip",
-            "body":"Learn more about how tooltips work in the Touch Portal API documentation.",
-            "docUrl":"https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
-          }
-        }}
-    );
+    #[test]
+    fn serialize_example_setting() {
+        let setting = Setting::builder()
+            .name("Age")
+            .initial("23")
+            .kind(SettingType::Number(
+                NumberSetting::builder()
+                    .max_length(20)
+                    .is_password(false)
+                    .min_value(0.0)
+                    .max_value(120.0)
+                    .read_only(false)
+                    .build()
+                    .unwrap(),
+            ))
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(setting);
+    }
+
+    #[test]
+    fn serialize_example_setting_with_tooltip() {
+        let setting = Setting::builder()
+            .name("Age")
+            .initial("23")
+            .kind(SettingType::Number(
+                NumberSetting::builder()
+                    .max_length(20)
+                    .is_password(false)
+                    .min_value(0.0)
+                    .max_value(120.0)
+                    .read_only(false)
+                    .build()
+                    .unwrap()
+            ))
+            .tooltip(
+                Tooltip::builder()
+                    .title("Toolstip")
+                    .body(
+                        "Learn more about how tooltips work in the Touch Portal API documentation."
+                    )
+                    .doc_url(
+                        "https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
+                    )
+                    .build()
+                    .unwrap()
+            )
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(setting);
+    }
 }

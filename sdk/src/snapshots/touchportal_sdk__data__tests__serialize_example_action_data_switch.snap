@@ -1,0 +1,9 @@
+---
+source: sdk/src/data.rs
+expression: data
+---
+{
+  "id": "actiondata003",
+  "type": "switch",
+  "default": true
+}

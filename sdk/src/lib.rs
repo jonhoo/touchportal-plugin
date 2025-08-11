@@ -3,9 +3,6 @@ use hex_color::HexColor;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-#[cfg(test)]
-use pretty_assertions::assert_eq;
-
 // root should be single folder without spaces in the name
 // entry.tp -- "description file"
 // https://www.touch-portal.com/api/index.php?section=description_file
@@ -665,142 +662,83 @@ mod settings;
 pub use settings::*;
 use std::collections::{HashMap, HashSet};
 
-#[test]
-fn serialize_tutorial_sdk_example() {
-    assert_eq!(
-        serde_json::to_value(
-            PluginDescription::builder()
-                .api(ApiVersion::V4_3)
-                .version(1)
-                .name("Tutorial SDK Plugin")
-                .id("tp_tut_001")
-                .configuration(
-                    PluginConfiguration::builder()
-                        .color_dark(HexColor::from_u24(0xFF0000))
-                        .color_light(HexColor::from_u24(0x00FF00))
-                        .parent_category(PluginCategory::Misc)
-                        .build()
-                        .unwrap()
-                )
-                .plugin_start_cmd("executable.exe -param")
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "api":10,
-          "version":1,
-          "name":"Tutorial SDK Plugin",
-          "id":"tp_tut_001",
-          "configuration" : {
-            "colorDark" : "#FF0000",
-            "colorLight" : "#00FF00",
-            "parentCategory" : "misc"
-          },
-          "plugin_start_cmd":"executable.exe -param",
-          "categories": [ ],
-          "settings": [ ],
-        }}
-    );
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_json_snapshot;
 
-#[test]
-fn serialize_tutorial_sdk_category_example() {
-    assert_eq!(
-        serde_json::to_value(
-            Category::builder()
-                .id("tp_tut_001_cat_01")
-                .name("Tools")
-                .imagepath("%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png")
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"tp_tut_001_cat_01",
-          "name":"Tools",
-          "imagepath":"%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png",
-          "actions": [ ],
-          "events": [ ],
-          "connectors": [ ],
-          "states": [ ]
-        } }
-    );
-}
+    #[test]
+    fn serialize_tutorial_sdk_example() {
+        let plugin = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Tutorial SDK Plugin")
+            .id("tp_tut_001")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0xFF0000))
+                    .color_light(HexColor::from_u24(0x00FF00))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("executable.exe -param")
+            .build()
+            .unwrap();
 
-#[test]
-fn serialize_tutorial_sdk_plugin_with_category_example() {
-    assert_eq!(
-        serde_json::to_value(
-            PluginDescription::builder()
-                .api(ApiVersion::V4_3)
-                .version(1)
-                .name("Tutorial SDK Plugin")
-                .id("tp_tut_001")
-                .configuration(
-                    PluginConfiguration::builder()
-                        .color_dark(HexColor::from_u24(0xFF0000))
-                        .color_light(HexColor::from_u24(0x00FF00))
-                        .parent_category(PluginCategory::Misc)
-                        .build()
-                        .unwrap()
-                )
-                .plugin_start_cmd("executable.exe -param")
-                .category(
-                    Category::builder()
-                        .id("tp_tut_001_cat_01")
-                        .name("Tools")
-                        .imagepath("%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png")
-                        .event(
-                            Event::builder()
-                                .id("event002")
-                                .name("On breakfast eating")
-                                .format("When we eat $val as breakfast")
-                                .value(EventValueType::Text(
-                                    EventTextConfiguration::builder().build().unwrap()
-                                ))
-                                .build()
-                                .unwrap()
-                        )
-                        .build()
-                        .unwrap()
-                )
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "api":10,
-          "version":1,
-          "name":"Tutorial SDK Plugin",
-          "id":"tp_tut_001",
-          "configuration" : {
-            "colorDark" : "#FF0000",
-            "colorLight" : "#00FF00",
-            "parentCategory" : "misc"
-          },
-          "plugin_start_cmd":"executable.exe -param",
-          "categories": [
-            {
-              "id":"tp_tut_001_cat_01",
-              "name":"Tools",
-              "imagepath":"%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png",
-              "actions": [ ],
-              "events": [
-                {
-                  "id":"event002",
-                  "name":"On breakfast eating",
-                  "format":"When we eat $val as breakfast",
-                  "type":"communicate",
-                  "valueType":"text",
-                  "valueStateId":""
-                }
-              ],
-              "connectors": [ ],
-              "states": [ ],
-            }
-          ],
-          "settings": [ ],
-        } }
-    );
+        assert_json_snapshot!(plugin);
+    }
+
+    #[test]
+    fn serialize_tutorial_sdk_category_example() {
+        let category = Category::builder()
+            .id("tp_tut_001_cat_01")
+            .name("Tools")
+            .imagepath("%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png")
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(category);
+    }
+
+    #[test]
+    fn serialize_tutorial_sdk_plugin_with_category_example() {
+        let plugin = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Tutorial SDK Plugin")
+            .id("tp_tut_001")
+            .configuration(
+                PluginConfiguration::builder()
+                    .color_dark(HexColor::from_u24(0xFF0000))
+                    .color_light(HexColor::from_u24(0x00FF00))
+                    .parent_category(PluginCategory::Misc)
+                    .build()
+                    .unwrap(),
+            )
+            .plugin_start_cmd("executable.exe -param")
+            .category(
+                Category::builder()
+                    .id("tp_tut_001_cat_01")
+                    .name("Tools")
+                    .imagepath("%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png")
+                    .event(
+                        Event::builder()
+                            .id("event002")
+                            .name("On breakfast eating")
+                            .format("When we eat $val as breakfast")
+                            .value(EventValueType::Text(
+                                EventTextConfiguration::builder().build().unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(plugin);
+    }
 }

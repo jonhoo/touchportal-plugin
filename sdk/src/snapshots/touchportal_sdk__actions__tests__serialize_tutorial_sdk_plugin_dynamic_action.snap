@@ -1,0 +1,28 @@
+---
+source: sdk/src/actions.rs
+expression: action
+---
+{
+  "id": "tp_pl_action_002",
+  "name": "Execute Dynamic Action",
+  "type": "communicate",
+  "data": [
+    {
+      "id": "tp_pl_002_text",
+      "type": "text",
+      "default": ""
+    }
+  ],
+  "lines": {
+    "action": [
+      {
+        "language": "default",
+        "data": [
+          {
+            "lineFormat": "Do something with value {$tp_pl_002_text$}"
+          }
+        ]
+      }
+    ]
+  }
+}

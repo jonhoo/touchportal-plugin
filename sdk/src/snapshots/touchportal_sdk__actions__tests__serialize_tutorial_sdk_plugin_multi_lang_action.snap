@@ -1,0 +1,43 @@
+---
+source: sdk/src/actions.rs
+expression: action
+---
+{
+  "id": "tp_pl_action_002",
+  "name": "Do something",
+  "name_nl": "Doe iets",
+  "type": "communicate",
+  "data": [
+    {
+      "id": "tp_pl_002_text",
+      "type": "text",
+      "default": ""
+    }
+  ],
+  "lines": {
+    "action": [
+      {
+        "language": "default",
+        "data": [
+          {
+            "lineFormat": "This actions shows multiple lines;"
+          },
+          {
+            "lineFormat": "Do something with value {$tp_pl_002_text$}"
+          }
+        ]
+      },
+      {
+        "language": "nl",
+        "data": [
+          {
+            "lineFormat": "Deze actie bevat meerdere regels;"
+          },
+          {
+            "lineFormat": "Doe iets met waarde {$tp_pl_002_text$}"
+          }
+        ]
+      }
+    ]
+  }
+}

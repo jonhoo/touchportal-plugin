@@ -1,0 +1,9 @@
+---
+source: sdk/src/data.rs
+expression: data
+---
+{
+  "id": "actiondata001",
+  "type": "text",
+  "default": "any text"
+}

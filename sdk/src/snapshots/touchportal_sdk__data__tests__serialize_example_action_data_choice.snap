@@ -1,0 +1,15 @@
+---
+source: sdk/src/data.rs
+expression: data
+---
+{
+  "id": "second",
+  "type": "choice",
+  "default": "200",
+  "valueChoices": [
+    "200",
+    "400",
+    "600",
+    "800"
+  ]
+}

@@ -2,9 +2,6 @@ use derive_builder::Builder;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-use pretty_assertions::assert_eq;
-
 /// In Touch Portal the user can use States which can be used by IF statement and with Events for
 /// example but can also be used in button texts or most actions.
 ///
@@ -118,40 +115,30 @@ impl TextState {
     }
 }
 
-#[test]
-fn serialize_example_state() {
-    assert_eq!(
-        serde_json::to_value(
-            State::builder()
-                .id("tp_sid_fruit")
-                .description("Fruit Kind description")
-                .initial("Apple")
-                .parent_group("Fruits")
-                .kind(StateType::Choice(
-                    ChoiceState::builder()
-                        .choice("Apple")
-                        .choice("Pears")
-                        .choice("Grapes")
-                        .choice("Bananas")
-                        .build()
-                        .unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"tp_sid_fruit",
-          "type":"choice",
-          "desc":"Fruit Kind description",
-          "default":"Apple",
-          "parentGroup":"Fruits",
-          "valueChoices": [
-            "Apple",
-            "Pears",
-            "Grapes",
-            "Bananas"
-          ]
-        }}
-    );
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_json_snapshot;
+
+    #[test]
+    fn serialize_example_state() {
+        let state = State::builder()
+            .id("tp_sid_fruit")
+            .description("Fruit Kind description")
+            .initial("Apple")
+            .parent_group("Fruits")
+            .kind(StateType::Choice(
+                ChoiceState::builder()
+                    .choice("Apple")
+                    .choice("Pears")
+                    .choice("Grapes")
+                    .choice("Bananas")
+                    .build()
+                    .unwrap(),
+            ))
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(state);
+    }
 }

@@ -1,0 +1,13 @@
+---
+source: sdk/src/lib.rs
+expression: category
+---
+{
+  "id": "tp_tut_001_cat_01",
+  "name": "Tools",
+  "imagepath": "%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png",
+  "actions": [],
+  "events": [],
+  "connectors": [],
+  "states": []
+}

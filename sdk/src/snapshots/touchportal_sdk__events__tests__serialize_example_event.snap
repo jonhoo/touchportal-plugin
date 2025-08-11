@@ -1,0 +1,18 @@
+---
+source: sdk/src/events.rs
+expression: event
+---
+{
+  "id": "event002",
+  "name": "On breakfast eating",
+  "format": "When we eat $val as breakfast",
+  "type": "communicate",
+  "valueType": "choice",
+  "valueChoices": [
+    "Apple",
+    "Pears",
+    "Grapes",
+    "Bananas"
+  ],
+  "valueStateId": "fruit"
+}

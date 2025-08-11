@@ -547,228 +547,133 @@ impl Suggestions {
 mod tests {
     use super::*;
     use crate::{Data, DataFormat, TextData};
-    use pretty_assertions::assert_eq;
+    use insta::assert_json_snapshot;
 
     #[test]
     fn serialize_tutorial_sdk_plugin_static_action() {
-        assert_eq!(
-            serde_json::to_value(
-                Action::builder()
-                    .id("tp_pl_action_001")
-                    .name("Execute action")
-                    .implementation(ActionImplementation::Static(
-                        StaticAction::builder()
-                            .execution_cmd("powershell [console]::beep(200,500)")
-                            .build()
-                            .unwrap()
-                    ))
-                    .lines(
-                        Lines::builder()
-                            .action(
-                                LingualLine::builder()
-                                    .datum(
-                                        Line::builder()
-                                            .line_format("Play Beep Sound")
-                                            .build()
-                                            .unwrap()
-                                    )
+        let action = Action::builder()
+            .id("tp_pl_action_001")
+            .name("Execute action")
+            .implementation(ActionImplementation::Static(
+                StaticAction::builder()
+                    .execution_cmd("powershell [console]::beep(200,500)")
+                    .build()
+                    .unwrap(),
+            ))
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("Play Beep Sound")
                                     .build()
-                                    .unwrap()
+                                    .unwrap(),
                             )
                             .build()
-                            .unwrap()
+                            .unwrap(),
                     )
                     .build()
-                    .unwrap()
+                    .unwrap(),
             )
-            .unwrap(),
-            serde_json::json! {{
-              "id":"tp_pl_action_001",
-              "name":"Execute action",
-              "type":"execute",
-              "lines": {
-                "action": [
-                  {
-                    "language": "default",
-                    "data" : [
-                      {
-                        "lineFormat":"Play Beep Sound"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "execution_cmd":"powershell [console]::beep(200,500)",
-              "data":[ ]
-            } }
-        );
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(action);
     }
 
     #[test]
     fn serialize_tutorial_sdk_plugin_dynamic_action() {
-        assert_eq!(
-            serde_json::to_value(
-                Action::builder()
-                    .id("tp_pl_action_002")
-                    .name("Execute Dynamic Action")
-                    .implementation(ActionImplementation::Dynamic)
-                    .datum(
-                        Data::builder()
-                            .id("tp_pl_002_text")
-                            .format(DataFormat::Text(TextData::builder().build().unwrap()))
-                            .build()
-                            .unwrap()
-                    )
-                    .lines(
-                        Lines::builder()
-                            .action(
-                                LingualLine::builder()
-                                    .datum(
-                                        Line::builder()
-                                            .line_format(
-                                                "Do something with value {$tp_pl_002_text$}"
-                                            )
-                                            .build()
-                                            .unwrap()
-                                    )
+        let action = Action::builder()
+            .id("tp_pl_action_002")
+            .name("Execute Dynamic Action")
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("tp_pl_002_text")
+                    .format(DataFormat::Text(TextData::builder().build().unwrap()))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("Do something with value {$tp_pl_002_text$}")
                                     .build()
-                                    .unwrap()
+                                    .unwrap(),
                             )
                             .build()
-                            .unwrap()
+                            .unwrap(),
                     )
                     .build()
-                    .unwrap()
+                    .unwrap(),
             )
-            .unwrap(),
-            serde_json::json! {{
-              "id": "tp_pl_action_002",
-              "name": "Execute Dynamic Action",
-              "lines": {
-                "action": [
-                  {
-                    "language": "default",
-                    "data" : [
-                      {
-                        "lineFormat":"Do something with value {$tp_pl_002_text$}"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "type": "communicate",
-              "data": [
-                {
-                  "type": "text",
-                  "default": "",
-                  "id": "tp_pl_002_text"
-                }
-              ]
-            } }
-        );
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(action);
     }
 
     #[test]
     fn serialize_tutorial_sdk_plugin_multi_lang_action() {
-        assert_eq!(
-            serde_json::to_value(
-                Action::builder()
-                    .id("tp_pl_action_002")
-                    .name("Do something")
-                    .translated_names(I18nNames::builder().dutch("Doe iets").build().unwrap())
-                    .implementation(ActionImplementation::Dynamic)
-                    .datum(
-                        Data::builder()
-                            .id("tp_pl_002_text")
-                            .format(DataFormat::Text(TextData::builder().build().unwrap()))
+        let action = Action::builder()
+            .id("tp_pl_action_002")
+            .name("Do something")
+            .translated_names(I18nNames::builder().dutch("Doe iets").build().unwrap())
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("tp_pl_002_text")
+                    .format(DataFormat::Text(TextData::builder().build().unwrap()))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("This actions shows multiple lines;")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .datum(
+                                Line::builder()
+                                    .line_format("Do something with value {$tp_pl_002_text$}")
+                                    .build()
+                                    .unwrap(),
+                            )
                             .build()
-                            .unwrap()
+                            .unwrap(),
                     )
-                    .lines(
-                        Lines::builder()
-                            .action(
-                                LingualLine::builder()
-                                    .datum(
-                                        Line::builder()
-                                            .line_format("This actions shows multiple lines;")
-                                            .build()
-                                            .unwrap()
-                                    )
-                                    .datum(
-                                        Line::builder()
-                                            .line_format(
-                                                "Do something with value {$tp_pl_002_text$}"
-                                            )
-                                            .build()
-                                            .unwrap()
-                                    )
+                    .action(
+                        LingualLine::builder()
+                            .language("nl")
+                            .datum(
+                                Line::builder()
+                                    .line_format("Deze actie bevat meerdere regels;")
                                     .build()
-                                    .unwrap()
+                                    .unwrap(),
                             )
-                            .action(
-                                LingualLine::builder()
-                                    .language("nl")
-                                    .datum(
-                                        Line::builder()
-                                            .line_format("Deze actie bevat meerdere regels;")
-                                            .build()
-                                            .unwrap()
-                                    )
-                                    .datum(
-                                        Line::builder()
-                                            .line_format("Doe iets met waarde {$tp_pl_002_text$}")
-                                            .build()
-                                            .unwrap()
-                                    )
+                            .datum(
+                                Line::builder()
+                                    .line_format("Doe iets met waarde {$tp_pl_002_text$}")
                                     .build()
-                                    .unwrap()
+                                    .unwrap(),
                             )
                             .build()
-                            .unwrap()
+                            .unwrap(),
                     )
                     .build()
-                    .unwrap()
+                    .unwrap(),
             )
-            .unwrap(),
-            serde_json::json! {{
-              "id": "tp_pl_action_002",
-              "name": "Do something",
-              "name_nl": "Doe iets",
-              "lines": {
-                "action": [
-                  {
-                    "language": "default",
-                    "data" : [
-                      {
-                        "lineFormat":"This actions shows multiple lines;",
-                      },
-                      {
-                        "lineFormat":"Do something with value {$tp_pl_002_text$}"
-                      }
-                    ]
-                  },
-                  {
-                    "language": "nl",
-                    "data" : [
-                      {
-                        "lineFormat":"Deze actie bevat meerdere regels;",
-                      },
-                      {
-                        "lineFormat":"Doe iets met waarde {$tp_pl_002_text$}"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "type": "communicate",
-              "data": [
-                {
-                  "type": "text",
-                  "default": "",
-                  "id": "tp_pl_002_text"
-                }
-              ]
-            }}
-        );
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(action);
     }
 }

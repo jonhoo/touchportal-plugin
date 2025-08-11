@@ -1,0 +1,18 @@
+---
+source: sdk/src/lib.rs
+expression: plugin
+---
+{
+  "api": 10,
+  "version": 1,
+  "name": "Tutorial SDK Plugin",
+  "id": "tp_tut_001",
+  "configuration": {
+    "colorDark": "#FF0000",
+    "colorLight": "#00FF00",
+    "parentCategory": "misc"
+  },
+  "plugin_start_cmd": "executable.exe -param",
+  "categories": [],
+  "settings": []
+}

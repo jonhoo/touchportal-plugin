@@ -1,0 +1,17 @@
+---
+source: sdk/src/states.rs
+expression: state
+---
+{
+  "id": "tp_sid_fruit",
+  "desc": "Fruit Kind description",
+  "default": "Apple",
+  "type": "choice",
+  "valueChoices": [
+    "Apple",
+    "Pears",
+    "Grapes",
+    "Bananas"
+  ],
+  "parentGroup": "Fruits"
+}

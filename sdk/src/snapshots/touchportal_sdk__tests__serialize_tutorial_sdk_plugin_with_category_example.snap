@@ -1,0 +1,37 @@
+---
+source: sdk/src/lib.rs
+expression: plugin
+---
+{
+  "api": 10,
+  "version": 1,
+  "name": "Tutorial SDK Plugin",
+  "id": "tp_tut_001",
+  "configuration": {
+    "colorDark": "#FF0000",
+    "colorLight": "#00FF00",
+    "parentCategory": "misc"
+  },
+  "plugin_start_cmd": "executable.exe -param",
+  "categories": [
+    {
+      "id": "tp_tut_001_cat_01",
+      "name": "Tools",
+      "imagepath": "%TP_PLUGIN_FOLDER%Tutorial SDK Plugin/images/tools.png",
+      "actions": [],
+      "events": [
+        {
+          "id": "event002",
+          "name": "On breakfast eating",
+          "format": "When we eat $val as breakfast",
+          "type": "communicate",
+          "valueType": "text",
+          "valueStateId": ""
+        }
+      ],
+      "connectors": [],
+      "states": []
+    }
+  ],
+  "settings": []
+}

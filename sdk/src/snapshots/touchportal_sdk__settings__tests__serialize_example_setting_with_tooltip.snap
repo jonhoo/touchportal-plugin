@@ -1,0 +1,19 @@
+---
+source: sdk/src/settings.rs
+expression: setting
+---
+{
+  "name": "Age",
+  "default": "23",
+  "type": "number",
+  "maxLength": 20,
+  "isPassword": false,
+  "readOnly": false,
+  "minValue": 0.0,
+  "maxValue": 120.0,
+  "tooltip": {
+    "title": "Toolstip",
+    "body": "Learn more about how tooltips work in the Touch Portal API documentation.",
+    "docUrl": "https://www.touch-portal.com/api/v2/index.php?section=description_file_settings"
+  }
+}

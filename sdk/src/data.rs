@@ -3,9 +3,6 @@ use hex_color::HexColor;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-use pretty_assertions::assert_eq;
-
 /// As a plug-in developer you can augment your actions with additional data that the user has to
 /// fill in.
 ///
@@ -312,106 +309,72 @@ impl BoundData {
     }
 }
 
-#[test]
-fn serialize_example_action_data_text() {
-    assert_eq!(
-        serde_json::to_value(
-            Data::builder()
-                .id("actiondata001")
-                .format(DataFormat::Text(
-                    TextData::builder().initial("any text").build().unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"actiondata001",
-          "type":"text",
-          "default":"any text"
-        }}
-    );
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_json_snapshot;
 
-#[test]
-fn serialize_example_action_data_number() {
-    assert_eq!(
-        serde_json::to_value(
-            Data::builder()
-                .id("first")
-                .format(DataFormat::Number(
-                    NumberData::builder()
-                        .initial(200.)
-                        .min_value(100.)
-                        .max_value(350.)
-                        .build()
-                        .unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! { {
-          "id":"first",
-          "type":"number",
-          "default":200.0,
-          "minValue":100.0,
-          "maxValue":350.0,
-        }}
-    );
-}
+    #[test]
+    fn serialize_example_action_data_text() {
+        let data = Data::builder()
+            .id("actiondata001")
+            .format(DataFormat::Text(
+                TextData::builder().initial("any text").build().unwrap(),
+            ))
+            .build()
+            .unwrap();
 
-#[test]
-fn serialize_example_action_data_choice() {
-    assert_eq!(
-        serde_json::to_value(
-            Data::builder()
-                .id("second")
-                .format(DataFormat::Choice(
-                    ChoiceData::builder()
-                        .initial("200")
-                        .choice("200")
-                        .choice("400")
-                        .choice("600")
-                        .choice("800")
-                        .build()
-                        .unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"second",
-          "type":"choice",
-          "default":"200",
-          "valueChoices": [
-              "200",
-              "400",
-              "600",
-              "800"
-          ]
-        }}
-    );
-}
+        assert_json_snapshot!(data);
+    }
 
-#[test]
-fn serialize_example_action_data_switch() {
-    assert_eq!(
-        serde_json::to_value(
-            Data::builder()
-                .id("actiondata003")
-                .format(DataFormat::Switch(
-                    SwitchData::builder().initial(true).build().unwrap()
-                ))
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"actiondata003",
-          "type":"switch",
-          "default":true
-        }}
-    );
+    #[test]
+    fn serialize_example_action_data_number() {
+        let data = Data::builder()
+            .id("first")
+            .format(DataFormat::Number(
+                NumberData::builder()
+                    .initial(200.)
+                    .min_value(100.)
+                    .max_value(350.)
+                    .build()
+                    .unwrap(),
+            ))
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(data);
+    }
+
+    #[test]
+    fn serialize_example_action_data_choice() {
+        let data = Data::builder()
+            .id("second")
+            .format(DataFormat::Choice(
+                ChoiceData::builder()
+                    .initial("200")
+                    .choice("200")
+                    .choice("400")
+                    .choice("600")
+                    .choice("800")
+                    .build()
+                    .unwrap(),
+            ))
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(data);
+    }
+
+    #[test]
+    fn serialize_example_action_data_switch() {
+        let data = Data::builder()
+            .id("actiondata003")
+            .format(DataFormat::Switch(
+                SwitchData::builder().initial(true).build().unwrap(),
+            ))
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(data);
+    }
 }

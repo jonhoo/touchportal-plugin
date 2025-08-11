@@ -3,9 +3,6 @@ use derive_builder::Builder;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-use pretty_assertions::assert_eq;
-
 /// In Touch Portal there are events which will be triggered when a certain state changes.
 ///
 /// You can create events for the plugin as well. These events can be triggered when a linked state
@@ -207,41 +204,30 @@ impl LocalState {
     }
 }
 
-#[test]
-fn serialize_example_event() {
-    assert_eq!(
-        serde_json::to_value(
-            Event::builder()
-                .id("event002")
-                .name("On breakfast eating")
-                .format("When we eat $val as breakfast")
-                .value(EventValueType::Choice(
-                    EventChoiceValue::builder()
-                        .choice("Apple")
-                        .choice("Pears")
-                        .choice("Grapes")
-                        .choice("Bananas")
-                        .build()
-                        .unwrap()
-                ))
-                .value_state_id("fruit")
-                .build()
-                .unwrap()
-        )
-        .unwrap(),
-        serde_json::json! {{
-          "id":"event002",
-          "name":"On breakfast eating",
-          "format":"When we eat $val as breakfast",
-          "type":"communicate",
-          "valueType":"choice",
-          "valueChoices": [
-            "Apple",
-            "Pears",
-            "Grapes",
-            "Bananas",
-          ],
-          "valueStateId":"fruit"
-        }}
-    );
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_json_snapshot;
+
+    #[test]
+    fn serialize_example_event() {
+        let event = Event::builder()
+            .id("event002")
+            .name("On breakfast eating")
+            .format("When we eat $val as breakfast")
+            .value(EventValueType::Choice(
+                EventChoiceValue::builder()
+                    .choice("Apple")
+                    .choice("Pears")
+                    .choice("Grapes")
+                    .choice("Bananas")
+                    .build()
+                    .unwrap(),
+            ))
+            .value_state_id("fruit")
+            .build()
+            .unwrap();
+
+        assert_json_snapshot!(event);
+    }
 }

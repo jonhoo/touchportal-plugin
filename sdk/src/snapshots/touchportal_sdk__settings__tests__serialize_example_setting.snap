@@ -1,0 +1,14 @@
+---
+source: sdk/src/settings.rs
+expression: setting
+---
+{
+  "name": "Age",
+  "default": "23",
+  "type": "number",
+  "maxLength": 20,
+  "isPassword": false,
+  "readOnly": false,
+  "minValue": 0.0,
+  "maxValue": 120.0
+}

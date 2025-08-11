@@ -641,6 +641,64 @@ pub struct LiveStreamStatus {
     pub stream_status: StreamStatus,
 }
 
+/// Response structure for the `videos.list` API call.
+///
+/// Contains a list of [`Video`] resources that match the request criteria,
+/// along with pagination information in [`PageInfo`].
+///
+/// See: <https://developers.google.com/youtube/v3/docs/videos/list>
+#[derive(Debug, Serialize, Deserialize)]
+struct VideoListResponse {
+    /// Identifies the API resource's type.
+    ///
+    /// The value will be `youtube#videoListResponse`.
+    kind: String,
+    /// A list of videos that match the request criteria.
+    items: VecDeque<Video>,
+    #[serde(rename = "pageInfo")]
+    page_info: PageInfo,
+    /// Token that can be used as the value of the pageToken parameter to retrieve the next page in the result set.
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
+}
+
+/// A `video` resource represents a YouTube video.
+///
+/// Contains statistics about the video.
+///
+/// See: <https://developers.google.com/youtube/v3/docs/videos#resource>
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Video {
+    /// The ID that YouTube uses to uniquely identify the video.
+    pub id: String,
+    /// Contains statistics about the video.
+    pub statistics: VideoStatistics,
+}
+
+/// Statistics about the video.
+///
+/// See: <https://developers.google.com/youtube/v3/docs/videos#statistics>
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VideoStatistics {
+    /// The number of times the video has been viewed.
+    #[serde(rename = "viewCount")]
+    pub view_count: Option<String>,
+    /// The number of users who have indicated that they liked the video.
+    #[serde(rename = "likeCount")]
+    pub like_count: Option<String>,
+    /// The number of users who have indicated that they disliked the video.
+    /// Note: This is only visible to the video owner.
+    #[serde(rename = "dislikeCount")]
+    pub dislike_count: Option<String>,
+    /// The number of users who currently have the video marked as a favorite video.
+    /// Note: This property is deprecated and always returns 0.
+    #[serde(rename = "favoriteCount")]
+    pub favorite_count: Option<String>,
+    /// The number of comments for the video.
+    #[serde(rename = "commentCount")]
+    pub comment_count: Option<String>,
+}
+
 /// Response structure for the `channels.list` API call.
 ///
 /// Contains a list of [`Channel`] resources that match the request criteria,
@@ -1057,6 +1115,40 @@ impl YouTubeClient {
         })
     }
 
+    /// Gets statistics for a single YouTube video by its ID.
+    ///
+    /// Uses the `videos.list` API to fetch statistics for the specified video.
+    /// Returns view count, like count, comment count, and other engagement metrics.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The YouTube video ID to get statistics for
+    ///
+    /// # Returns
+    ///
+    /// A [`Video`] resource containing the video's statistics, or an error if the video
+    /// is not found or not accessible.
+    ///
+    /// # Required Scopes
+    ///
+    /// * `https://www.googleapis.com/auth/youtube.readonly`
+    /// * `https://www.googleapis.com/auth/youtube`
+    /// * `https://www.googleapis.com/auth/youtube.force-ssl`
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/docs/videos/list>
+    #[instrument(skip(self), ret)]
+    pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
+        let response = self.get_video_statistics_internal(video_id).await?;
+
+        response
+            .items
+            .into_iter()
+            .next()
+            .ok_or_else(|| eyre::eyre!("video not found: {}", video_id))
+    }
+
     /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
     ///
     /// This method handles the actual HTTP request to the YouTube API, including
@@ -1217,5 +1309,46 @@ impl YouTubeClient {
         );
 
         Ok(channels)
+    }
+
+    /// Internal method to call the `videos.list` API for a specific video.
+    ///
+    /// This method handles the actual HTTP request to the YouTube API, including
+    /// authentication headers and query parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `video_id` - The video ID to get statistics for
+    ///
+    /// # Returns
+    ///
+    /// A [`VideoListResponse`] containing the API response data.
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/docs/videos/list>
+    async fn get_video_statistics_internal(
+        &self,
+        video_id: &str,
+    ) -> eyre::Result<VideoListResponse> {
+        let url = "https://www.googleapis.com/youtube/v3/videos";
+        let query_params = [("part", "statistics"), ("id", video_id)];
+
+        let response = self
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
+
+        let videos: VideoListResponse = response
+            .json()
+            .await
+            .context("parse YouTube videos API response as JSON")?;
+
+        tracing::debug!(
+            video_id,
+            returned_items = videos.items.len(),
+            "fetched video statistics"
+        );
+
+        Ok(videos)
     }
 }

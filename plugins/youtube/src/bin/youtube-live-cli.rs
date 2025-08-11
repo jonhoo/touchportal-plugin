@@ -49,6 +49,26 @@ async fn main() -> eyre::Result<()> {
         }
     }
 
+    // Demo video statistics API
+    if let Some((_, Channel { yt, .. })) = client_by_channel.iter().next() {
+        eprintln!("==> Testing video statistics API");
+        match yt.get_video_statistics("dQw4w9WgXcQ").await {
+            Ok(video) => {
+                let stats = &video.statistics;
+                eprintln!("Video {} statistics:", video.id);
+                eprintln!("  Views: {}", stats.view_count.as_deref().unwrap_or("N/A"));
+                eprintln!("  Likes: {}", stats.like_count.as_deref().unwrap_or("N/A"));
+                eprintln!(
+                    "  Comments: {}",
+                    stats.comment_count.as_deref().unwrap_or("N/A")
+                );
+            }
+            Err(e) => {
+                eprintln!("Failed to get video statistics: {}", e);
+            }
+        }
+    }
+
     // Save refreshed tokens to file
     let json = serde_json::to_string(&refreshed_tokens).unwrap();
     tokio::fs::write("tokens.json", &json).await.unwrap();

@@ -7,12 +7,14 @@ This directory contains actual, real TouchPortal plugins:
 
 ## Packaging and installing plugins
 
-To install a plugin, cd into the plugin's directory and run
+To package and install a plugin, cd into the plugin's directory and run:
 
 ```bash
-./package.sh
+# Package the plugin into a .tpp file for TouchPortal (safe for automation)
+python3 ../../scripts/package.py
+
+# Install the plugin to TouchPortal (DO NOT run automatically - modifies user system)
+python3 ../../scripts/install.py
 ```
 
-This will build the plugin, construct a `.tpp` file in the current
-directory in case you want to install it elsewhere, and also install the
-plugin to `~/.config/TouchPortal/plugins/`.
+The packaging script includes smart rebuild detection and only rebuilds when source files have changed. The `.tpp` file will be created in the plugin's directory and can be installed elsewhere if needed.

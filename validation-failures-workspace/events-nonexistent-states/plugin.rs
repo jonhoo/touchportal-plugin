@@ -38,7 +38,9 @@ pub fn plugin() -> PluginDescription {
                         .id("test_event")
                         .name("Test Event")
                         .format("Test event triggered")
-                        .value(EventValueType::Text(EventTextConfiguration::builder().build().unwrap()))
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
                         .value_state_id("nonexistent_state") // References state that doesn't exist
                         .build()
                         .unwrap(),

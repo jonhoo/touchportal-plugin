@@ -33,7 +33,8 @@ pub fn plugin() -> PluginDescription {
                             // Using newer data types with old API version
                             Data::builder()
                                 .id("bound_data")
-                                .format(DataFormat::LowerBound( // LowerBound requires API v10+
+                                .format(DataFormat::LowerBound(
+                                    // LowerBound requires API v10+
                                     BoundData::builder()
                                         .initial(50)
                                         .min_value(0)

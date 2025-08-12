@@ -27,7 +27,11 @@ impl PluginCallbacks for Plugin {
     ) -> eyre::Result<()> {
         tracing::info!(
             "Processing comprehensive action with mode: {:?} - text: '{}', number: {}, switch: {}, choice: {:?}",
-            mode, text_field, number_field, switch_field, choice_field
+            mode,
+            text_field,
+            number_field,
+            switch_field,
+            choice_field
         );
 
         // Record this action call for mock verification (excluding choice field for now)

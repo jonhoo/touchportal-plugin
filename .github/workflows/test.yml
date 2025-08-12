@@ -207,6 +207,8 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
           env_vars: OS,RUST
+          files: ./lcov.info
+          disable_search: true
   custom-tests:
     # Run custom test scripts for validation failures and feature tests
     runs-on: ubuntu-latest

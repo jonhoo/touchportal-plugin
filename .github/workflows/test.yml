@@ -166,16 +166,13 @@ jobs:
         run: cd validation-failures-workspace && python3 validation_coverage.py
       - name: Merge coverage reports
         run: |
-          # Install lcov for merging coverage reports
-          sudo apt-get update && sudo apt-get install -y lcov
-          
           # Create list of coverage files
-          COVERAGE_FILES="sdk-lcov.info"
+          COVERAGE_FILES=("sdk-lcov.info")
           
           # Add feature test coverage files if they exist
           if ls feature-tests-workspace/coverage-*.lcov 1> /dev/null 2>&1; then
             for file in feature-tests-workspace/coverage-*.lcov; do
-              COVERAGE_FILES="$COVERAGE_FILES $file"
+              COVERAGE_FILES+=("$file")
             done
           else
             # If feature test coverage was supposed to run but no files exist, this is an error
@@ -187,7 +184,7 @@ jobs:
           # Add validation test coverage files if they exist
           if ls validation-failures-workspace/validation-*.lcov 1> /dev/null 2>&1; then
             for file in validation-failures-workspace/validation-*.lcov; do
-              COVERAGE_FILES="$COVERAGE_FILES $file"
+              COVERAGE_FILES+=("$file")
             done
           else
             # If validation coverage was supposed to run but no files exist, this is an error
@@ -196,14 +193,7 @@ jobs:
             exit 1
           fi
           
-          # Merge all coverage files
-          if [ "$COVERAGE_FILES" = "sdk-lcov.info" ]; then
-            # Only SDK coverage, just copy it
-            cp sdk-lcov.info lcov.info
-          else
-            # Merge multiple coverage files
-            lcov $(for file in $COVERAGE_FILES; do echo "-a $file"; done) -o lcov.info
-          fi
+          IFS="," echo "COVERAGE_FILES={${COVERAGE_FILES[*]}}" >> "$GITHUB_ENV"
       - name: Upload merged coverage report
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # tag=v4.4.3
         with:
@@ -218,7 +208,7 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
           env_vars: OS,RUST
-          files: ./lcov.info
+          files: "$COVERAGE_FILES"
           disable_search: true
   custom-tests:
     # Run custom test scripts for validation failures and feature tests

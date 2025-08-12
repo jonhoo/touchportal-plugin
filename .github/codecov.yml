@@ -1,4 +1,9 @@
 # ref: https://docs.codecov.com/docs/codecovyml-reference
+codecov:
+  # Strip GitHub Actions workspace prefix from coverage file paths
+  fixes:
+    - "/home/runner/work/touchportal-plugin/touchportal-plugin/::"
+
 coverage:
   # Hold ourselves to a high bar
   range: 85..100

@@ -1,14 +1,13 @@
-use crate::youtube_client::TimeBoundAccessToken;
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
-use touchportal_youtube_live::{Channel, oauth, setup_youtube_clients, youtube_client};
+use touchportal_youtube_live::youtube_api::{TimeBoundAccessToken, YouTubeClient};
+use touchportal_youtube_live::{Channel, oauth, setup_youtube_clients};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use youtube_client::YouTubeClient;
 
 // You can look at the generated code for a plugin using this command:
 //

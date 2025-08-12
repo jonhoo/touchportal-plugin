@@ -1,14 +1,13 @@
 #![allow(dead_code)]
 
-use crate::youtube_client::TimeBoundAccessToken;
+use crate::youtube_api::{TimeBoundAccessToken, YouTubeClient};
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;
 use std::ops::AsyncFnMut;
 use tokio_stream::StreamExt;
-use youtube_client::YouTubeClient;
 pub mod oauth;
-pub mod youtube_client;
+pub mod youtube_api;
 
 #[derive(Debug)]
 pub struct Channel {

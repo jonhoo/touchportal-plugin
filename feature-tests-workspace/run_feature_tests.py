@@ -141,24 +141,42 @@ def clean_coverage_workspace() -> bool:
         return False
 
 
-def generate_coverage_report(output_path: str) -> bool:
+def generate_coverage_report_for_plugin(plugin_name: str, coverage_env: Optional[dict] = None) -> bool:
     """
-    Generate final coverage report.
+    Generate coverage report for a specific plugin.
     
     Args:
-        output_path: Path for the LCOV output file
+        plugin_name: Name of the plugin to generate coverage for
+        coverage_env: Environment variables for coverage
         
     Returns:
         True if successful, False otherwise
     """
+    plugin_dir = Path(plugin_name)
+    output_path = f"coverage-{plugin_name}.lcov"
+    
     try:
+        original_dir = Path.cwd()
+        import os
+        os.chdir(plugin_dir)
+        
+        # Prepare environment
+        env = dict(os.environ)
+        if coverage_env:
+            env.update(coverage_env)
+        
         result = subprocess.run(
-            ["cargo", "llvm-cov", "report", "--lcov", "--output-path", output_path],
+            ["cargo", "llvm-cov", "report", "--lcov", "--output-path", f"../{output_path}"],
             capture_output=True,
             text=True,
+            env=env,
         )
+        
+        os.chdir(original_dir)
+        
         return result.returncode == 0
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return False
 
 
@@ -334,6 +352,7 @@ def main() -> None:
     tested_plugins = 0
     skipped_plugins = 0
     failed_plugins = 0
+    successfully_tested_plugins = []
 
     for plugin_name in plugins_to_test:
         plugin_dir = Path(plugin_name)
@@ -353,6 +372,7 @@ def main() -> None:
 
             if success:
                 tested_plugins += 1
+                successfully_tested_plugins.append(plugin_name)
             else:
                 failed_plugins += 1
         else:
@@ -360,15 +380,21 @@ def main() -> None:
             print(f"{Fore.YELLOW}SKIPPED{Style.RESET_ALL} (no mock support)")
             skipped_plugins += 1
 
-    # Generate coverage report if coverage was enabled and tests were successful
-    if args.coverage and failed_plugins == 0 and tested_plugins > 0:
+    # Generate coverage reports if coverage was enabled and tests were successful
+    if args.coverage and failed_plugins == 0 and successfully_tested_plugins:
         print("")
-        print("Generating coverage report... ", end="", flush=True)
-        coverage_output = "feature-tests-coverage.lcov"
-        if generate_coverage_report(coverage_output):
-            print(f"{Fore.GREEN}DONE{Style.RESET_ALL} (saved to {coverage_output})")
+        print("Generating coverage reports... ", end="", flush=True)
+        coverage_success = True
+        for plugin_name in successfully_tested_plugins:
+            if not generate_coverage_report_for_plugin(plugin_name, coverage_env):
+                coverage_success = False
+        
+        if coverage_success:
+            coverage_files = [f"coverage-{plugin}.lcov" for plugin in successfully_tested_plugins]
+            print(f"{Fore.GREEN}DONE{Style.RESET_ALL} (saved {', '.join(coverage_files)})")
         else:
-            print(f"{Fore.YELLOW}WARNING{Style.RESET_ALL} (coverage report generation failed)")
+            print(f"{Fore.RED}FAILED{Style.RESET_ALL} (coverage report generation failed)")
+            failed_plugins += 1  # Treat coverage failure as a test failure
 
     print("")
     print("==================================")

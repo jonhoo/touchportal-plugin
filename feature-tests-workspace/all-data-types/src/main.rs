@@ -150,7 +150,7 @@ impl Plugin {
         let counter = plugin.counter.clone();
         let handle = plugin.handle.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             let colors = ["Red", "Green", "Blue"];
             let mut color_idx = 0;
 
@@ -286,7 +286,7 @@ async fn main() -> eyre::Result<()> {
     // Add final test scenario with state update validation
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("State Updates Validation")
-            .with_delay(std::time::Duration::from_millis(1000))
+            .with_delay(std::time::Duration::from_millis(3000))
             .with_assertions(|commands, _actions| {
                 use touchportal_sdk::protocol::TouchPortalCommand;
 

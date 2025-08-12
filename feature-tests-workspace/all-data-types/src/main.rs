@@ -286,7 +286,7 @@ async fn main() -> eyre::Result<()> {
     // Add final test scenario with state update validation
     mock_server.add_test_scenario(
         touchportal_sdk::mock::TestScenario::new("State Updates Validation")
-            .with_delay(std::time::Duration::from_millis(3000))
+            .with_delay(std::time::Duration::from_secs(6))
             .with_assertions(|commands, _actions| {
                 use touchportal_sdk::protocol::TouchPortalCommand;
 

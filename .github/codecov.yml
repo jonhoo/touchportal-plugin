@@ -24,6 +24,7 @@ ignore:
   - "validation-failures-workspace"
   - "feature-tests-workspace"
   - "scripts"
+  - "sdk/src/mock.rs"
 
 # Make comments less noisy
 comment:

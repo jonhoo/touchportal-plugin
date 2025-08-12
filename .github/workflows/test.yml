@@ -164,7 +164,7 @@ jobs:
         run: cd feature-tests-workspace && python3 ./run_feature_tests.py --coverage
       - name: Run validation tests with coverage
         run: cd validation-failures-workspace && python3 validation_coverage.py
-      - name: Merge coverage reports
+      - name: Collect coverage reports
         run: |
           # Create list of coverage files
           COVERAGE_FILES=("sdk-lcov.info")

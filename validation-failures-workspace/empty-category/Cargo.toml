@@ -8,9 +8,3 @@ publish = false
 touchportal-sdk = { version = "0.0.1", path = "../../sdk" }
 serde_json = "1.0.142"
 
-[dependencies]
-eyre = "0.6.12"
-serde = { version = "1.0.219" }
-serde_json = "1.0.142"
-touchportal-sdk = { version = "0.0.1", path = "../../sdk" }
-tracing = "0.1.41"

@@ -153,8 +153,42 @@ jobs:
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
-      - name: cargo llvm-cov
-        run: cargo llvm-cov --locked --all-features --lcov --output-path lcov.info -p touchportal-sdk
+      - name: cargo llvm-cov (SDK)
+        run: cargo llvm-cov --locked --all-features --lcov --output-path sdk-lcov.info -p touchportal-sdk
+      - name: Run feature tests with coverage
+        run: cd feature-tests-workspace && python3 ./run_feature_tests.py --coverage
+      - name: Run validation tests with coverage
+        run: cd validation-failures-workspace && python3 validation_coverage.py
+      - name: Merge coverage reports
+        run: |
+          # Install lcov for merging coverage reports
+          sudo apt-get update && sudo apt-get install -y lcov
+          
+          # Create list of coverage files
+          COVERAGE_FILES="sdk-lcov.info"
+          
+          # Add feature test coverage files if they exist
+          if ls feature-tests-workspace/coverage-*.lcov 1> /dev/null 2>&1; then
+            for file in feature-tests-workspace/coverage-*.lcov; do
+              COVERAGE_FILES="$COVERAGE_FILES $file"
+            done
+          fi
+          
+          # Add validation test coverage files if they exist
+          if ls validation-failures-workspace/validation-*.lcov 1> /dev/null 2>&1; then
+            for file in validation-failures-workspace/validation-*.lcov; do
+              COVERAGE_FILES="$COVERAGE_FILES $file"
+            done
+          fi
+          
+          # Merge all coverage files
+          if [ "$COVERAGE_FILES" = "sdk-lcov.info" ]; then
+            # Only SDK coverage, just copy it
+            cp sdk-lcov.info lcov.info
+          else
+            # Merge multiple coverage files
+            lcov $(for file in $COVERAGE_FILES; do echo "-a $file"; done) -o lcov.info
+          fi
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
       - name: Upload to codecov.io

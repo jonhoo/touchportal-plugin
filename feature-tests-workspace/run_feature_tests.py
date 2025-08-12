@@ -31,17 +31,20 @@ except ImportError:
 
 def show_usage() -> None:
     """Show usage information."""
-    print("Usage: run_feature_tests.py [plugin-name...]")
+    print("Usage: run_feature_tests.py [options] [plugin-name...]")
     print("")
     print("Test TouchPortal plugin features.")
     print("")
     print("Options:")
     print("  [plugin-name...]  Run tests only for specified plugins")
+    print("  --coverage        Enable coverage collection during tests")
     print("  -h, --help        Show this help message")
     print("")
     print("Examples:")
     print("  run_feature_tests.py                      # Test all plugins")
+    print("  run_feature_tests.py --coverage           # Test all plugins with coverage")
     print("  run_feature_tests.py minimal-single       # Test only minimal-single plugin")
+    print("  run_feature_tests.py --coverage minimal-single  # Test with coverage")
     print("  run_feature_tests.py all-data-types no-events  # Test multiple specific plugins")
     print("")
     print("Available plugins:")
@@ -91,13 +94,14 @@ def has_mock_support(plugin_dir: Path) -> bool:
         return False
 
 
-def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30) -> Tuple[bool, str]:
+def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30, enable_coverage: bool = False) -> Tuple[bool, str]:
     """
     Run a single plugin test.
 
     Args:
         plugin_dir: Path to the plugin directory
         timeout_seconds: Timeout in seconds
+        enable_coverage: Whether to collect coverage data
 
     Returns:
         Tuple of (success, status_message)
@@ -109,10 +113,18 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30) -> Tuple[bool, 
         import os
         os.chdir(plugin_dir)
 
+        # Choose command based on coverage mode
+        if enable_coverage:
+            # Use cargo llvm-cov to run with coverage collection
+            cmd = ["cargo", "llvm-cov", "run", "--quiet", "--lcov", "--output-path", f"../coverage-{plugin_dir.name}.lcov"]
+        else:
+            # Standard cargo run
+            cmd = ["cargo", "run", "--quiet"]
+
         # Run the plugin with timeout
         try:
             result = subprocess.run(
-                ["cargo", "run", "--quiet"],
+                cmd,
                 timeout=timeout_seconds,
                 capture_output=True,
                 text=True,
@@ -120,7 +132,10 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30) -> Tuple[bool, 
 
             # If process completed within timeout, it should have exited successfully (code 0)
             if result.returncode == 0:
-                return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL}"
+                if enable_coverage:
+                    return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL} (coverage collected)"
+                else:
+                    return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL}"
             else:
                 return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (exit code {result.returncode})"
 
@@ -129,7 +144,7 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30) -> Tuple[bool, 
             return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (timed out - plugin should exit gracefully)"
 
         except subprocess.CalledProcessError as e:
-            return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (cargo run failed: {e})"
+            return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (cargo command failed: {e})"
 
     finally:
         # Always change back to original directory
@@ -153,6 +168,11 @@ def main() -> None:
         "-h", "--help",
         action="store_true",
         help="Show this help message",
+    )
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="Enable coverage collection during tests",
     )
 
     args = parser.parse_args()
@@ -199,7 +219,7 @@ def main() -> None:
         # Check if plugin has mock support
         if has_mock_support(plugin_dir):
             # Plugin has mock support, run the test
-            success, status_message = run_plugin_test(plugin_dir)
+            success, status_message = run_plugin_test(plugin_dir, enable_coverage=args.coverage)
             print(status_message)
 
             if success:

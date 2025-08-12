@@ -6,33 +6,6 @@ use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
 use tokio_stream::Stream;
 
-// Re-export LiveChatStream from chat module for convenience
-pub use crate::youtube_api::chat::LiveChatStream;
-
-/// Trait for async functions that can be called with an optional page token parameter.
-///
-/// This trait enables the [`PagedStream`] to work with different types of async closures
-/// that fetch paginated data from the YouTube API.
-pub trait AsyncFn<Arg>: Clone {
-    type Output;
-    type Future: Future<Output = Self::Output>;
-
-    fn call(&self, arg: Arg) -> Self::Future;
-}
-
-impl<F, Fut, Arg, T> AsyncFn<Arg> for F
-where
-    F: Fn(Arg) -> Fut + Clone,
-    Fut: Future<Output = T>,
-{
-    type Output = T;
-    type Future = Fut;
-
-    fn call(&self, arg: Arg) -> Self::Future {
-        self(arg)
-    }
-}
-
 type OneFuturePage<'a, F, T> =
     Pin<Box<dyn Future<Output = eyre::Result<(F, (VecDeque<T>, Option<String>))>> + 'a>>;
 
@@ -53,10 +26,10 @@ impl<'a, T, F> PagedStream<'a, T, F> {
     /// Create a new PagedStream from the first page of results.
     pub fn new(fetcher: F) -> Self
     where
-        F: AsyncFn<Option<String>, Output = eyre::Result<(VecDeque<T>, Option<String>)>> + 'a,
+        F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
     {
         let first_page = async move {
-            let results = fetcher.call(None).await?;
+            let results = fetcher(None).await?;
             Ok((fetcher, results))
         };
         Self {
@@ -71,7 +44,7 @@ impl<'a, T: Unpin, F> Unpin for PagedStream<'a, T, F> {}
 
 impl<'a, T: Unpin, F> Stream for PagedStream<'a, T, F>
 where
-    F: AsyncFn<Option<String>, Output = eyre::Result<(VecDeque<T>, Option<String>)>> + 'a,
+    F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
 {
     type Item = eyre::Result<T>;
 
@@ -98,7 +71,7 @@ where
                             // Set up the future for the next page
                             // (but don't poll it yet)
                             self.pending_request = Some(Box::pin(async move {
-                                let results = fetcher.call(Some(next_token)).await?;
+                                let results = fetcher(Some(next_token)).await?;
                                 Ok((fetcher, results))
                             }));
                         } else {

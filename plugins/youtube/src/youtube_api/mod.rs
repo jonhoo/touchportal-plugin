@@ -65,7 +65,7 @@ pub mod videos;
 
 // Re-export main types for convenience
 pub use client::{TimeBoundAccessToken, YouTubeClient};
-pub use types::{LiveChatStream, PageInfo, PagedStream};
+pub use types::{PageInfo, PagedStream};
 
 // Re-export commonly used types from each module
 pub use broadcasts::{
@@ -77,7 +77,7 @@ pub use streams::{LiveStream, LiveStreamSnippet, LiveStreamStatus, StreamStatus}
 
 pub use chat::{
     GiftMembershipReceivedDetails, LiveChatMessage, LiveChatMessageAuthor, LiveChatMessageDetails,
-    LiveChatMessageSnippet, MemberMilestoneChatDetails, MembershipGiftingDetails,
+    LiveChatMessageSnippet, LiveChatStream, MemberMilestoneChatDetails, MembershipGiftingDetails,
     MessageDeletedDetails, NewSponsorDetails, SuperChatDetails, SuperStickerDetails,
     TextMessageDetails, UserBannedDetails,
 };

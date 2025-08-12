@@ -1,6 +1,7 @@
 //! Core YouTube API client functionality and authentication management.
 
 use crate::oauth::OAuthManager;
+use crate::youtube_api::chat::LiveChatStream;
 use crate::youtube_api::{
     broadcasts::LiveBroadcastListResponse,
     broadcasts::{BroadcastStatus, CuepointRequest, LiveBroadcast},
@@ -9,7 +10,7 @@ use crate::youtube_api::{
     chat::LiveChatMessage,
     streams::LiveStream,
     streams::LiveStreamListResponse,
-    types::{LiveChatStream, PagedStream},
+    types::PagedStream,
     videos::{Video, VideoListResponse},
 };
 use eyre::Context;

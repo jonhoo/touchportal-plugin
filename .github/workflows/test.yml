@@ -195,11 +195,15 @@ jobs:
           
           IFS=',' COVERAGE_STR="${COVERAGE_FILES[*]}"
           echo "COVERAGE_FILES=$COVERAGE_STR" >> "$GITHUB_ENV"
+          IFS=$'\n' COVERAGE_FILE_LINES="${COVERAGE_FILES[*]}"
+          echo "COVERAGE_FILES_GLOB=<<EOF" >> "$GITHUB_ENV"
+          echo "$COVERAGE_FILE_LINES"
+          echo "EOF" >> "$GITHUB_ENV"
       - name: Upload merged coverage report
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # tag=v4.4.3
         with:
           name: merged-coverage-report
-          path: "{${{ env.COVERAGE_FILES }}}"
+          path: ${{ env.COVERAGE_FILES_GLOB }}
           retention-days: 30
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"

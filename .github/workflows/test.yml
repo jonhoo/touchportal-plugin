@@ -193,7 +193,8 @@ jobs:
             exit 1
           fi
           
-          IFS="," echo "COVERAGE_FILES=${COVERAGE_FILES[*]}" >> "$GITHUB_ENV"
+          IFS=',' COVERAGE_STR="${COVERAGE_FILES[*]}"
+          echo "COVERAGE_FILES=COVERAGE_STR" >> "$GITHUB_ENV"
       - name: Upload merged coverage report
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # tag=v4.4.3
         with:

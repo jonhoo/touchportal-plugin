@@ -193,12 +193,12 @@ jobs:
             exit 1
           fi
           
-          IFS="," echo "COVERAGE_FILES={${COVERAGE_FILES[*]}}" >> "$GITHUB_ENV"
+          IFS="," echo "COVERAGE_FILES=${COVERAGE_FILES[*]}" >> "$GITHUB_ENV"
       - name: Upload merged coverage report
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # tag=v4.4.3
         with:
           name: merged-coverage-report
-          path: lcov.info
+          path: "{${{ env.COVERAGE_FILES }}}"
           retention-days: 30
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
@@ -208,7 +208,7 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
           env_vars: OS,RUST
-          files: "$COVERAGE_FILES"
+          files: ${{ env.COVERAGE_FILES }}
           disable_search: true
   custom-tests:
     # Run custom test scripts for validation failures and feature tests

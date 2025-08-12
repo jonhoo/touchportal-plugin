@@ -173,15 +173,15 @@ def get_package_name_from_cargo_toml(plugin_dir: Path) -> Optional[str]:
 
 def normalize_coverage_paths(coverage_file: Path) -> None:
     """
-    Normalize file paths in LCOV coverage files to be relative to project root.
+    Normalize file paths in LCOV coverage files to be absolute paths from project root.
     
-    Converts absolute paths like:
-    - /home/user/project/validation-failures-workspace/plugin/src/main.rs
+    Converts paths like:
     - /tmp/validation-coverage-xyz/plugin/src/main.rs
+    - relative/sdk/src/lib.rs
     
-    To relative paths like:
-    - validation-failures-workspace/plugin/src/main.rs
-    - sdk/src/lib.rs
+    To absolute paths like:
+    - /project/root/validation-failures-workspace/plugin/src/main.rs
+    - /project/root/sdk/src/lib.rs
     """
     if not coverage_file.exists():
         print(f"    WARNING: Coverage file {coverage_file} does not exist for normalization")
@@ -210,36 +210,35 @@ def normalize_coverage_paths(coverage_file: Path) -> None:
                 
                 # Case 1: Absolute path within project directory
                 if file_path.startswith(project_root_str):
-                    # Convert to relative path from project root
-                    relative_path = path_obj.relative_to(project_root)
-                    normalized_line = f"SF:{relative_path}"
+                    # Keep as absolute path (no change needed)
+                    normalized_line = line
                 
                 # Case 2: Temporary directory path (from validation coverage workspace)
                 elif '/validation-coverage-' in file_path:
                     # Extract the relevant part after the temp directory
                     # Pattern: /tmp/validation-coverage-xyz/plugin-name/src/main.rs
-                    # Should become: validation-failures-workspace/plugin-name/src/main.rs
+                    # Should become: /project/root/validation-failures-workspace/plugin-name/src/main.rs
                     match = re.search(r'/validation-coverage-[^/]+/([^/]+/src/.+)$', file_path)
                     if match:
                         plugin_relative_path = match.group(1)
-                        normalized_line = f"SF:validation-failures-workspace/{plugin_relative_path}"
+                        normalized_line = f"SF:{project_root}/validation-failures-workspace/{plugin_relative_path}"
                     else:
                         # Fallback: keep original if pattern doesn't match
                         normalized_line = line
                 
                 # Case 3: SDK absolute paths (when SDK path is absolute)
                 elif '/sdk/src/' in file_path:
-                    # Extract SDK relative path
+                    # Extract SDK relative path and convert to absolute path
                     match = re.search(r'.*/sdk/src/(.+)$', file_path)
                     if match:
                         sdk_file = match.group(1)
-                        normalized_line = f"SF:sdk/src/{sdk_file}"
+                        normalized_line = f"SF:{project_root}/sdk/src/{sdk_file}"
                     else:
                         # Fallback for other SDK paths
                         match = re.search(r'.*/sdk/(.+)$', file_path)
                         if match:
                             sdk_path = match.group(1)
-                            normalized_line = f"SF:sdk/{sdk_path}"
+                            normalized_line = f"SF:{project_root}/sdk/{sdk_path}"
                         else:
                             normalized_line = line
                 

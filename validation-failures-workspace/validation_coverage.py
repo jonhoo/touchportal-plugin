@@ -9,6 +9,7 @@ as regular binaries for coverage collection.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -170,6 +171,99 @@ def get_package_name_from_cargo_toml(plugin_dir: Path) -> Optional[str]:
         return None
 
 
+def normalize_coverage_paths(coverage_file: Path) -> None:
+    """
+    Normalize file paths in LCOV coverage files to be relative to project root.
+    
+    Converts absolute paths like:
+    - /home/user/project/validation-failures-workspace/plugin/src/main.rs
+    - /tmp/validation-coverage-xyz/plugin/src/main.rs
+    
+    To relative paths like:
+    - validation-failures-workspace/plugin/src/main.rs
+    - sdk/src/lib.rs
+    """
+    if not coverage_file.exists():
+        print(f"    WARNING: Coverage file {coverage_file} does not exist for normalization")
+        return
+    
+    try:
+        # Read the original content
+        with open(coverage_file, 'r') as f:
+            content = f.read()
+        
+        # Get the project root directory (parent of validation-failures-workspace)
+        project_root = Path(__file__).parent.parent.resolve()
+        project_root_str = str(project_root)
+        
+        # Process each line to normalize SF: (source file) paths
+        lines = content.split('\n')
+        normalized_lines = []
+        
+        for line in lines:
+            if line.startswith('SF:'):
+                # Extract the path after SF:
+                file_path = line[3:]  # Remove 'SF:' prefix
+                
+                # Convert to Path object for easier manipulation
+                path_obj = Path(file_path)
+                
+                # Case 1: Absolute path within project directory
+                if file_path.startswith(project_root_str):
+                    # Convert to relative path from project root
+                    relative_path = path_obj.relative_to(project_root)
+                    normalized_line = f"SF:{relative_path}"
+                
+                # Case 2: Temporary directory path (from validation coverage workspace)
+                elif '/validation-coverage-' in file_path:
+                    # Extract the relevant part after the temp directory
+                    # Pattern: /tmp/validation-coverage-xyz/plugin-name/src/main.rs
+                    # Should become: validation-failures-workspace/plugin-name/src/main.rs
+                    match = re.search(r'/validation-coverage-[^/]+/([^/]+/src/.+)$', file_path)
+                    if match:
+                        plugin_relative_path = match.group(1)
+                        normalized_line = f"SF:validation-failures-workspace/{plugin_relative_path}"
+                    else:
+                        # Fallback: keep original if pattern doesn't match
+                        normalized_line = line
+                
+                # Case 3: SDK absolute paths (when SDK path is absolute)
+                elif '/sdk/src/' in file_path:
+                    # Extract SDK relative path
+                    match = re.search(r'.*/sdk/src/(.+)$', file_path)
+                    if match:
+                        sdk_file = match.group(1)
+                        normalized_line = f"SF:sdk/src/{sdk_file}"
+                    else:
+                        # Fallback for other SDK paths
+                        match = re.search(r'.*/sdk/(.+)$', file_path)
+                        if match:
+                            sdk_path = match.group(1)
+                            normalized_line = f"SF:sdk/{sdk_path}"
+                        else:
+                            normalized_line = line
+                
+                else:
+                    # Keep original line if no normalization pattern matches
+                    normalized_line = line
+                
+                normalized_lines.append(normalized_line)
+            else:
+                # Non-SF lines pass through unchanged
+                normalized_lines.append(line)
+        
+        # Write the normalized content back to the file
+        normalized_content = '\n'.join(normalized_lines)
+        with open(coverage_file, 'w') as f:
+            f.write(normalized_content)
+        
+        print(f"    ✓ Normalized paths in {coverage_file.name}")
+        
+    except Exception as e:
+        print(f"    ⚠️ WARNING: Failed to normalize paths in {coverage_file}: {e}")
+        # Don't raise the error - coverage file generation should continue even if normalization fails
+
+
 def run_coverage_collection(temp_dir: Path, output_dir: Path) -> None:
     """Run coverage collection on all plugins in the temporary workspace."""
     print(f"Running coverage collection...")
@@ -209,6 +303,10 @@ def run_coverage_collection(temp_dir: Path, output_dir: Path) -> None:
             if temp_coverage_file.exists():
                 # Move the coverage file from temp directory to output directory
                 shutil.move(str(temp_coverage_file), str(coverage_file))
+                
+                # Normalize paths in the coverage file to be relative to project root
+                normalize_coverage_paths(coverage_file)
+                
                 coverage_files.append(coverage_file)
                 print(f"    ✓ Coverage collected: {coverage_file.name}")
             else:

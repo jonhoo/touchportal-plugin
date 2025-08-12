@@ -204,6 +204,12 @@ jobs:
             # Merge multiple coverage files
             lcov $(for file in $COVERAGE_FILES; do echo "-a $file"; done) -o lcov.info
           fi
+      - name: Upload merged coverage report
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # tag=v4.4.3
+        with:
+          name: merged-coverage-report
+          path: lcov.info
+          retention-days: 30
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
       - name: Upload to codecov.io

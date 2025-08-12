@@ -2,7 +2,7 @@ use eyre::Context;
 use std::io::IsTerminal;
 use tokio_stream::StreamExt;
 use touchportal_youtube_live::{
-    Channel, setup_youtube_clients, youtube_api::BroadcastLifeCycleStatus,
+    Channel, setup_youtube_clients, youtube_api::broadcasts::BroadcastLifeCycleStatus,
 };
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;

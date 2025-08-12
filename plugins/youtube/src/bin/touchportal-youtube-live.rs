@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
-use touchportal_youtube_live::youtube_api::{TimeBoundAccessToken, YouTubeClient};
+use touchportal_youtube_live::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
 use touchportal_youtube_live::{Channel, oauth, setup_youtube_clients};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;

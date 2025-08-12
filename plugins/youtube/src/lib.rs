@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::youtube_api::{TimeBoundAccessToken, YouTubeClient};
+use crate::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;

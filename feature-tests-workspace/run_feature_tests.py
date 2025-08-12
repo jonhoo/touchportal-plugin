@@ -7,12 +7,14 @@ Plugins should exit gracefully via ClosePlugin, so timeouts are treated as failu
 """
 
 import argparse
+import re
+import shlex
 import subprocess
 import sys
 import signal
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     import colorama
@@ -71,6 +73,95 @@ def find_available_plugins() -> List[str]:
     return plugins
 
 
+def setup_coverage_env() -> Optional[Dict[str, str]]:
+    """
+    Set up coverage environment variables using cargo llvm-cov show-env.
+    
+    Returns:
+        Dictionary of environment variables for coverage, or None if setup failed
+    """
+    try:
+        # Get coverage environment variables
+        result = subprocess.run(
+            ["cargo", "llvm-cov", "show-env", "--export-prefix"],
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0:
+            return None
+            
+        # Parse the output to extract environment variables
+        env_vars = {}
+        export_pattern = re.compile(r'^export\s+([^=]+)=(.*)$')
+        
+        for line in result.stdout.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            match = export_pattern.match(line)
+            if match:
+                key = match.group(1).strip()
+                value_part = match.group(2)
+                
+                # Use shlex to properly parse the value, handling quotes and escapes
+                try:
+                    # shlex.split handles proper shell quoting
+                    parsed_values = shlex.split(value_part)
+                    if parsed_values:
+                        # For environment variables, we expect a single value
+                        env_vars[key] = parsed_values[0]
+                except ValueError:
+                    # If shlex fails to parse, fall back to the raw value
+                    # This handles edge cases where the value might not be properly quoted
+                    env_vars[key] = value_part
+        
+        return env_vars
+        
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def clean_coverage_workspace() -> bool:
+    """
+    Clean the workspace for coverage collection.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["cargo", "llvm-cov", "clean", "--workspace"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def generate_coverage_report(output_path: str) -> bool:
+    """
+    Generate final coverage report.
+    
+    Args:
+        output_path: Path for the LCOV output file
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["cargo", "llvm-cov", "report", "--lcov", "--output-path", output_path],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def has_mock_support(plugin_dir: Path) -> bool:
     """
     Check if plugin has mock support by looking for mock server usage in main.rs.
@@ -94,14 +185,15 @@ def has_mock_support(plugin_dir: Path) -> bool:
         return False
 
 
-def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30, enable_coverage: bool = False) -> Tuple[bool, str]:
+def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30, enable_coverage: bool = False, coverage_env: Optional[dict] = None) -> Tuple[bool, str]:
     """
     Run a single plugin test.
 
     Args:
         plugin_dir: Path to the plugin directory
-        timeout_seconds: Timeout in seconds
+        timeout_seconds: Timeout in seconds (applies only to execution, not build)
         enable_coverage: Whether to collect coverage data
+        coverage_env: Environment variables for coverage (from cargo llvm-cov show-env)
 
     Returns:
         Tuple of (success, status_message)
@@ -113,27 +205,44 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30, enable_coverage
         import os
         os.chdir(plugin_dir)
 
-        # Choose command based on coverage mode
-        if enable_coverage:
-            # Use cargo llvm-cov to run with coverage collection
-            cmd = ["cargo", "llvm-cov", "run", "--quiet", "--lcov", "--output-path", f"../coverage-{plugin_dir.name}.lcov"]
-        else:
-            # Standard cargo run
-            cmd = ["cargo", "run", "--quiet"]
+        # Prepare environment - use coverage env if provided, otherwise use current env
+        env = dict(os.environ)
+        if enable_coverage and coverage_env:
+            env.update(coverage_env)
 
-        # Run the plugin with timeout
+        # Step 1: Build the plugin first (without timeout to handle dependency compilation)
+        build_cmd = ["cargo", "build", "--quiet"]
+
+        try:
+            build_result = subprocess.run(
+                build_cmd,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            if build_result.returncode != 0:
+                return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (build failed: {build_result.stderr.strip()})"
+
+        except subprocess.CalledProcessError as e:
+            return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (build command failed: {e})"
+
+        # Step 2: Run the plugin with timeout (now that it's built)
+        run_cmd = ["cargo", "run", "--quiet"]
+
         try:
             result = subprocess.run(
-                cmd,
+                run_cmd,
                 timeout=timeout_seconds,
                 capture_output=True,
                 text=True,
+                env=env,
             )
 
             # If process completed within timeout, it should have exited successfully (code 0)
             if result.returncode == 0:
                 if enable_coverage:
-                    return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL} (coverage collected)"
+                    return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL} (coverage data collected)"
                 else:
                     return True, f"{Fore.GREEN}PASSED{Style.RESET_ALL}"
             else:
@@ -144,7 +253,7 @@ def run_plugin_test(plugin_dir: Path, timeout_seconds: int = 30, enable_coverage
             return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (timed out - plugin should exit gracefully)"
 
         except subprocess.CalledProcessError as e:
-            return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (cargo command failed: {e})"
+            return False, f"{Fore.RED}FAILED{Style.RESET_ALL} (execution failed: {e})"
 
     finally:
         # Always change back to original directory
@@ -204,6 +313,22 @@ def main() -> None:
     print("🧪 TouchPortal Plugin Feature Tests")
     print("==================================")
 
+    # Set up coverage environment if needed
+    coverage_env = None
+    if args.coverage:
+        print("Setting up coverage environment... ", end="", flush=True)
+        coverage_env = setup_coverage_env()
+        if coverage_env is None:
+            print(f"{Fore.RED}FAILED{Style.RESET_ALL} (could not set up coverage environment)")
+            sys.exit(1)
+        
+        # Clean workspace for accurate coverage
+        if not clean_coverage_workspace():
+            print(f"{Fore.RED}FAILED{Style.RESET_ALL} (could not clean coverage workspace)")
+            sys.exit(1)
+            
+        print(f"{Fore.GREEN}DONE{Style.RESET_ALL}")
+
     # Counters
     total_plugins = 0
     tested_plugins = 0
@@ -219,7 +344,11 @@ def main() -> None:
         # Check if plugin has mock support
         if has_mock_support(plugin_dir):
             # Plugin has mock support, run the test
-            success, status_message = run_plugin_test(plugin_dir, enable_coverage=args.coverage)
+            success, status_message = run_plugin_test(
+                plugin_dir, 
+                enable_coverage=args.coverage,
+                coverage_env=coverage_env
+            )
             print(status_message)
 
             if success:
@@ -230,6 +359,16 @@ def main() -> None:
             # Plugin doesn't have mock support yet
             print(f"{Fore.YELLOW}SKIPPED{Style.RESET_ALL} (no mock support)")
             skipped_plugins += 1
+
+    # Generate coverage report if coverage was enabled and tests were successful
+    if args.coverage and failed_plugins == 0 and tested_plugins > 0:
+        print("")
+        print("Generating coverage report... ", end="", flush=True)
+        coverage_output = "feature-tests-coverage.lcov"
+        if generate_coverage_report(coverage_output):
+            print(f"{Fore.GREEN}DONE{Style.RESET_ALL} (saved to {coverage_output})")
+        else:
+            print(f"{Fore.YELLOW}WARNING{Style.RESET_ALL} (coverage report generation failed)")
 
     print("")
     print("==================================")

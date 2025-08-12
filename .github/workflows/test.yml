@@ -150,6 +150,11 @@ jobs:
         uses: taiki-e/install-action@5f6f3e0538d249cb0b47f8d5b636c120babeb082 # tag=v2.58.6
         with:
           tool: cargo-llvm-cov
+      - name: Setup shared target directory for all workspaces
+        run: |
+          mkdir -p .cargo
+          echo '[build]' > .cargo/config.toml
+          echo 'target-dir = "target"' >> .cargo/config.toml
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
@@ -224,6 +229,11 @@ jobs:
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
+      - name: Setup shared target directory for all workspaces
+        run: |
+          mkdir -p .cargo
+          echo '[build]' > .cargo/config.toml
+          echo 'target-dir = "target"' >> .cargo/config.toml
       - name: Run validation failure tests
         run: cd validation-failures-workspace && python3 ./test_validation_failures.py
       - name: Run feature tests

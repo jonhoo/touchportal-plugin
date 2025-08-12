@@ -193,6 +193,9 @@ jobs:
             exit 1
           fi
           
+          # For some reason, codecov.io won't accept a single file merged with
+          # lcov, so we have to pull this hackery...
+          # https://github.com/codecov/feedback/issues/780
           IFS=',' COVERAGE_STR="${COVERAGE_FILES[*]}"
           echo "COVERAGE_FILES=$COVERAGE_STR" >> "$GITHUB_ENV"
           IFS=$'\n' COVERAGE_FILE_LINES="${COVERAGE_FILES[*]}"

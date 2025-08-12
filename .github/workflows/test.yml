@@ -196,7 +196,7 @@ jobs:
           IFS=',' COVERAGE_STR="${COVERAGE_FILES[*]}"
           echo "COVERAGE_FILES=$COVERAGE_STR" >> "$GITHUB_ENV"
           IFS=$'\n' COVERAGE_FILE_LINES="${COVERAGE_FILES[*]}"
-          echo "COVERAGE_FILES_GLOB=<<EOF" >> "$GITHUB_ENV"
+          echo "COVERAGE_FILES_GLOB<<EOF" >> "$GITHUB_ENV"
           echo "$COVERAGE_FILE_LINES" >> "$GITHUB_ENV"
           echo "EOF" >> "$GITHUB_ENV"
       - name: Upload merged coverage report

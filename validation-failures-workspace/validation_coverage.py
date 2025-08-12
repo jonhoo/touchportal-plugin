@@ -189,12 +189,14 @@ def run_coverage_collection(temp_dir: Path, output_dir: Path) -> None:
         print(f"  Collecting coverage for {member} (package: {package_name})...")
         
         coverage_file = output_dir / f"validation-{member}.lcov"
+        temp_coverage_file = temp_dir / f"validation-{member}.lcov"
         
         try:
             # Run cargo llvm-cov run for this specific plugin using the package name
+            # The coverage file will be created in the temp directory, then we'll move it
             result = subprocess.run([
                 "cargo", "llvm-cov", "run", 
-                "--lcov", "--output-path", str(coverage_file),
+                "--lcov", "--output-path", str(temp_coverage_file),
                 "-p", package_name
             ], 
             cwd=temp_dir,
@@ -203,18 +205,20 @@ def run_coverage_collection(temp_dir: Path, output_dir: Path) -> None:
             )
             
             # We expect some plugins might exit with errors, but coverage is still collected
-            # Check if coverage file was generated (cargo llvm-cov should have created it)
-            if coverage_file.exists():
+            # Check if coverage file was generated in temp directory and move it
+            if temp_coverage_file.exists():
+                # Move the coverage file from temp directory to output directory
+                shutil.move(str(temp_coverage_file), str(coverage_file))
                 coverage_files.append(coverage_file)
                 print(f"    ✓ Coverage collected: {coverage_file.name}")
-            elif "Finished report saved to" in result.stderr:
-                # Coverage was generated but not where we expected - this is still success
-                coverage_files.append(coverage_file)  # Add to list anyway for counting
-                print(f"    ✓ Coverage generated for {member}")
             else:
-                print(f"    ⚠️ No coverage file generated for {member}")
+                print(f"    ❌ ERROR: No coverage file generated for {member} at temp path: {temp_coverage_file}")
                 if result.stderr:
-                    print(f"    Error: {result.stderr}")
+                    print(f"    Cargo stderr: {result.stderr}")
+                if result.stdout:
+                    print(f"    Cargo stdout: {result.stdout}")
+                # This is a hard error - we should have generated coverage
+                raise RuntimeError(f"Coverage collection failed for {member}: no coverage file generated at {temp_coverage_file}")
         
         except subprocess.CalledProcessError as e:
             print(f"    ⚠️ Coverage collection failed for {member}: {e}")
@@ -222,6 +226,10 @@ def run_coverage_collection(temp_dir: Path, output_dir: Path) -> None:
             print(f"    ERROR: Unexpected error for {member}: {e}")
     
     print(f"Coverage collection complete. Generated {len(coverage_files)} coverage files.")
+    
+    # Validate that we actually collected some coverage files
+    if len(coverage_files) == 0:
+        raise RuntimeError("ERROR: No coverage files were generated from any validation failure tests. This indicates coverage collection is not working properly.")
 
 
 def main() -> None:

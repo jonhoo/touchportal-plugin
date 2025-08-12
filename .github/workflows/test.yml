@@ -172,6 +172,11 @@ jobs:
             for file in feature-tests-workspace/coverage-*.lcov; do
               COVERAGE_FILES="$COVERAGE_FILES $file"
             done
+          else
+            # If feature test coverage was supposed to run but no files exist, this is an error
+            echo "ERROR: Expected feature test coverage files (coverage-*.lcov) not found in feature-tests-workspace/"
+            echo "This indicates the feature test coverage collection step failed silently."
+            exit 1
           fi
           
           # Add validation test coverage files if they exist
@@ -179,6 +184,11 @@ jobs:
             for file in validation-failures-workspace/validation-*.lcov; do
               COVERAGE_FILES="$COVERAGE_FILES $file"
             done
+          else
+            # If validation coverage was supposed to run but no files exist, this is an error
+            echo "ERROR: Expected validation coverage files (validation-*.lcov) not found in validation-failures-workspace/"
+            echo "This indicates the validation coverage collection step failed silently."
+            exit 1
           fi
           
           # Merge all coverage files

@@ -1,5 +1,4 @@
-// This plugin is expected to fail at build time due to validation errors
-// for connectors without required data fields
-fn main() {
-    println!("This should never run");
-}
+// This validation failure test is designed to fail at build-time in build.rs.
+// Since the build script fails before this code is compiled, the main function
+// content is irrelevant and kept minimal.
+fn main() {}

@@ -4,7 +4,7 @@
 codecov:
   disable_default_path_fixes: yes
 fixes:
-  - "/home/runner/work/touchportal-plugin/touchportal-plugin/::"
+  - "/home/runner/work/touchportal-plugin/touchportal-plugin::"
 
 coverage:
   # Hold ourselves to a high bar

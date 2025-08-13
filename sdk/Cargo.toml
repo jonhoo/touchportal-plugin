@@ -33,5 +33,5 @@ openssl-macros = { version = "0.1.1", optional = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"
-insta = { version = "1.0", features = ["json"] }
+insta = { version = "1.43.1", features = ["json"] }
 pretty_assertions = "1.4.1"

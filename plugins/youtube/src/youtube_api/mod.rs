@@ -35,14 +35,18 @@
 //! # Example Usage
 //!
 //! ```rust,no_run
-//! use crate::youtube_client::{YouTubeClient, TimeBoundAccessToken};
-//! use crate::oauth::OAuthManager;
+//! use touchportal_youtube_live::youtube_api::client::{YouTubeClient, TimeBoundAccessToken};
+//! use touchportal_youtube_live::oauth::OAuthManager;
 //! use tokio_stream::StreamExt;
 //!
 //! # async fn example() -> eyre::Result<()> {
 //! // Set up client with OAuth token
 //! let oauth_manager = OAuthManager::new(/* ... */);
+//! # /*
+//! let oauth_token = /* ... */;
 //! let token = TimeBoundAccessToken::new(/* oauth token */);
+//! # */
+//! # let token = TimeBoundAccessToken::new(todo!());
 //! let client = YouTubeClient::new(token, oauth_manager);
 //!
 //! // List all broadcasts for the authenticated user

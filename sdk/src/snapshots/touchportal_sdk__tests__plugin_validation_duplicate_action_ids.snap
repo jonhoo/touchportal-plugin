@@ -1,0 +1,5 @@
+---
+source: sdk/src/lib.rs
+expression: error_msg
+---
+duplicate action ID 'duplicate_action' found - action IDs must be unique across all categories

@@ -1,0 +1,5 @@
+---
+source: sdk/src/protocol.rs
+expression: error_msg
+---
+TouchPortal does not use yes for switch values

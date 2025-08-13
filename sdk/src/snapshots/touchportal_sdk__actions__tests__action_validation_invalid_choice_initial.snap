@@ -1,0 +1,5 @@
+---
+source: sdk/src/actions.rs
+expression: error_msg
+---
+initial value invalid_choice is not among valid choices ["option_a", "option_b"]

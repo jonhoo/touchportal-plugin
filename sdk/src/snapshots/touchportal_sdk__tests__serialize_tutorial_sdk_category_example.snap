@@ -9,5 +9,12 @@ expression: category
   "actions": [],
   "events": [],
   "connectors": [],
-  "states": []
+  "states": [
+    {
+      "id": "example_state",
+      "desc": "Example state",
+      "default": "default",
+      "type": "text"
+    }
+  ]
 }

@@ -1,0 +1,5 @@
+---
+source: sdk/src/protocol.rs
+expression: error_msg
+---
+TouchPortal does not use 1 for switch values

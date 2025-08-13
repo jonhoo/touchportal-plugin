@@ -1,0 +1,5 @@
+---
+source: sdk/src/lib.rs
+expression: error_msg
+---
+event mismatched_event references state mismatched_state, but they have diverging choice-sets

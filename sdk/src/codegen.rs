@@ -1491,4 +1491,172 @@ mod tests {
         assert_valid_rust_syntax(&connect_code);
         assert_snapshot!(connect_code);
     }
+
+    #[test]
+    fn test_choice_enum_name_generation() {
+        use crate::{ChoiceSetting, SettingType};
+        use insta::assert_snapshot;
+
+        let setting = crate::Setting {
+            name: "test_setting".to_string(),
+            initial: "option1".to_string(),
+            kind: SettingType::Choice(
+                ChoiceSetting::builder()
+                    .choice("option1")
+                    .choice("option2")
+                    .build()
+                    .unwrap(),
+            ),
+            tooltip: None,
+        };
+
+        let enum_name = setting.choice_enum_name();
+        assert_snapshot!(enum_name, @"TestSettingSettingOptions");
+
+        // Test with complex naming patterns including ACRONYMS and numbers
+        let setting2 = crate::Setting {
+            name: "my_HTTP_API_v2_setting_name".to_string(),
+            initial: "choice1".to_string(),
+            kind: SettingType::Choice(ChoiceSetting::builder().choice("choice1").build().unwrap()),
+            tooltip: None,
+        };
+
+        let enum_name2 = setting2.choice_enum_name();
+        assert_snapshot!(enum_name2, @"MyHTTPAPIV2SettingNameSettingOptions");
+    }
+
+    #[test]
+    fn test_data_choice_enum_name_generation() {
+        use crate::{ChoiceData, Data, DataFormat};
+        use insta::assert_snapshot;
+
+        let data = Data {
+            id: "test_data_field".to_string(),
+            format: DataFormat::Choice(
+                ChoiceData::builder()
+                    .initial("option1")
+                    .choice("option1")
+                    .choice("option2")
+                    .build()
+                    .unwrap(),
+            ),
+        };
+
+        let enum_name = data.choice_enum_name();
+        assert_snapshot!(enum_name, @"ChoicesForTestDataField");
+
+        // Test with complex data ID patterns including ACRONYMS and numbers
+        let data2 = Data {
+            id: "my_JSON_API_v3_data_field_42".to_string(),
+            format: DataFormat::Choice(
+                ChoiceData::builder()
+                    .initial("a")
+                    .choice("a")
+                    .build()
+                    .unwrap(),
+            ),
+        };
+
+        let enum_name2 = data2.choice_enum_name();
+        assert_snapshot!(enum_name2, @"ChoicesForMyJSONAPIV3DataField42");
+    }
+
+    #[test]
+    fn test_setting_to_rust_type() {
+        use crate::{ChoiceSetting, SettingType, SwitchSetting, TextSetting};
+
+        // Test text setting type
+        let text_setting = crate::Setting {
+            name: "text".to_string(),
+            initial: "default".to_string(),
+            kind: SettingType::Text(TextSetting::builder().build().unwrap()),
+            tooltip: None,
+        };
+
+        let rust_type = text_setting.to_rust_type();
+        assert_eq!(rust_type.to_string(), "String");
+
+        // Test switch setting type
+        let switch_setting = crate::Setting {
+            name: "switch".to_string(),
+            initial: "Off".to_string(),
+            kind: SettingType::Switch(SwitchSetting::builder().build().unwrap()),
+            tooltip: None,
+        };
+
+        let rust_type = switch_setting.to_rust_type();
+        assert_eq!(rust_type.to_string(), "bool");
+
+        // Test choice setting type
+        let choice_setting = crate::Setting {
+            name: "my_choice".to_string(),
+            initial: "option1".to_string(),
+            kind: SettingType::Choice(
+                ChoiceSetting::builder()
+                    .choice("option1")
+                    .choice("option2")
+                    .build()
+                    .unwrap(),
+            ),
+            tooltip: None,
+        };
+
+        let rust_type = choice_setting.to_rust_type();
+        assert_eq!(rust_type.to_string(), "MyChoiceSettingOptions");
+    }
+
+    #[test]
+    fn test_gen_settings_with_various_types() {
+        use crate::{
+            ApiVersion, ChoiceSetting, PluginConfiguration, PluginDescription, SettingType,
+            SwitchSetting, TextSetting,
+        };
+
+        let plugin = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Settings Test Plugin")
+            .id("com.test.settings.types")
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test_plugin.exe")
+            .setting(crate::Setting {
+                name: "text_setting".to_string(),
+                initial: "default_text".to_string(),
+                kind: SettingType::Text(TextSetting::builder().build().unwrap()),
+                tooltip: None,
+            })
+            .setting(crate::Setting {
+                name: "switch_setting".to_string(),
+                initial: "Off".to_string(),
+                kind: SettingType::Switch(SwitchSetting::builder().build().unwrap()),
+                tooltip: None,
+            })
+            .setting(crate::Setting {
+                name: "choice_setting".to_string(),
+                initial: "option_a".to_string(),
+                kind: SettingType::Choice(
+                    ChoiceSetting::builder()
+                        .choice("option_a")
+                        .choice("option_b")
+                        .choice("option_c")
+                        .build()
+                        .unwrap(),
+                ),
+                tooltip: None,
+            })
+            .build()
+            .unwrap();
+
+        let settings_code = gen_settings(&plugin);
+        let settings_str = settings_code.to_string();
+
+        // Verify it compiles to valid Rust
+        assert_valid_rust_syntax(&settings_str);
+
+        // Format the code for better snapshot readability
+        let formatted = prettyplease::unparse(&syn::parse_file(&settings_str).unwrap());
+
+        // Snapshot the generated code to catch unintended changes
+        assert_snapshot!(formatted);
+    }
 }

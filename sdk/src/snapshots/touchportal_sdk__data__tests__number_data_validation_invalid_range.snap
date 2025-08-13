@@ -1,0 +1,5 @@
+---
+source: sdk/src/data.rs
+expression: error_msg
+---
+initial value 150 is outside the allowed range [0, 100]

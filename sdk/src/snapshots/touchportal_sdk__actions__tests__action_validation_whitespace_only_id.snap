@@ -1,0 +1,5 @@
+---
+source: sdk/src/actions.rs
+expression: error_msg
+---
+action id cannot be empty

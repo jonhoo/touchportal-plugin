@@ -676,4 +676,325 @@ mod tests {
 
         assert_json_snapshot!(action);
     }
+
+    #[test]
+    fn test_action_validation_empty_name() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("valid_id")
+            .name("") // Empty name should fail validation
+            .implementation(ActionImplementation::Dynamic)
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(Line::builder().line_format("Test action").build().unwrap())
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_whitespace_only_name() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("valid_id")
+            .name("   ") // Whitespace-only name should fail validation
+            .implementation(ActionImplementation::Dynamic)
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(Line::builder().line_format("Test action").build().unwrap())
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_empty_id() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("") // Empty ID should fail validation
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(Line::builder().line_format("Test action").build().unwrap())
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_whitespace_only_id() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("   ") // Whitespace-only ID should fail validation
+            .name("Valid Name") // Valid name so we get to ID validation
+            .implementation(ActionImplementation::Dynamic)
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(Line::builder().line_format("Test action").build().unwrap())
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_invalid_choice_initial() {
+        use crate::{ChoiceData, DataFormat};
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("valid_id")
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("choice_field")
+                    .format(DataFormat::Choice(
+                        ChoiceData::builder()
+                            .initial("invalid_choice") // Not in value_choices
+                            .choice("option_a")
+                            .choice("option_b")
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("Choose: {$choice_field$}")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_missing_data_field_in_lines() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("valid_id")
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("missing_field")
+                    .format(DataFormat::Text(
+                        crate::TextData::builder().build().unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("No data field reference here") // Missing {$missing_field$}
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_duplicate_languages() {
+        use insta::assert_snapshot;
+
+        let result = Action::builder()
+            .id("valid_id")
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder() // default language first
+                            .datum(
+                                Line::builder()
+                                    .line_format("Default version")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .action(
+                        LingualLine::builder()
+                            .language("en")
+                            .datum(
+                                Line::builder()
+                                    .line_format("English version")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .action(
+                        LingualLine::builder()
+                            .language("en") // Duplicate language
+                            .datum(
+                                Line::builder()
+                                    .line_format("Another English version")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_action_validation_valid_choice_initial() {
+        use crate::{ChoiceData, DataFormat};
+
+        // This should succeed - initial value is in the choices
+        let result = Action::builder()
+            .id("valid_id")
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("choice_field")
+                    .format(DataFormat::Choice(
+                        ChoiceData::builder()
+                            .initial("option_a") // Valid choice
+                            .choice("option_a")
+                            .choice("option_b")
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("Choose: {$choice_field$}")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn test_action_validation_all_data_fields_referenced() {
+        // This should succeed - all data fields are referenced in the lines
+        let result = Action::builder()
+            .id("valid_id")
+            .name("Valid Name")
+            .implementation(ActionImplementation::Dynamic)
+            .datum(
+                Data::builder()
+                    .id("text_field")
+                    .format(DataFormat::Text(
+                        crate::TextData::builder().build().unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .datum(
+                Data::builder()
+                    .id("number_field")
+                    .format(DataFormat::Number(
+                        crate::NumberData::builder().initial(42.0).build().unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .lines(
+                Lines::builder()
+                    .action(
+                        LingualLine::builder()
+                            .datum(
+                                Line::builder()
+                                    .line_format("Text: {$text_field$}, Number: {$number_field$}")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert!(result.is_ok(), "{result:?}");
+    }
 }

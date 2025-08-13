@@ -1,1 +1,0 @@
-action has 9 lines, but TouchPortal recommends a maximum of 8 lines for proper visibility on smaller screens

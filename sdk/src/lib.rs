@@ -166,20 +166,6 @@ impl PluginDescription {
 
 impl PluginDescriptionBuilder {
     fn validate(&self) -> Result<(), String> {
-        // Check for empty categories
-        for category in self.categories.iter().flatten() {
-            if category.actions.is_empty()
-                && category.events.is_empty()
-                && category.connectors.is_empty()
-                && category.states.is_empty()
-            {
-                return Err(format!(
-                    "category '{}' is empty - categories must contain at least one action, event, connector, or state",
-                    category.id
-                ));
-            }
-        }
-
         let states = self.categories.iter().flatten().flat_map(|c| &c.states);
         let states_by_id: HashMap<_, _> = states.map(|s| (&s.id, s)).collect();
 
@@ -440,6 +426,7 @@ impl PluginDescriptionBuilder {
 /// in one category. This will allow the users have the best experience. Also keep in mind that if
 /// the users do not like the additions of your setup, they can just remove the plugins.
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct Category {
     /// This is the id of the category.
@@ -492,6 +479,23 @@ pub struct Category {
 impl Category {
     pub fn builder() -> CategoryBuilder {
         CategoryBuilder::default()
+    }
+}
+
+impl CategoryBuilder {
+    fn validate(&self) -> Result<(), String> {
+        if self.actions.as_ref().is_none_or(|a| a.is_empty())
+            && self.events.as_ref().is_none_or(|e| e.is_empty())
+            && self.connectors.as_ref().is_none_or(|c| c.is_empty())
+            && self.states.as_ref().is_none_or(|s| s.is_empty())
+        {
+            let id = self.id.as_ref().expect("id is required");
+            return Err(format!(
+                "category '{}' is empty - categories must contain at least one action, event, connector, or state",
+                id
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -695,6 +699,15 @@ mod tests {
             .id("tp_tut_001_cat_01")
             .name("Tools")
             .imagepath("%TP_PLUGIN_FOLDER%ExamplePlugin/images/tools.png")
+            .state(
+                State::builder()
+                    .id("example_state")
+                    .description("Example state")
+                    .initial("default")
+                    .kind(StateType::Text(TextState::builder().build().unwrap()))
+                    .build()
+                    .unwrap(),
+            )
             .build()
             .unwrap();
 
@@ -740,5 +753,244 @@ mod tests {
             .unwrap();
 
         assert_json_snapshot!(plugin);
+    }
+
+    #[test]
+    fn test_plugin_validation_duplicate_action_ids() {
+        use insta::assert_snapshot;
+
+        let result = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.duplicate.ids")
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test.exe")
+            .category(
+                Category::builder()
+                    .id("test_cat")
+                    .name("Test Category")
+                    .action(
+                        Action::builder()
+                            .id("duplicate_action") // Same ID used twice
+                            .name("First Action")
+                            .implementation(ActionImplementation::Dynamic)
+                            .lines(
+                                Lines::builder()
+                                    .action(
+                                        LingualLine::builder()
+                                            .datum(
+                                                Line::builder()
+                                                    .line_format("First action")
+                                                    .build()
+                                                    .unwrap(),
+                                            )
+                                            .build()
+                                            .unwrap(),
+                                    )
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .action(
+                        Action::builder()
+                            .id("duplicate_action") // Duplicate ID
+                            .name("Second Action")
+                            .implementation(ActionImplementation::Dynamic)
+                            .lines(
+                                Lines::builder()
+                                    .action(
+                                        LingualLine::builder()
+                                            .datum(
+                                                Line::builder()
+                                                    .line_format("Second action")
+                                                    .build()
+                                                    .unwrap(),
+                                            )
+                                            .build()
+                                            .unwrap(),
+                                    )
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_plugin_validation_invalid_plugin_id() {
+        use insta::assert_snapshot;
+
+        let result = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.invalid@plugin#id!") // Invalid characters
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test.exe")
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_category_validation_empty_category() {
+        use insta::assert_snapshot;
+
+        let result = Category::builder()
+            .id("empty_cat")
+            .name("Empty Category")
+            // No actions, events, states, or connectors
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_event_state_validation_nonexistent_state() {
+        use insta::assert_snapshot;
+
+        let result = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.nonexistent.state")
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test.exe")
+            .category(
+                Category::builder()
+                    .id("test_cat")
+                    .name("Test Category")
+                    .event(
+                        Event::builder()
+                            .id("test_event")
+                            .name("Test Event")
+                            .format("Event happened with value $val")
+                            .value_state_id("nonexistent_state") // References non-existent state
+                            .value(EventValueType::Text(
+                                EventTextConfiguration::builder().build().unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    // No states defined
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_event_state_validation_type_mismatch() {
+        use insta::assert_snapshot;
+
+        let result = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.type.mismatch")
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test.exe")
+            .category(
+                Category::builder()
+                    .id("test_cat")
+                    .name("Test Category")
+                    .event(
+                        Event::builder()
+                            .id("choice_event")
+                            .name("Choice Event")
+                            .format("Choice event with value $val")
+                            .value_state_id("text_state")
+                            .value(EventValueType::Choice(
+                                EventChoiceValue::builder()
+                                    .choice("Option1")
+                                    .choice("Option2")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("text_state")
+                            .description("Text State")
+                            .initial("")
+                            .kind(StateType::Text(TextState::builder().build().unwrap()))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
+    }
+
+    #[test]
+    fn test_event_state_validation_choice_mismatch() {
+        use insta::assert_snapshot;
+
+        let result = PluginDescription::builder()
+            .api(ApiVersion::V4_3)
+            .version(1)
+            .name("Test Plugin")
+            .id("com.test.choice.mismatch")
+            .configuration(PluginConfiguration::builder().build().unwrap())
+            .plugin_start_cmd("test.exe")
+            .category(
+                Category::builder()
+                    .id("test_cat")
+                    .name("Test Category")
+                    .event(
+                        Event::builder()
+                            .id("mismatched_event")
+                            .name("Mismatched Event")
+                            .format("Event with value $val")
+                            .value_state_id("mismatched_state")
+                            .value(EventValueType::Choice(
+                                EventChoiceValue::builder()
+                                    .choice("Option1")
+                                    .choice("Option2")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .state(
+                        State::builder()
+                            .id("mismatched_state")
+                            .description("Mismatched State")
+                            .initial("Different1")
+                            .kind(StateType::Choice(
+                                ChoiceState::builder()
+                                    .choice("Different1")
+                                    .choice("Different2")
+                                    .choice("Different3")
+                                    .build()
+                                    .unwrap(),
+                            ))
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert_snapshot!(result.unwrap_err());
     }
 }

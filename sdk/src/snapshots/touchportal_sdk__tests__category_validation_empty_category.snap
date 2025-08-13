@@ -1,0 +1,5 @@
+---
+source: sdk/src/lib.rs
+expression: result.unwrap_err()
+---
+category 'empty_cat' is empty - categories must contain at least one action, event, connector, or state

@@ -1,0 +1,5 @@
+---
+source: sdk/src/lib.rs
+expression: error_msg
+---
+event choice_event is of choice type, but references state text_state which is of free-text type

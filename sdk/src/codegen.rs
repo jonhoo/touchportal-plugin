@@ -139,10 +139,6 @@ impl crate::Setting {
         format_ident!("{}SettingOptions", self.name.to_pascal_case())
     }
 
-    fn string_converter(&self) -> TokenStream {
-        quote! { #[serde(with = "protocol::serde_tp_stringly")] }
-    }
-
     fn to_rust_type(&self) -> TokenStream {
         match self.kind {
             SettingType::Text(_) | SettingType::Multiline(_) => quote! { String },
@@ -247,7 +243,6 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
             }
         })
     });
-    let converters = plugin.settings.iter().map(|s| s.string_converter());
     let types = plugin.settings.iter().map(|s| s.to_rust_type());
     let mut default_fn_names = Vec::new();
     let mut default_fn_idents = Vec::new();
@@ -276,7 +271,7 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
         pub struct PluginSettings {
             #(
                 #doc
-                #converters
+                #[serde(with = "protocol::serde_tp_stringly")]
                 #[serde(rename = #fields_raw, default = #default_fn_names)]
                 #fields1: #types
             ),*

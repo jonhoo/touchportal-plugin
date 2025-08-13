@@ -21,7 +21,6 @@ coverage:
 # Test files aren't important for coverage
 ignore:
   - "tests"
-  - "validation-failures-workspace"
   - "feature-tests-workspace"
   - "scripts"
   - "sdk/src/mock.rs"

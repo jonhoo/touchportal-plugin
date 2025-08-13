@@ -64,61 +64,13 @@ python3 ../../scripts/package.py
 python3 ../../scripts/install.py
 ```
 
-### Validation Failure Tests (validation-failures-workspace/ directory)
-
-Validation failure tests are plugins that intentionally contain build-time validation errors to ensure the SDK properly catches invalid configurations.
-
-#### Running Validation Tests
-
-```bash
-cd validation-failures-workspace/
-
-# Run all validation tests
-python3 ./test_validation_failures.py
-
-# Run a specific validation test by name
-python3 ./test_validation_failures.py missing-connector-data
-
-# Run multiple specific validation tests
-python3 ./test_validation_failures.py missing-connector-data choice-event-text-state
-```
-
-This script:
-1. Attempts to compile each validation test plugin (or just the specified ones)
-2. Verifies that compilation fails with the expected error message
-3. Reports which tests passed/failed
-4. When run with plugin names, only tests those specific plugins and shows available plugins if any name is invalid
-
-#### Adding New Validation Tests
-
-1. Create a new plugin directory in `validation-failures-workspace/`
-2. Add the plugin name to the `members` list in `validation-failures-workspace/Cargo.toml`
-3. Write a `build.rs` with intentional validation errors
-4. Create an `expected-error.txt` file with the exact error message expected
-5. Add a `src/main.rs` that just contains an `fn main`. Generated code does not need to be included here since the `build.rs` will fail first.
-6. Run `python3 ./test_validation_failures.py` to verify it works
-
-#### Current Validation Tests
-
-- **event-state-choice-mismatch**: Events and states with non-matching choice sets
-- **inconsistent-data-fields**: Same data field ID with different numeric constraints
-- **choice-event-text-state**: Choice events referencing text states (type mismatch)
-- **invalid-choice-initial**: Choice data with initial values not in valid choices
-- **missing-default-language**: Action lines without required "default" language entry
-
-#### Identifying SDK Code Generation Issues
-
-- If the current SDK code generation is catching a problem but producing poor error messages, make a note for later improvement
-- Remember that code in `build.rs` is not part of the SDK, it's part of the plugin
-- Unwraps failing in `build.rs` with an unhelpful error message is the plugin author's fault, not the SDK's
-
 ### Development
 
 ```bash
-# Build with debug information (excludes validation-failures-workspace)
+# Build with debug information
 cargo build --all
 
-# Check code without building (excludes validation-failures-workspace)
+# Check code without building
 cargo check --all-targets
 ```
 
@@ -155,10 +107,6 @@ This is an SDK that allows writing **TouchPortal plugins** written in Rust that 
     - `src/main.rs` - Plugin runtime and business logic
     - `build.rs` - Build-time plugin definition and code generation
     - `Cargo.toml` - Plugin dependencies and metadata
-- **`validation-failures-workspace/`** - Plugins that intentionally fail compilation to test build-time validation
-  - Isolated workspace to prevent `cargo check --all` failures
-  - Each plugin tests specific validation errors (choice mismatches, inconsistent data fields, etc.)
-  - Automated testing via `test_validation_failures.sh`
 
 ### Key Architecture Components
 
@@ -213,7 +161,7 @@ The plugin communicates with TouchPortal using a JSON-based protocol over TCP. T
 - Action handlers in `main.rs` implement the actual functionality
 - The framework automatically generates type-safe interfaces
 - Testing of the SDK and plugin is manual beyond ensuring that `cargo check` works in the plugin directory.
-- Build-time validation testing is automated via the `validation-failures-workspace/` test suite.
+- Build-time validation is tested via unit tests in the SDK.
 - When writing `validate` functions for builders, avoid unnecessary `if let Some` on fields that are not optional; the builder will ensure that they are set to `Some` before `validate` is called, so we can use expect.
 
 ## Error Handling & Debugging
@@ -281,9 +229,9 @@ RUST_LOG=trace cargo run --release
 
 - **Important Reminder**: Some feature test plugins may fail to compile because of bugs in our code generation rather than errors you make, since bugs in code generation cause compile-time errors.
 
-## Validation Testing
+## Build-Time Validation
 
-The SDK includes comprehensive build-time validation to catch invalid plugin configurations early. The `validation-failures-workspace/` contains validation test plugins that intentionally trigger these validation errors to ensure they work correctly.
+The SDK includes comprehensive build-time validation to catch invalid plugin configurations early, with validation rules tested via unit tests in the SDK.
 
 ### Key Validation Rules
 
@@ -296,16 +244,7 @@ The SDK includes comprehensive build-time validation to catch invalid plugin con
 
 When making changes to validation logic in the SDK:
 
-1. Run the existing validation test suite: `cd validation-failures-workspace && ./test_validation_failures.sh`
-2. Add new validation tests for any new validation rules
-3. Document validation gaps in `validation-failures-workspace/uncaught.md`
+1. Run the SDK unit tests: `cd sdk && cargo test`
+2. Add new unit tests for any new validation rules
 
-The validation test suite helps ensure that SDK changes don't accidentally break or weaken build-time error detection.
-
-### Uncaught Validation Tests
-
-Tests for validation gaps that aren't yet caught by the SDK:
-- Compile successfully (no expected-error.txt file)
-- Include MISSING.md documenting the specific validation gap
-- Test script identifies them with ⚠️ and confirms they compile successfully
-- Convert to proper validation tests when SDK validation is implemented
+The SDK unit tests help ensure that changes don't accidentally break or weaken build-time error detection.

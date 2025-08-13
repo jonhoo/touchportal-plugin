@@ -25,9 +25,6 @@ cd sdk/ && cargo test
 
 # Test SDK features
 cd feature-tests-workspace/ && python3 run_feature_tests.py
-
-# Test validation (build-time error detection)
-cd validation-failures-workspace/ && python3 test_validation_failures.py
 ```
 
 ## Project Structure
@@ -35,7 +32,6 @@ cd validation-failures-workspace/ && python3 test_validation_failures.py
 - **`sdk/`** - The TouchPortal plugin framework (published to crates.io)
 - **`plugins/`** - Production plugins for real-world use (e.g., YouTube Live)
 - **`feature-tests-workspace/`** - Feature test plugins for SDK testing
-- **`validation-failures-workspace/`** - Validation test plugins that intentionally fail compilation
 
 ## Common Development Tasks
 
@@ -43,8 +39,7 @@ cd validation-failures-workspace/ && python3 test_validation_failures.py
 
 1. Make changes in the `sdk/` directory
 2. Test with feature tests: `cd feature-tests-workspace && python3 run_feature_tests.py`
-3. Verify validation works: `cd validation-failures-workspace && python3 test_validation_failures.py`
-4. Run SDK tests: `cd sdk && cargo test`
+3. Run SDK tests: `cd sdk && cargo test`
 
 ### Adding a Feature Test
 
@@ -55,17 +50,6 @@ Feature tests demonstrate SDK functionality and serve as examples:
 3. Create `build.rs` with plugin definition using SDK builders
 4. Create `src/main.rs` with plugin implementation
 5. Test with: `python3 run_feature_tests.py your-plugin-name`
-
-### Adding a Validation Test
-
-Validation tests ensure the SDK catches invalid plugin configurations:
-
-1. Create new plugin directory in `validation-failures-workspace/`
-2. Add plugin name to `members` list in `validation-failures-workspace/Cargo.toml`
-3. Create `build.rs` with intentional validation errors
-4. Create `expected-error.txt` with the exact error message expected
-5. Create `src/main.rs` (minimal, since build.rs will fail first)
-6. Test with: `python3 test_validation_failures.py your-test-name`
 
 ## Architecture Overview
 

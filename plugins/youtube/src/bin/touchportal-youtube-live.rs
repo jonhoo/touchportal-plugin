@@ -1,9 +1,10 @@
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
-use std::time::Duration;
-use tokio::sync::watch;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 use touchportal_youtube_live::youtube_api::broadcasts::{
@@ -24,6 +25,356 @@ struct StreamSelection {
     channel_id: Option<String>,
     broadcast_id: Option<String>,
     live_chat_id: Option<String>,
+}
+
+/// Activity level for chat or metrics
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ActivityLevel {
+    High,
+    Medium,
+    Low,
+}
+
+impl ActivityLevel {
+    fn description(&self) -> &'static str {
+        match self {
+            ActivityLevel::High => "High Activity",
+            ActivityLevel::Medium => "Normal",
+            ActivityLevel::Low => "Low Activity",
+        }
+    }
+}
+
+/// Tracks chat message activity patterns to determine relative activity levels
+#[derive(Debug, Clone)]
+struct ChatActivityTracker {
+    message_timestamps: VecDeque<Instant>,
+    session_start: Option<Instant>,
+    session_baseline: Option<f64>, // Messages/min when stream started
+    rolling_average: f64,          // Recent average (last 15 minutes)
+    recent_peak: f64,              // Highest rate in last hour
+    last_activity_check: Instant,
+    total_messages: u64,
+}
+
+impl ChatActivityTracker {
+    fn new() -> Self {
+        Self {
+            message_timestamps: VecDeque::new(),
+            session_start: None,
+            session_baseline: None,
+            rolling_average: 0.0,
+            recent_peak: 0.0,
+            last_activity_check: Instant::now(),
+            total_messages: 0,
+        }
+    }
+
+    fn register_message(&mut self) {
+        let now = Instant::now();
+        self.message_timestamps.push_back(now);
+        self.total_messages += 1;
+
+        // Log significant activity changes
+        let current_rate = self.messages_per_minute(2); // Immediate activity
+        let recent_rate = self.messages_per_minute(10); // Recent baseline
+        if current_rate > recent_rate * 3.0 && current_rate > 1.0 {
+            tracing::debug!(
+                current_rate = %current_rate,
+                recent_rate = %recent_rate,
+                "chat activity spike detected"
+            );
+        }
+
+        // Initialize session start on first message
+        if self.session_start.is_none() {
+            self.session_start = Some(now);
+        }
+
+        // Clean old messages (keep last hour)
+        let cutoff = now - Duration::from_secs(3600);
+        while let Some(&front) = self.message_timestamps.front() {
+            if front < cutoff {
+                self.message_timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Update metrics periodically
+        if now.duration_since(self.last_activity_check) > Duration::from_secs(60) {
+            self.update_metrics();
+            self.last_activity_check = now;
+        }
+    }
+
+    fn update_metrics(&mut self) {
+        let now = Instant::now();
+
+        // Update rolling average (last 15 minutes)
+        self.rolling_average = self.messages_per_minute(15);
+
+        // Update recent peak (last hour)
+        self.recent_peak = self.recent_peak.max(self.rolling_average);
+
+        // Set session baseline if we have enough data (10 minutes into session)
+        if self.session_baseline.is_none() {
+            if let Some(start) = self.session_start {
+                if now.duration_since(start) > Duration::from_secs(600) {
+                    // 10 minutes
+                    self.session_baseline = Some(self.rolling_average);
+                }
+            }
+        }
+    }
+
+    fn messages_per_minute(&self, minutes: u64) -> f64 {
+        let cutoff = Instant::now() - Duration::from_secs(minutes * 60);
+        let count = self
+            .message_timestamps
+            .iter()
+            .filter(|&&timestamp| timestamp >= cutoff)
+            .count();
+        count as f64 / minutes as f64
+    }
+
+    fn calculate_activity_level(&self) -> ActivityLevel {
+        let current_rate = self.messages_per_minute(5); // Last 5 minutes
+        let baseline = self.rolling_average.max(0.1); // Avoid division by zero
+
+        // Multi-window analysis
+        let immediate_burst = self.messages_per_minute(2);
+        let recent_trend = self.messages_per_minute(10);
+
+        // Check for sudden excitement spike
+        if immediate_burst > recent_trend * 3.0 && immediate_burst > 1.0 {
+            return ActivityLevel::High;
+        }
+
+        // For very quiet streams (< 0.1 msg/min average), any activity is significant
+        if baseline < 0.1 {
+            return if current_rate > 0.5 {
+                ActivityLevel::High
+            } else if current_rate > 0.1 {
+                ActivityLevel::Medium
+            } else {
+                ActivityLevel::Low
+            };
+        }
+
+        // Relative activity level based on established patterns
+        let ratio = current_rate / baseline;
+        match ratio {
+            r if r > 2.0 => ActivityLevel::High,   // 2x+ recent average
+            r if r > 1.3 => ActivityLevel::Medium, // 30%+ above average
+            r if r < 0.5 => ActivityLevel::Low,    // 50%+ below average
+            _ => ActivityLevel::Medium,            // Near average
+        }
+    }
+
+    fn was_inactive_recently(&self) -> bool {
+        // Consider inactive if no messages in last 10 minutes but had activity before
+        self.messages_per_minute(10) < 0.1 && self.total_messages > 5
+    }
+}
+
+/// Tracks metrics changes to determine volatility levels
+#[derive(Debug, Clone)]
+struct MetricsVolatilityTracker {
+    last_viewers: Option<u64>,
+    last_likes: Option<u64>,
+    last_views: Option<u64>,
+    volatility_history: VecDeque<f64>, // Recent change percentages
+    last_update: Instant,
+}
+
+impl MetricsVolatilityTracker {
+    fn new() -> Self {
+        Self {
+            last_viewers: None,
+            last_likes: None,
+            last_views: None,
+            volatility_history: VecDeque::new(),
+            last_update: Instant::now(),
+        }
+    }
+
+    fn update_from_metrics(
+        &mut self,
+        viewers: Option<u64>,
+        likes: Option<u64>,
+        views: Option<u64>,
+    ) {
+        let now = Instant::now();
+        let mut total_change = 0.0;
+        let mut change_count = 0;
+
+        // Calculate percentage changes
+        if let (Some(current), Some(last)) = (viewers, self.last_viewers) {
+            if last > 0 {
+                let change = (current as f64 - last as f64).abs() / last as f64;
+                total_change += change;
+                change_count += 1;
+            }
+        }
+
+        if let (Some(current), Some(last)) = (likes, self.last_likes) {
+            if last > 0 {
+                let change = (current as f64 - last as f64).abs() / last as f64;
+                total_change += change;
+                change_count += 1;
+            }
+        }
+
+        // Views typically grow monotonically, so we look at rate of growth
+        if let (Some(current), Some(last)) = (views, self.last_views) {
+            if last > 0 && current > last {
+                let growth_rate = (current as f64 - last as f64) / last as f64;
+                total_change += growth_rate;
+                change_count += 1;
+            }
+        }
+
+        // Store average change if we have any measurements
+        if change_count > 0 {
+            let avg_change = total_change / change_count as f64;
+            self.volatility_history.push_back(avg_change);
+
+            // Log significant volatility
+            if avg_change > 0.2 {
+                // >20% change
+                tracing::debug!(
+                    avg_change = %avg_change,
+                    viewers = ?viewers,
+                    likes = ?likes,
+                    views = ?views,
+                    "high metrics volatility detected"
+                );
+            }
+
+            // Keep only last 10 measurements
+            while self.volatility_history.len() > 10 {
+                self.volatility_history.pop_front();
+            }
+        }
+
+        // Update stored values
+        self.last_viewers = viewers;
+        self.last_likes = likes;
+        self.last_views = views;
+        self.last_update = now;
+    }
+
+    fn calculate_volatility(&self) -> ActivityLevel {
+        if self.volatility_history.is_empty() {
+            return ActivityLevel::Medium; // Default when no data
+        }
+
+        // Average recent volatility
+        let avg_volatility: f64 =
+            self.volatility_history.iter().sum::<f64>() / self.volatility_history.len() as f64;
+
+        // Check for recent high volatility (last 3 measurements)
+        let recent_volatility = if self.volatility_history.len() >= 3 {
+            self.volatility_history.iter().rev().take(3).sum::<f64>() / 3.0
+        } else {
+            avg_volatility
+        };
+
+        match recent_volatility {
+            v if v > 0.15 => ActivityLevel::High,   // >15% change
+            v if v > 0.05 => ActivityLevel::Medium, // 5-15% change
+            _ => ActivityLevel::Low,                // <5% change
+        }
+    }
+}
+
+/// Main adaptive polling state manager
+#[derive(Debug, Clone)]
+struct AdaptivePollingState {
+    base_interval: u64,
+    current_interval: u64,
+    enabled: bool,
+    chat_tracker: ChatActivityTracker,
+    metrics_tracker: MetricsVolatilityTracker,
+    last_interval_update: Instant,
+}
+
+impl AdaptivePollingState {
+    fn new(base_interval: u64, enabled: bool) -> Self {
+        Self {
+            base_interval,
+            current_interval: base_interval,
+            enabled,
+            chat_tracker: ChatActivityTracker::new(),
+            metrics_tracker: MetricsVolatilityTracker::new(),
+            last_interval_update: Instant::now(),
+        }
+    }
+
+    fn register_chat_message(&mut self) {
+        self.chat_tracker.register_message();
+    }
+
+    fn update_from_metrics(
+        &mut self,
+        viewers: Option<u64>,
+        likes: Option<u64>,
+        views: Option<u64>,
+    ) {
+        self.metrics_tracker
+            .update_from_metrics(viewers, likes, views);
+    }
+
+    fn should_recalculate_interval(&self) -> bool {
+        // Recalculate every 2 minutes or after significant changes
+        Instant::now().duration_since(self.last_interval_update) > Duration::from_secs(120)
+    }
+
+    fn calculate_optimal_interval(&mut self) -> u64 {
+        if !self.enabled {
+            return self.base_interval;
+        }
+
+        let chat_level = self.chat_tracker.calculate_activity_level();
+        let metrics_volatility = self.metrics_tracker.calculate_volatility();
+
+        let multiplier = match (chat_level, metrics_volatility) {
+            (ActivityLevel::High, ActivityLevel::High) => 1.0, // Maximum responsiveness
+            (ActivityLevel::High, _) => 2.5,                   // Chat provides real-time data
+            (_, ActivityLevel::High) => 1.0,                   // Track rapid metrics changes
+            (ActivityLevel::Medium, ActivityLevel::Medium) => 1.8, // Balanced monitoring
+            (ActivityLevel::Low, ActivityLevel::Low) => 4.0,   // Minimal activity
+            _ => 2.0,                                          // Default moderate adjustment
+        };
+
+        let optimal = (self.base_interval as f64 * multiplier) as u64;
+        let new_interval = optimal.clamp(self.base_interval, self.base_interval * 6);
+
+        self.last_interval_update = Instant::now();
+        self.current_interval = new_interval;
+
+        new_interval
+    }
+
+    fn get_status_description(&self) -> String {
+        if !self.enabled {
+            return format!("{}s (Disabled)", self.base_interval);
+        }
+
+        let chat_level = self.chat_tracker.calculate_activity_level();
+        let metrics_level = self.metrics_tracker.calculate_volatility();
+
+        let reason = match (chat_level, metrics_level) {
+            (ActivityLevel::High, ActivityLevel::High) => "Very Active",
+            (ActivityLevel::High, _) => "Active Chat",
+            (_, ActivityLevel::High) => "Changing Metrics",
+            (ActivityLevel::Low, ActivityLevel::Low) => "Quiet",
+            _ => "Normal",
+        };
+
+        format!("{}s ({})", self.current_interval, reason)
+    }
 }
 
 // You can look at the generated code for a plugin using this command:
@@ -258,7 +609,9 @@ impl PluginCallbacks for Plugin {
                     CreateNotificationCommand::builder()
                         .notification_id("ytl_no_broadcast_selected")
                         .title("No Broadcast Selected")
-                        .message("Please use the 'Select Stream' action to choose a broadcast first.")
+                        .message(
+                            "Please use the 'Select Stream' action to choose a broadcast first.",
+                        )
                         .build()
                         .unwrap(),
                 )
@@ -367,7 +720,7 @@ impl PluginCallbacks for Plugin {
                 .await;
             eyre::bail!("Title cannot be empty");
         }
-        
+
         if ytl_new_title.len() > 100 {
             self.tp
                 .notify(
@@ -559,11 +912,13 @@ impl PluginCallbacks for Plugin {
 // ==============================================================================
 
 /// Poll video statistics and update TouchPortal states
+/// Also updates adaptive polling state based on metrics changes
 async fn poll_and_update_metrics(
     outgoing: &mut TouchPortalHandle,
     client: &YouTubeClient,
     broadcast_id: &str,
     stream_rx: &watch::Receiver<StreamSelection>,
+    adaptive_state: Arc<Mutex<AdaptivePollingState>>,
 ) {
     match client.get_video_statistics(broadcast_id).await {
         Ok(stats) => {
@@ -576,6 +931,28 @@ async fn poll_and_update_metrics(
                     "broadcast changed during metrics poll - discarding results"
                 );
                 return;
+            }
+
+            // Extract metrics for adaptive polling tracking
+            let current_viewers = stats
+                .live_streaming_details
+                .as_ref()
+                .and_then(|d| d.concurrent_viewers);
+            let current_likes = stats
+                .statistics
+                .like_count
+                .as_ref()
+                .and_then(|s| s.parse::<u64>().ok());
+            let current_views = stats
+                .statistics
+                .view_count
+                .as_ref()
+                .and_then(|s| s.parse::<u64>().ok());
+
+            // Update adaptive polling state with new metrics
+            {
+                let mut state = adaptive_state.lock().await;
+                state.update_from_metrics(current_viewers, current_likes, current_views);
             }
 
             // Update basic video statistics
@@ -618,7 +995,7 @@ async fn poll_and_update_metrics(
                 error = %e,
                 "failed to poll video statistics"
             );
-            
+
             // Clear metrics states on repeated failures to show current status
             outgoing.update_ytl_views_count("X").await;
             outgoing.update_ytl_likes_count("X").await;
@@ -652,7 +1029,12 @@ async fn poll_and_update_metrics(
 // - Add chat deletion detection if YouTube API supports it
 
 /// Process a chat message and trigger appropriate TouchPortal events
-async fn process_chat_message(outgoing: &mut TouchPortalHandle, message: LiveChatMessage) {
+/// Also updates adaptive polling state based on chat activity
+async fn process_chat_message(
+    outgoing: &mut TouchPortalHandle,
+    message: LiveChatMessage,
+    adaptive_state: Arc<Mutex<AdaptivePollingState>>,
+) {
     let author_name = message
         .author_details
         .as_ref()
@@ -664,6 +1046,12 @@ async fn process_chat_message(outgoing: &mut TouchPortalHandle, message: LiveCha
         .map(|a| a.channel_id.clone())
         .unwrap_or_else(|| "unknown".to_string());
     let timestamp = message.snippet.published_at.to_string();
+
+    // Register chat activity for adaptive polling
+    {
+        let mut state = adaptive_state.lock().await;
+        state.register_chat_message();
+    }
 
     match message.snippet.details {
         LiveChatMessageDetails::TextMessage {
@@ -973,8 +1361,28 @@ impl Plugin {
         };
         let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
-        let initial_interval = settings.polling_interval_seconds.max(30.0) as u64;
-        let (polling_interval_tx, polling_interval_rx) = watch::channel(initial_interval);
+        // Initialize adaptive polling state
+        let adaptive_enabled = settings.smart_polling_adjustment;
+        let base_interval = settings.base_polling_interval_seconds.max(30.0) as u64;
+        let adaptive_state = Arc::new(Mutex::new(AdaptivePollingState::new(
+            base_interval,
+            adaptive_enabled,
+        )));
+
+        tracing::info!(
+            adaptive_enabled = adaptive_enabled,
+            base_interval = base_interval,
+            "adaptive polling system initialized"
+        );
+
+        // Initial status update
+        {
+            let state = adaptive_state.lock().await;
+            outgoing
+                .update_ytl_adaptive_polling_status(&state.get_status_description())
+                .await;
+        }
+        let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
 
         // ==============================================================================
         // Background Metrics Polling Task
@@ -983,29 +1391,74 @@ impl Plugin {
         let mut metrics_outgoing = outgoing.clone();
         let metrics_channels = client_by_channel.clone();
         let metrics_stream_rx = stream_selection_rx.clone();
-        let polling_interval = settings.polling_interval_seconds.max(30.0) as u64;
+        let metrics_adaptive_state = adaptive_state.clone();
 
         tokio::spawn(async move {
-            let mut current_interval = polling_interval;
+            let mut current_interval = base_interval;
             let mut interval = tokio::time::interval(Duration::from_secs(current_interval));
             let mut polling_interval_rx = polling_interval_rx;
 
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        // Time to poll metrics
+                        // Time to poll metrics - check if we should recalculate interval
+                        let should_recalculate = {
+                            let state = metrics_adaptive_state.lock().await;
+                            state.should_recalculate_interval()
+                        };
+
+                        if should_recalculate {
+                            let new_interval = {
+                                let mut state = metrics_adaptive_state.lock().await;
+                                state.calculate_optimal_interval()
+                            };
+
+                            if new_interval != current_interval {
+                                let (chat_level, metrics_level) = {
+                                    let state = metrics_adaptive_state.lock().await;
+                                    (state.chat_tracker.calculate_activity_level(),
+                                     state.metrics_tracker.calculate_volatility())
+                                };
+
+                                tracing::info!(
+                                    old_interval = current_interval,
+                                    new_interval = new_interval,
+                                    chat_activity = ?chat_level,
+                                    metrics_volatility = ?metrics_level,
+                                    "adaptive polling interval updated"
+                                );
+                                current_interval = new_interval;
+                                interval = tokio::time::interval(Duration::from_secs(current_interval));
+
+                                // Update status display
+                                {
+                                    let state = metrics_adaptive_state.lock().await;
+                                    metrics_outgoing
+                                        .update_ytl_adaptive_polling_status(&state.get_status_description())
+                                        .await;
+                                }
+                                continue; // Skip this iteration to reset timing
+                            }
+                        }
                     }
                     Ok(()) = polling_interval_rx.changed() => {
-                        let new_interval = *polling_interval_rx.borrow();
-                        if new_interval != current_interval {
-                            tracing::debug!(
-                                old_interval = current_interval,
-                                new_interval = new_interval,
-                                "updating polling interval"
-                            );
-                            current_interval = new_interval;
-                            interval = tokio::time::interval(Duration::from_secs(current_interval));
-                            continue; // Skip this iteration to reset timing
+                        // Manual interval change (e.g., settings update)
+                        let new_base_interval = *polling_interval_rx.borrow();
+                        {
+                            let mut state = metrics_adaptive_state.lock().await;
+                            state.base_interval = new_base_interval;
+                            // Recalculate with new base
+                            let new_interval = state.calculate_optimal_interval();
+                            if new_interval != current_interval {
+                                tracing::debug!(
+                                    old_interval = current_interval,
+                                    new_interval = new_interval,
+                                    "updating polling interval from settings"
+                                );
+                                current_interval = new_interval;
+                                interval = tokio::time::interval(Duration::from_secs(current_interval));
+                                continue;
+                            }
                         }
                     }
                 }
@@ -1029,6 +1482,7 @@ impl Plugin {
                             &channel.yt,
                             broadcast_id,
                             &metrics_stream_rx,
+                            metrics_adaptive_state.clone(),
                         )
                         .await;
                     }
@@ -1049,6 +1503,7 @@ impl Plugin {
         let mut chat_outgoing = outgoing.clone();
         let chat_channels = client_by_channel.clone();
         let mut chat_stream_rx = stream_selection_rx.clone();
+        let chat_adaptive_state = adaptive_state.clone();
 
         tokio::spawn(async move {
             let mut chat_stream: Option<Pin<Box<LiveChatStream>>> = None;
@@ -1078,7 +1533,7 @@ impl Plugin {
                         }
                     } => {
                         if let Ok(msg) = chat_msg {
-                            process_chat_message(&mut chat_outgoing, msg).await;
+                            process_chat_message(&mut chat_outgoing, msg, chat_adaptive_state.clone()).await;
                         }
                     }
 

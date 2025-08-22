@@ -32,10 +32,23 @@ fn plugin() -> PluginDescription {
                 .build()
                 .unwrap(),
         )
-        // Polling interval with minimum to respect API quotas
+        // Smart polling adjustment toggle
         .setting(
             Setting::builder()
-                .name("Polling interval (seconds)")
+                .name("Smart polling adjustment")
+                .initial("On")
+                .kind(SettingType::Switch(
+                    SwitchSetting::builder()
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        )
+        // Base polling interval - enhanced description for adaptive mode
+        .setting(
+            Setting::builder()
+                .name("Base polling interval (seconds)")
                 .initial("60")
                 .kind(SettingType::Number(
                     NumberSetting::builder()
@@ -505,6 +518,17 @@ fn plugin() -> PluginDescription {
                         .description("YouTube Live - Selected Channel Name")
                         .initial("-")
                         .parent_group("Stream Info")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                // System Status States - plugin operation information
+                .state(
+                    State::builder()
+                        .id("ytl_adaptive_polling_status")
+                        .description("YouTube Live - Adaptive Polling Status")
+                        .initial("Disabled")
+                        .parent_group("System Status")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
                         .build()
                         .unwrap(),

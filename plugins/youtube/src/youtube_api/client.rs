@@ -4,7 +4,7 @@ use crate::oauth::OAuthManager;
 use crate::youtube_api::chat::LiveChatStream;
 use crate::youtube_api::{
     broadcasts::LiveBroadcastListResponse,
-    broadcasts::{BroadcastStatus, CuepointRequest, LiveBroadcast},
+    broadcasts::{BroadcastStatus, CuepointRequest, LiveBroadcast, LiveBroadcastUpdateRequest},
     channels::Channel,
     channels::ChannelListResponse,
     chat::LiveChatMessage,
@@ -390,6 +390,53 @@ impl YouTubeClient {
         Ok(broadcast)
     }
 
+    /// Updates a YouTube live broadcast with new title and/or description.
+    ///
+    /// Uses the `liveBroadcasts.update` API to modify broadcast title and description.
+    /// Only the fields specified in the update request will be modified; unspecified
+    /// fields will retain their current values.
+    ///
+    /// # Arguments
+    ///
+    /// * `update_request` - The [`LiveBroadcastUpdateRequest`] containing the fields to update
+    ///
+    /// # Returns
+    ///
+    /// The updated [`LiveBroadcast`] resource after the changes, or an error if the update fails.
+    ///
+    /// # Required Scopes
+    ///
+    /// * `https://www.googleapis.com/auth/youtube`
+    /// * `https://www.googleapis.com/auth/youtube.force-ssl`
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/update>
+    #[instrument(skip(self), ret)]
+    pub async fn update_live_broadcast(
+        &self,
+        update_request: &LiveBroadcastUpdateRequest,
+    ) -> eyre::Result<LiveBroadcast> {
+        let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
+        let query_params = [("part", "id,snippet,status")];
+
+        let response = self
+            .make_authenticated_request(Method::PUT, url, Some(&query_params), Some(update_request))
+            .await?;
+
+        let broadcast: LiveBroadcast = response
+            .json()
+            .await
+            .context("parse YouTube API update response as JSON")?;
+
+        tracing::debug!(
+            broadcast_id = broadcast.id,
+            "successfully updated broadcast"
+        );
+
+        Ok(broadcast)
+    }
+
     /// Inserts a cuepoint into a live broadcast.
     ///
     /// Uses the `liveBroadcasts.cuepoint` API to insert cuepoints that might trigger
@@ -500,10 +547,10 @@ impl YouTubeClient {
         })
     }
 
-    /// Gets statistics for a single YouTube video by its ID.
+    /// Gets statistics and live streaming details for a single YouTube video by its ID.
     ///
-    /// Uses the `videos.list` API to fetch statistics for the specified video.
-    /// Returns view count, like count, comment count, and other engagement metrics.
+    /// Uses the `videos.list` API to fetch statistics and live streaming information for the specified video.
+    /// Returns view count, like count, comment count, concurrent viewers (for live videos), and other engagement metrics.
     ///
     /// # Arguments
     ///
@@ -511,8 +558,8 @@ impl YouTubeClient {
     ///
     /// # Returns
     ///
-    /// A [`Video`] resource containing the video's statistics, or an error if the video
-    /// is not found or not accessible.
+    /// A [`Video`] resource containing the video's statistics and live streaming details (if applicable),
+    /// or an error if the video is not found or not accessible.
     ///
     /// # Required Scopes
     ///
@@ -526,7 +573,7 @@ impl YouTubeClient {
     #[instrument(skip(self), ret)]
     pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
         let url = "https://www.googleapis.com/youtube/v3/videos";
-        let query_params = [("part", "statistics"), ("id", video_id)];
+        let query_params = [("part", "statistics,liveStreamingDetails"), ("id", video_id)];
 
         let response = self
             .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)

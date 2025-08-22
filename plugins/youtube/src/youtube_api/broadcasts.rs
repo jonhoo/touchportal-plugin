@@ -73,6 +73,18 @@ pub struct LiveBroadcastSnippet {
     ///
     /// Note that the broadcast represents exactly one YouTube video.
     pub title: String,
+    /// The broadcast's description.
+    ///
+    /// Contains the description text that viewers see for this broadcast/video.
+    /// This field may be absent for broadcasts without descriptions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The ID of the live chat associated with this broadcast.
+    ///
+    /// This field is only present for live broadcasts that have an active chat.
+    /// Used to connect to the live chat message stream for this broadcast.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_chat_id: Option<String>,
     /// The date and time that the broadcast was added to YouTube's live broadcast schedule.
     ///
     /// The value is specified in ISO 8601 format.
@@ -278,4 +290,32 @@ where
 {
     let seconds: Option<u64> = Option::deserialize(deserializer)?;
     Ok(seconds.map(|s| SignedDuration::from_secs(s as i64)))
+}
+
+/// Request body for updating a live broadcast.
+///
+/// Used with the `liveBroadcasts.update` API to modify broadcast metadata.
+/// Only title and description updates are supported. Unspecified fields
+/// will retain their current values.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/update>
+#[derive(Debug, Serialize)]
+pub struct LiveBroadcastUpdateRequest {
+    /// The ID of the broadcast to update.
+    pub id: String,
+    /// Updated snippet details for the broadcast.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<LiveBroadcastUpdateSnippet>,
+}
+
+/// Snippet fields that can be updated for a live broadcast.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveBroadcastUpdateSnippet {
+    /// The updated title for the broadcast.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The updated description for the broadcast.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }

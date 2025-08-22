@@ -2,7 +2,10 @@
 
 This file tracks bugs, oddities, missing features, and other
 observations that are discovered while working, but can be deferred
-until later rather than implemented straight-away.
+until later rather than implemented straight-away. It should be used to
+record incidental features/issues you encounter that can be left to fix
+later so you don't get distracted. Don't dump your entire TODO list in
+this file!
 
 ## Issues Discovered
 

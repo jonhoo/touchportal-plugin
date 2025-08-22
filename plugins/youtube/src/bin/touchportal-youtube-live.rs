@@ -239,9 +239,30 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
+            // Provide user-friendly notification for missing selection
+            self.tp
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_no_channel_selected")
+                        .title("No Channel Selected")
+                        .message("Please use the 'Select Stream' action to choose a channel and broadcast first.")
+                        .build()
+                        .unwrap(),
+                )
+                .await;
             eyre::bail!("No channel selected - use 'Select Stream' action first");
         };
         let Some(broadcast_id) = &self.current_broadcast else {
+            self.tp
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_no_broadcast_selected")
+                        .title("No Broadcast Selected")
+                        .message("Please use the 'Select Stream' action to choose a broadcast first.")
+                        .build()
+                        .unwrap(),
+                )
+                .await;
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
@@ -257,14 +278,39 @@ impl PluginCallbacks for Plugin {
         );
 
         // Transition broadcast from testing -> live
-        channel
+        match channel
             .yt
             .transition_live_broadcast(broadcast_id, BroadcastStatus::Live)
             .await
-            .context("transition broadcast to live")?;
-
-        tracing::info!("broadcast started successfully");
-        Ok(())
+        {
+            Ok(_) => {
+                self.tp
+                    .notify(
+                        CreateNotificationCommand::builder()
+                            .notification_id("ytl_broadcast_started")
+                            .title("Broadcast Started")
+                            .message("Your live broadcast has been started successfully!")
+                            .build()
+                            .unwrap(),
+                    )
+                    .await;
+                tracing::info!("broadcast started successfully");
+                Ok(())
+            }
+            Err(e) => {
+                self.tp
+                    .notify(
+                        CreateNotificationCommand::builder()
+                            .notification_id("ytl_broadcast_start_failed")
+                            .title("Failed to Start Broadcast")
+                            .message(&format!("Could not start broadcast: {}", e))
+                            .build()
+                            .unwrap(),
+                    )
+                    .await;
+                Err(e).context("transition broadcast to live")
+            }
+        }
     }
 
     #[tracing::instrument(skip(self), ret)]
@@ -307,6 +353,34 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
         ytl_new_title: String,
     ) -> eyre::Result<()> {
+        // Input validation
+        if ytl_new_title.trim().is_empty() {
+            self.tp
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_empty_title")
+                        .title("Empty Title")
+                        .message("Please provide a title for your stream.")
+                        .build()
+                        .unwrap(),
+                )
+                .await;
+            eyre::bail!("Title cannot be empty");
+        }
+        
+        if ytl_new_title.len() > 100 {
+            self.tp
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_title_too_long")
+                        .title("Title Too Long")
+                        .message("Stream title must be 100 characters or less.")
+                        .build()
+                        .unwrap(),
+                )
+                .await;
+            eyre::bail!("Title too long (max 100 characters)");
+        }
         let Some(channel_id) = &self.current_channel else {
             eyre::bail!("No channel selected - use 'Select Stream' action first");
         };
@@ -344,6 +418,18 @@ impl PluginCallbacks for Plugin {
         // Update the current stream title state
         self.tp
             .update_ytl_current_stream_title(&ytl_new_title)
+            .await;
+
+        // Notify user of successful update
+        self.tp
+            .notify(
+                CreateNotificationCommand::builder()
+                    .notification_id("ytl_title_updated")
+                    .title("Title Updated")
+                    .message(&format!("Stream title updated to: {}", ytl_new_title))
+                    .build()
+                    .unwrap(),
+            )
             .await;
 
         tracing::info!("broadcast title updated successfully");
@@ -394,16 +480,30 @@ impl PluginCallbacks for Plugin {
         Ok(())
     }
 
-    // TODO: Add action for updating video thumbnail
-    // This would require:
+    // TODO: Add thumbnail management action
     // - New action: ytl_update_thumbnail with file path parameter
     // - YouTube API: thumbnails.set endpoint
     // - File upload handling for image files
     // - Validation of image format and size requirements
     // See: https://developers.google.com/youtube/v3/docs/thumbnails/set
 
-    // TODO: Add actions for poll creation and management
-    // This would require:
+    // TODO: Add channel information retrieval actions
+    // - New actions to get channel data and store in TouchPortal's value system
+    // - Example: "Get Channel Profile Image" action that stores image URL in value slot
+    // - Example: "Get Channel Stats" action for subscriber count, view count, etc.
+    // - This allows TouchPortal users to display channel info in their layouts
+    // - Similar to how some other streaming plugins provide user info actions
+    // - Would use YouTube Data API channels.list endpoint
+
+    // TODO: Add stream highlight markers
+    // - Create action to mark important moments during live streams
+    // - Unlike Twitch stream markers, YouTube doesn't have direct equivalent
+    // - Possible implementations: add timestamped entries to video description
+    // - Or: create Community Tab posts with stream timestamps
+    // - Or: use video comments with specific formatting for later retrieval
+    // - Would help streamers mark highlights for later editing/clipping
+
+    // TODO: Add poll/community integration (Limited by API availability)
     // - New action: ytl_create_poll with title, options, duration parameters
     // - New action: ytl_end_poll with poll ID parameter
     // - YouTube API: Currently no public API for YouTube polls (Community tab polls)
@@ -518,12 +618,17 @@ async fn poll_and_update_metrics(
                 error = %e,
                 "failed to poll video statistics"
             );
+            
+            // Clear metrics states on repeated failures to show current status
+            outgoing.update_ytl_views_count("X").await;
+            outgoing.update_ytl_likes_count("X").await;
+            outgoing.update_ytl_dislikes_count("X").await;
+            outgoing.update_ytl_live_viewers_count("X").await;
         }
     }
 }
 
 // TODO: Add stream health monitoring metrics
-// This would require:
 // - New states: ytl_stream_health, ytl_stream_resolution, ytl_stream_framerate, ytl_stream_bitrate
 // - YouTube API: liveStreams.list endpoint with status and contentDetails parts
 // - Polling integration: Add health metrics to poll_and_update_metrics function
@@ -531,6 +636,20 @@ async fn poll_and_update_metrics(
 // - Health status enum: "healthy", "warning", "error", "offline"
 // - Integration with existing metrics polling loop
 // See: https://developers.google.com/youtube/v3/live/docs/liveStreams/list
+
+// TODO: Add advanced analytics states
+// - Enhanced Metrics Group: ytl_chat_message_rate, ytl_super_chat_total_session, ytl_membership_count
+// - System Health Group: ytl_last_api_error, ytl_stream_uptime
+// - Session Statistics: Track session-level metrics, reset on stream change
+
+// TODO: Enhance chat events with richer data
+// - Add more local states to chat events (message IDs, user badges, channel URLs, etc.)
+// - Currently chat events only provide basic info (author, message, timestamp)
+// - More states would allow TouchPortal users to create richer automations
+// - Example: trigger different actions for moderators vs regular viewers
+// - Add message ID tracking to detect when messages are deleted by moderators
+// - Improve timestamp formatting (currently raw ISO string, could be more user-friendly)
+// - Add chat deletion detection if YouTube API supports it
 
 /// Process a chat message and trigger appropriate TouchPortal events
 async fn process_chat_message(outgoing: &mut TouchPortalHandle, message: LiveChatMessage) {
@@ -672,10 +791,11 @@ async fn process_chat_message(outgoing: &mut TouchPortalHandle, message: LiveCha
     }
 }
 
-// TODO: Add functionality for sending chat messages (two-way chat interaction)
-// This would require:
+// TODO: Add two-way chat integration
 // - New action: ytl_send_chat_message with message parameter
-// - YouTube API: liveChatMessages.insert endpoint
+// - Implement liveChatMessages.insert API endpoint
+// - Add proper rate limiting and error handling for chat restrictions
+// - Update chat monitoring to detect our own sent messages
 // - Authentication scope: https://www.googleapis.com/auth/youtube.force-ssl
 // - Validation of message content and rate limiting
 // - Error handling for chat restrictions (slow mode, subscriber-only, etc.)

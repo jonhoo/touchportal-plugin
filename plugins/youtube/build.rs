@@ -76,24 +76,62 @@ fn plugin() -> PluginDescription {
                 .unwrap(),
         )
         // ==============================================================================
-        // Account Management Category
+        // Main YouTube Live Category with Subcategories
         // ==============================================================================
+        // Following TwitchTheSecond plugin pattern for better organization
         .category(
             Category::builder()
-                .id("ytl_account_management")
-                .name("Account Management")
+                .id("ytl_youtube_live")
+                .name("YouTube Live")
+                // ==============================================================================
+                // Configuration Subcategory
+                // ==============================================================================
+                // Account management and stream selection - setup functions
+                .sub_category(
+                    SubCategory::builder()
+                        .id("ytl_configuration")
+                        .name("Configuration")
+                        .build()
+                        .unwrap()
+                )
+                // ==============================================================================
+                // Broadcaster Controls Subcategory  
+                // ==============================================================================
+                // Stream management and content creation tools
+                .sub_category(
+                    SubCategory::builder()
+                        .id("ytl_broadcaster_controls")
+                        .name("Broadcaster Controls")
+                        .build()
+                        .unwrap()
+                )
+                // ==============================================================================
+                // Analytics & Monitoring Subcategory
+                // ==============================================================================
+                // Real-time metrics, chat events, and monitoring states
+                .sub_category(
+                    SubCategory::builder()
+                        .id("ytl_analytics_monitoring")
+                        .name("Analytics & Monitoring")
+                        .build()
+                        .unwrap()
+                )
+                // ==============================================================================
+                // Configuration Actions
+                // ==============================================================================
                 .action(
                     Action::builder()
                         .id("ytl_add_youtube_channel")
                         .name("Add YouTube Channel")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_configuration")
                         .lines(
                             Lines::builder()
                                 .action(
                                     LingualLine::builder()
                                         .datum(
                                             Line::builder()
-                                                .line_format("Add another YouTube channel")
+                                                .line_format("Add another YouTube channel for multi-account management")
                                                 .build()
                                                 .unwrap(),
                                         )
@@ -106,85 +144,12 @@ fn plugin() -> PluginDescription {
                         .build()
                         .unwrap(),
                 )
-                // ==============================================================================
-                // Stream Statistics States
-                // ==============================================================================
-                // These are polled periodically based on the polling interval setting
-                .state(
-                    State::builder()
-                        .id("ytl_likes_count")
-                        .description("YouTube Live - Likes Count")
-                        .initial("-")
-                        .parent_group("Stream Metrics")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .state(
-                    State::builder()
-                        .id("ytl_dislikes_count")
-                        .description("YouTube Live - Dislikes Count")
-                        .initial("-")
-                        .parent_group("Stream Metrics")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .state(
-                    State::builder()
-                        .id("ytl_views_count")
-                        .description("YouTube Live - Views Count")
-                        .initial("-")
-                        .parent_group("Stream Metrics")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .state(
-                    State::builder()
-                        .id("ytl_live_viewers_count")
-                        .description("YouTube Live - Live Viewers Count")
-                        .initial("-")
-                        .parent_group("Stream Metrics")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .state(
-                    State::builder()
-                        .id("ytl_current_stream_title")
-                        .description("YouTube Live - Current Stream Title")
-                        .initial("-")
-                        .parent_group("Stream Info")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .state(
-                    State::builder()
-                        .id("ytl_selected_channel_name")
-                        .description("YouTube Live - Selected Channel Name")
-                        .initial("-")
-                        .parent_group("Stream Info")
-                        .kind(StateType::Text(TextState::builder().build().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        // ==============================================================================
-        // Stream Selection Category
-        // ==============================================================================
-        .category(
-            Category::builder()
-                .id("ytl_stream_selection")
-                .name("Stream Selection")
                 .action(
                     Action::builder()
                         .id("ytl_select_stream")
                         .name("Select Stream")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_configuration")
                         .datum(
                             Data::builder()
                                 .id("ytl_channel")
@@ -219,8 +184,7 @@ fn plugin() -> PluginDescription {
                                         .datum(
                                             Line::builder()
                                                 .line_format(
-                                                    "Select broadcast {$ytl_broadcast$} \
-                                                    from channel {$ytl_channel$}",
+                                                    "Select broadcast {$ytl_broadcast$} from channel {$ytl_channel$}",
                                                 )
                                                 .build()
                                                 .unwrap(),
@@ -234,21 +198,15 @@ fn plugin() -> PluginDescription {
                         .build()
                         .unwrap(),
                 )
-                .build()
-                .unwrap(),
-        )
-        // ==============================================================================
-        // Stream Control Category
-        // ==============================================================================
-        .category(
-            Category::builder()
-                .id("ytl_stream_control")
-                .name("Stream Control")
+                // ==============================================================================
+                // Broadcaster Control Actions
+                // ==============================================================================
                 .action(
                     Action::builder()
                         .id("ytl_start_broadcast")
                         .name("Start Live Broadcast")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_broadcaster_controls")
                         .lines(
                             Lines::builder()
                                 .action(
@@ -273,6 +231,7 @@ fn plugin() -> PluginDescription {
                         .id("ytl_stop_broadcast")
                         .name("Stop Live Broadcast")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_broadcaster_controls")
                         .lines(
                             Lines::builder()
                                 .action(
@@ -297,6 +256,7 @@ fn plugin() -> PluginDescription {
                         .id("ytl_update_title")
                         .name("Update Stream Title")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_broadcaster_controls")
                         .datum(
                             Data::builder()
                                 .id("ytl_new_title")
@@ -333,6 +293,7 @@ fn plugin() -> PluginDescription {
                         .id("ytl_update_description")
                         .name("Update Stream Description")
                         .implementation(ActionImplementation::Dynamic)
+                        .sub_category_id("ytl_broadcaster_controls")
                         .datum(
                             Data::builder()
                                 .id("ytl_new_description")
@@ -364,21 +325,15 @@ fn plugin() -> PluginDescription {
                         .build()
                         .unwrap(),
                 )
-                .build()
-                .unwrap(),
-        )
-        // ==============================================================================
-        // Chat Events Category
-        // ==============================================================================
-        .category(
-            Category::builder()
-                .id("ytl_chat_events")
-                .name("Chat Events")
+                // ==============================================================================
+                // Chat Events - Analytics & Monitoring
+                // ==============================================================================
                 .event(
                     Event::builder()
                         .id("ytl_new_chat_message")
                         .name("On New Chat Message")
                         .format("When you receive a chat message that $compare to $val")
+                        .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
@@ -419,6 +374,7 @@ fn plugin() -> PluginDescription {
                         .id("ytl_new_super_chat")
                         .name("On New Super Chat")
                         .format("When you receive a Super Chat")
+                        .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
@@ -459,6 +415,7 @@ fn plugin() -> PluginDescription {
                         .id("ytl_new_sponsor")
                         .name("On New Sponsor")
                         .format("When you receive a new sponsor/member")
+                        .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
@@ -488,9 +445,71 @@ fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 // ==============================================================================
-                // Event Value States
+                // States - Analytics & Monitoring
                 // ==============================================================================
-                // These states hold the triggering values for events
+                // Stream Statistics States - polled periodically based on polling interval setting
+                .state(
+                    State::builder()
+                        .id("ytl_likes_count")
+                        .description("YouTube Live - Likes Count")
+                        .initial("-")
+                        .parent_group("Stream Metrics")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_dislikes_count")
+                        .description("YouTube Live - Dislikes Count")
+                        .initial("-")
+                        .parent_group("Stream Metrics")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_views_count")
+                        .description("YouTube Live - Views Count")
+                        .initial("-")
+                        .parent_group("Stream Metrics")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_live_viewers_count")
+                        .description("YouTube Live - Live Viewers Count")
+                        .initial("-")
+                        .parent_group("Stream Metrics")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                // Stream Info States - current stream and channel information
+                .state(
+                    State::builder()
+                        .id("ytl_current_stream_title")
+                        .description("YouTube Live - Current Stream Title")
+                        .initial("-")
+                        .parent_group("Stream Info")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_selected_channel_name")
+                        .description("YouTube Live - Selected Channel Name")
+                        .initial("-")
+                        .parent_group("Stream Info")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                // Event Value States - these states hold the triggering values for events
                 .state(
                     State::builder()
                         .id("ytl_latest_chat_message")

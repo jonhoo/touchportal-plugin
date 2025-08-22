@@ -573,7 +573,10 @@ impl YouTubeClient {
     #[instrument(skip(self), ret)]
     pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
         let url = "https://www.googleapis.com/youtube/v3/videos";
-        let query_params = [("part", "statistics,liveStreamingDetails"), ("id", video_id)];
+        let query_params = [
+            ("part", "statistics,liveStreamingDetails"),
+            ("id", video_id),
+        ];
 
         let response = self
             .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)

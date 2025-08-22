@@ -25,7 +25,7 @@ use tokio_stream::{Stream, StreamExt};
 /// to avoid missing messages during reconnection.
 pub struct LiveChatStream {
     /// The underlying byte stream from the HTTP response
-    bytes_stream: Option<Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>>>>>,
+    bytes_stream: Option<Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>> + Send>>>,
     /// Buffer for accumulating bytes until we have complete JSON lines
     buffer: Vec<u8>,
     /// Current batch of messages from the most recent API response

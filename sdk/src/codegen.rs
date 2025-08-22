@@ -780,6 +780,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
         #action_data_choices
 
+        #[allow(private_bounds)]
         impl Plugin where Self: PluginCallbacks {
             async fn handle_incoming(&mut self, msg: protocol::TouchPortalOutput) -> eyre::Result<bool> {
                 use protocol::TouchPortalOutput;
@@ -844,6 +845,7 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
 fn gen_connect(plugin_id: &str) -> TokenStream {
     quote! {
+        #[allow(private_bounds)]
         impl Plugin where Self: PluginCallbacks {
             pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
                 Self::run_dynamic_with_setup(addr, std::convert::identity).await

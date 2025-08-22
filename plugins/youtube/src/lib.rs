@@ -6,7 +6,11 @@ use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;
 use std::ops::AsyncFnMut;
 use tokio_stream::StreamExt;
+pub mod activity;
+pub mod actions;
+pub mod background;
 pub mod oauth;
+pub mod plugin;
 pub mod youtube_api;
 
 #[derive(Debug, Clone)]

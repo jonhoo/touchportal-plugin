@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 pub mod oauth;
 pub mod youtube_api;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Channel {
     pub name: String,
     pub yt: YouTubeClient,

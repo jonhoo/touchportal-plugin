@@ -788,16 +788,24 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
             /// the complete current state of all plugin settings. Use this to synchronize your
             /// plugin's internal configuration with user-modified settings.
             ///
+            /// You will generally want to take the `settings` argument using exhaustive
+            /// struct-destructure syntax (i.e., `PluginSettings { field1, field2: _ }`) so that the
+            /// compiler will remind you to update the method if new settings are added.
+            ///
+            /// Remember that this will also be triggered when read-only settings are updated, even
+            /// though they're updated _by the plugin_. You'll probably want to ignore updates to
+            /// such settings.
+            ///
             /// # Arguments
             /// * `settings` - The complete current plugin settings parsed into the generated `PluginSettings` struct
             ///
             /// # Example
             /// ```rust,ignore
-            /// async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+            /// async fn on_settings_changed(&mut self, settings: PluginSettings { api_key, another_setting: _ }) -> eyre::Result<()> {
             ///     tracing::info!(?settings, "settings updated by user");
             ///
             ///     // Update your plugin's internal state based on new settings
-            ///     self.api_client.update_credentials(&settings.api_key)?;
+            ///     self.api_client.update_credentials(&api_key)?;
             ///     self.reconnect_if_needed().await?;
             ///
             ///     Ok(())

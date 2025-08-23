@@ -127,8 +127,8 @@ impl TimeBoundAccessToken {
 pub struct YouTubeClient {
     /// The current OAuth2 token.
     token: Arc<Mutex<TimeBoundAccessToken>>,
-    /// OAuth manager for refreshing tokens
-    oauth_manager: OAuthManager,
+    /// OAuth manager for refreshing tokens (shared across clients)
+    oauth_manager: Arc<OAuthManager>,
     /// HTTP client for API requests
     client: reqwest::Client,
 }
@@ -143,7 +143,7 @@ impl YouTubeClient {
     ///
     /// * `token` - A valid [`BasicTokenResponse`] containing the OAuth2 access token
     /// * `oauth_manager` - Shared OAuth manager for token refresh operations
-    pub fn new(token: TimeBoundAccessToken, oauth_manager: OAuthManager) -> Self {
+    pub fn new(token: TimeBoundAccessToken, oauth_manager: Arc<OAuthManager>) -> Self {
         let client = reqwest::Client::new();
 
         Self {
@@ -190,7 +190,7 @@ impl YouTubeClient {
             tracing::debug!("access token expired, attempting refresh");
 
             // Token needs refresh
-            if token.refresh(&self.oauth_manager).await? {
+            if token.refresh(&*self.oauth_manager).await? {
                 tracing::debug!("access token successfully refreshed");
             } else {
                 tracing::error!("access token refresh failed, client is unusable");

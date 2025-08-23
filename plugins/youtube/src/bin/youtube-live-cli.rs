@@ -24,8 +24,9 @@ async fn main() -> eyre::Result<()> {
     }
 
     // Use shared token setup logic (no notifications needed for CLI)
+    // CLI uses default OAuth credentials (no custom client ID/secret)
     let (client_by_channel, refreshed_tokens) =
-        setup_youtube_clients(&tokens, async |_, _, _| {}).await?;
+        setup_youtube_clients(&tokens, None, None, async |_, _, _| {}).await?;
 
     // for testing
     for (id, Channel { name, yt }) in &client_by_channel {

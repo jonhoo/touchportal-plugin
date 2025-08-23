@@ -36,13 +36,51 @@ const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
 /// The OAuthManager encapsulates all OAuth operations, providing a consistent interface
 /// for both initial user authentication and token refresh operations. It uses constant
 /// OAuth client configuration and handles the security aspects of the authorization flow.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct OAuthManager;
+#[derive(Debug, Clone, Default)]
+pub struct OAuthManager {
+    custom_client_id: Option<String>,
+    custom_client_secret: Option<String>,
+}
 
 impl OAuthManager {
-    /// Creates a new OAuth manager instance.
+    /// Creates a new OAuth manager instance with default hardcoded credentials.
     pub const fn new() -> Self {
-        Self
+        Self {
+            custom_client_id: None,
+            custom_client_secret: None,
+        }
+    }
+
+    /// Creates a new OAuth manager instance with custom credentials.
+    /// If either credential is empty, falls back to hardcoded defaults.
+    pub fn with_custom_credentials(
+        client_id: Option<String>,
+        client_secret: Option<String>,
+    ) -> Self {
+        // Only use custom credentials if both are provided and non-empty
+        let (custom_client_id, custom_client_secret) = match (&client_id, &client_secret) {
+            (Some(id), Some(secret)) if !id.trim().is_empty() && !secret.trim().is_empty() => {
+                (Some(id.clone()), Some(secret.clone()))
+            }
+            _ => (None, None),
+        };
+
+        Self {
+            custom_client_id,
+            custom_client_secret,
+        }
+    }
+
+    /// Gets the effective client ID (custom or default).
+    fn client_id(&self) -> &str {
+        self.custom_client_id.as_deref().unwrap_or(CLIENT_ID)
+    }
+
+    /// Gets the effective client secret (custom or default).
+    fn client_secret(&self) -> &str {
+        self.custom_client_secret
+            .as_deref()
+            .unwrap_or(CLIENT_SECRET)
     }
 
     /// Performs a complete OAuth 2.0 authorization flow to obtain a new access token.
@@ -68,8 +106,8 @@ impl OAuthManager {
         let token_url = TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL");
         let revocation_url = RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string())
             .expect("Invalid revocation endpoint URL");
-        let client = BasicClient::new(ClientId::new(CLIENT_ID.to_string()))
-            .set_client_secret(ClientSecret::new(CLIENT_SECRET.to_string()))
+        let client = BasicClient::new(ClientId::new(self.client_id().to_string()))
+            .set_client_secret(ClientSecret::new(self.client_secret().to_string()))
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
             .set_redirect_uri(redirect_url)
@@ -144,8 +182,8 @@ impl OAuthManager {
         tracing::debug!("attempting to refresh OAuth token");
 
         // Create a minimal OAuth client for token refresh (no redirect URL needed)
-        let client = BasicClient::new(ClientId::new(CLIENT_ID.to_string()))
-            .set_client_secret(ClientSecret::new(CLIENT_SECRET.to_string()))
+        let client = BasicClient::new(ClientId::new(self.client_id().to_string()))
+            .set_client_secret(ClientSecret::new(self.client_secret().to_string()))
             .set_token_uri(
                 TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL"),
             );

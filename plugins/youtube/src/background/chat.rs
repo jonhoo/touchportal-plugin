@@ -1,6 +1,5 @@
 use crate::Channel;
 use crate::youtube_api::chat::{LiveChatMessage, LiveChatMessageDetails, LiveChatStream};
-use crate::youtube_api::client::YouTubeClient;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -166,10 +165,10 @@ pub async fn process_chat_message(
     }
 }
 
-/// Restart chat stream when stream selection changes - optimized version
+/// Restart chat stream when stream selection changes
 pub async fn restart_chat_stream_optimized(
     chat_stream: &mut Option<Pin<Box<LiveChatStream>>>,
-    channels: &HashMap<String, Channel>,
+    channels: &Arc<Mutex<HashMap<String, Channel>>>,
     channel_id: Option<String>,
     broadcast_id: Option<String>,
     live_chat_id: Option<String>,
@@ -177,94 +176,39 @@ pub async fn restart_chat_stream_optimized(
     // Clean up old stream
     *chat_stream = None;
 
-    if let (Some(channel_id), Some(broadcast_id)) = (channel_id, broadcast_id) {
-        if let Some(channel) = channels.get(&channel_id) {
-            if let Some(chat_id) = live_chat_id {
-                // We already have the live chat ID - start streaming immediately
-                let new_stream = LiveChatStream::new(channel.yt.clone(), chat_id.clone());
-                *chat_stream = Some(Box::pin(new_stream));
+    if let (Some(channel_id), Some(broadcast_id), Some(chat_id)) =
+        (channel_id, broadcast_id, live_chat_id)
+    {
+        // Get channel from shared state
+        let channel_opt = {
+            let channels_guard = channels.lock().await;
+            channels_guard.get(&channel_id).cloned()
+        };
 
-                tracing::info!(
-                    channel = %channel_id,
-                    broadcast = %broadcast_id,
-                    chat_id = %chat_id,
-                    "started chat monitoring with pre-fetched chat ID"
-                );
-            } else {
-                // Fallback: we don't have the live chat ID, try to get it from broadcast data
-                tracing::debug!(
-                    channel = %channel_id,
-                    broadcast = %broadcast_id,
-                    "no pre-fetched chat ID, trying to get from broadcast data"
-                );
+        if let Some(channel) = channel_opt {
+            // Live chat ID is always available for valid broadcasts - start streaming immediately
+            let new_stream = LiveChatStream::new((*channel.yt).clone(), chat_id.clone());
+            *chat_stream = Some(Box::pin(new_stream));
 
-                // This could happen for manually selected broadcasts
-                match get_live_chat_id_fallback(&channel.yt, &broadcast_id).await {
-                    Ok(Some(chat_id)) => {
-                        let new_stream = LiveChatStream::new(channel.yt.clone(), chat_id.clone());
-                        *chat_stream = Some(Box::pin(new_stream));
-
-                        tracing::info!(
-                            channel = %channel_id,
-                            broadcast = %broadcast_id,
-                            chat_id = %chat_id,
-                            "started chat monitoring with fallback chat ID lookup"
-                        );
-                    }
-                    Ok(None) => {
-                        tracing::info!(
-                            channel = %channel_id,
-                            broadcast = %broadcast_id,
-                            "no active chat for broadcast"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            channel = %channel_id,
-                            broadcast = %broadcast_id,
-                            error = %e,
-                            "failed to get chat ID for broadcast"
-                        );
-                    }
-                }
-            }
+            tracing::info!(
+                channel = %channel_id,
+                broadcast = %broadcast_id,
+                chat_id = %chat_id,
+                "started chat monitoring"
+            );
         }
     } else {
         tracing::debug!("cleared chat stream (no stream selected)");
     }
 }
 
-/// Fallback function to get live chat ID when not pre-fetched
-pub async fn get_live_chat_id_fallback(
-    client: &YouTubeClient,
-    broadcast_id: &str,
-) -> eyre::Result<Option<String>> {
-    // Use video statistics approach as fallback for manually selected broadcasts
-    match client.get_video_statistics(broadcast_id).await {
-        Ok(stats) => {
-            if let Some(live_details) = &stats.live_streaming_details {
-                return Ok(live_details.active_live_chat_id.clone());
-            }
-        }
-        Err(e) => {
-            tracing::warn!(
-                broadcast_id = %broadcast_id,
-                error = %e,
-                "fallback: failed to get live chat ID from video statistics"
-            );
-        }
-    }
-
-    Ok(None)
-}
-
 /// Spawn the background chat monitoring task
 pub async fn spawn_chat_task(
     mut outgoing: crate::plugin::TouchPortalHandle,
-    channels: HashMap<String, Channel>,
+    channels: Arc<Mutex<HashMap<String, Channel>>>,
     mut stream_rx: watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut chat_stream: Option<Pin<Box<LiveChatStream>>> = None;
         let mut current_broadcast: Option<String> = None;
@@ -320,5 +264,5 @@ pub async fn spawn_chat_task(
                 }
             }
         }
-    });
+    })
 }

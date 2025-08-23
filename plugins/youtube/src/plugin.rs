@@ -23,21 +23,66 @@ include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
 #[derive(Debug)]
 pub struct Plugin {
-    yt: HashMap<String, Channel>,
+    yt: Arc<Mutex<HashMap<String, Channel>>>,
     tp: TouchPortalHandle,
     current_channel: Option<String>,
     current_broadcast: Option<String>,
     stream_selection_tx: watch::Sender<StreamSelection>,
     polling_interval_tx: watch::Sender<u64>,
+    // Track OAuth credentials to detect changes that invalidate tokens
+    current_custom_client_id: Option<String>,
+    current_custom_client_secret: Option<String>,
+    // Background task handles for cancellation and restart
+    metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
+    chat_task_handle: Option<tokio::task::JoinHandle<()>>,
+    // Stored parameters for background task restart
+    adaptive_state: Arc<Mutex<AdaptivePollingState>>,
+    stream_selection_rx: watch::Receiver<StreamSelection>,
+    polling_interval_rx: watch::Receiver<u64>,
 }
 
 impl PluginCallbacks for Plugin {
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+        // Handle OAuth credential changes (highest priority - invalidates all tokens)
+        self.handle_oauth_credential_change(&settings).await?;
+
+        // Handle polling interval changes - notify background tasks and adaptive state
+        let new_polling_interval = settings.base_polling_interval_seconds.max(30.0) as u64;
+        if let Err(e) = self.polling_interval_tx.send(new_polling_interval) {
+            tracing::warn!(
+                error = %e,
+                new_interval = new_polling_interval,
+                "failed to notify background tasks of polling interval change"
+            );
+        }
+
+        // Update adaptive polling base interval
+        {
+            let mut adaptive_state = self.adaptive_state.lock().await;
+            adaptive_state.base_interval = new_polling_interval;
+        }
+
+        tracing::debug!(
+            polling_interval = new_polling_interval,
+            smart_polling = settings.smart_polling_adjustment,
+            "processed user-modifiable settings changes"
+        );
+
+        Ok(())
+    }
     #[tracing::instrument(skip(self), ret)]
     async fn on_ytl_add_youtube_channel(
         &mut self,
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
-        oauth::handle_add_youtube_channel(&mut self.tp, &mut self.yt).await
+        oauth::handle_add_youtube_channel(
+            &mut self.tp,
+            &mut self.yt,
+            self.current_custom_client_id.clone(),
+            self.current_custom_client_secret.clone(),
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self), ret)]
@@ -114,10 +159,11 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
-        let channel = self
-            .yt
-            .get(channel_id)
-            .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        let channel = {
+            let yt_guard = self.yt.lock().await;
+            yt_guard.get(channel_id).cloned()
+        }
+        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
             channel = %channel_id,
@@ -173,10 +219,11 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
-        let channel = self
-            .yt
-            .get(channel_id)
-            .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        let channel = {
+            let yt_guard = self.yt.lock().await;
+            yt_guard.get(channel_id).cloned()
+        }
+        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
             channel = %channel_id,
@@ -236,10 +283,11 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
-        let channel = self
-            .yt
-            .get(channel_id)
-            .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        let channel = {
+            let yt_guard = self.yt.lock().await;
+            yt_guard.get(channel_id).cloned()
+        }
+        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
             channel = %channel_id,
@@ -297,10 +345,11 @@ impl PluginCallbacks for Plugin {
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
-        let channel = self
-            .yt
-            .get(channel_id)
-            .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        let channel = {
+            let yt_guard = self.yt.lock().await;
+            yt_guard.get(channel_id).cloned()
+        }
+        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
             channel = %channel_id,
@@ -420,7 +469,11 @@ impl PluginCallbacks for Plugin {
             .expect("all options are formatted this way")
             .1;
 
-        let Some(channel) = self.yt.get(selected) else {
+        let channel = {
+            let yt_guard = self.yt.lock().await;
+            yt_guard.get(selected).cloned()
+        };
+        let Some(channel) = channel else {
             eyre::bail!("user selected unknown channel '{selected}'");
         };
 
@@ -459,6 +512,21 @@ impl Plugin {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
 
+        // ==============================================================================
+        // Custom OAuth Credential Handling
+        // ==============================================================================
+        // Extract custom OAuth credentials, treating empty strings as None
+        let custom_client_id = if settings.custom_o_auth_client_id.trim().is_empty() {
+            None
+        } else {
+            Some(settings.custom_o_auth_client_id.clone())
+        };
+        let custom_client_secret = if settings.custom_o_auth_client_secret.trim().is_empty() {
+            None
+        } else {
+            Some(settings.custom_o_auth_client_secret.clone())
+        };
+
         // Use shared token setup logic with notification callback
         let notify_callback = async |id: &str, title: &str, message: &str| {
             let _ = outgoing
@@ -473,8 +541,13 @@ impl Plugin {
                 .await;
         };
 
-        let (client_by_channel, refreshed_tokens) =
-            setup_youtube_clients(&settings.you_tube_api_access_tokens, notify_callback).await?;
+        let (client_by_channel, refreshed_tokens) = setup_youtube_clients(
+            &settings.you_tube_api_access_tokens,
+            custom_client_id.clone(),
+            custom_client_secret.clone(),
+            notify_callback,
+        )
+        .await?;
 
         // Update stored tokens with the refreshed ones
         outgoing
@@ -552,17 +625,20 @@ impl Plugin {
         }
         let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
 
+        // Create shared channel state for background tasks
+        let shared_channels = Arc::new(Mutex::new(client_by_channel));
+
         // ==============================================================================
         // Background Metrics Polling Task
         // ==============================================================================
         // Spawn the metrics polling task
-        metrics::spawn_metrics_task(
+        let metrics_task_handle = metrics::spawn_metrics_task(
             outgoing.clone(),
-            client_by_channel.clone(),
+            shared_channels.clone(),
             stream_selection_rx.clone(),
             adaptive_state.clone(),
             base_interval,
-            polling_interval_rx,
+            polling_interval_rx.clone(),
         )
         .await;
 
@@ -570,9 +646,9 @@ impl Plugin {
         // Background Chat Monitoring Task
         // ==============================================================================
         // Spawn the chat monitoring task
-        chat::spawn_chat_task(
+        let chat_task_handle = chat::spawn_chat_task(
             outgoing.clone(),
-            client_by_channel.clone(),
+            shared_channels.clone(),
             stream_selection_rx.clone(),
             adaptive_state.clone(),
         )
@@ -590,12 +666,165 @@ impl Plugin {
         // See TouchPortal SDK documentation for activePollItem usage patterns
 
         Ok(Self {
-            yt: client_by_channel,
+            yt: shared_channels,
             tp: outgoing,
             current_channel,
             current_broadcast,
             stream_selection_tx,
             polling_interval_tx,
+            current_custom_client_id: custom_client_id,
+            current_custom_client_secret: custom_client_secret,
+            metrics_task_handle: Some(metrics_task_handle),
+            chat_task_handle: Some(chat_task_handle),
+            adaptive_state,
+            stream_selection_rx,
+            polling_interval_rx,
         })
+    }
+
+    /// Handle OAuth credential changes when TouchPortal settings are updated.
+    ///
+    /// This method will be called by the settings change callback (when available in future TouchPortal SDK)
+    /// to properly handle changes to custom OAuth client ID and secret settings.
+    ///
+    /// When OAuth credentials change:
+    /// 1. All existing access/refresh tokens become invalid immediately  
+    /// 2. All YouTube clients must be recreated with new OAuth manager
+    /// 3. Users must re-authenticate all accounts
+    /// 4. Plugin state must be reset (channels, current selections, etc.)
+    ///
+    /// # Arguments
+    /// * `new_settings` - Updated plugin settings containing potentially changed OAuth credentials
+    #[allow(dead_code)] // Will be used when settings change callback is implemented
+    async fn handle_oauth_credential_change(
+        &mut self,
+        new_settings: &PluginSettings,
+    ) -> eyre::Result<()> {
+        // Extract new custom OAuth credentials
+        let new_custom_client_id = if new_settings.custom_o_auth_client_id.trim().is_empty() {
+            None
+        } else {
+            Some(new_settings.custom_o_auth_client_id.clone())
+        };
+        let new_custom_client_secret = if new_settings.custom_o_auth_client_secret.trim().is_empty()
+        {
+            None
+        } else {
+            Some(new_settings.custom_o_auth_client_secret.clone())
+        };
+
+        // Early return if OAuth credentials haven't changed
+        if new_custom_client_id == self.current_custom_client_id
+            && new_custom_client_secret == self.current_custom_client_secret
+        {
+            return Ok(());
+        }
+
+        // OAuth credentials have changed - handle the implications
+        tracing::warn!(
+            old_client_id = ?self.current_custom_client_id,
+            new_client_id = ?new_custom_client_id,
+            "OAuth credentials changed - invalidating all tokens and requiring re-authentication"
+        );
+
+        // Clear all stored access tokens (they're now invalid)
+        self.tp.set_you_tube_api_access_tokens(String::new()).await;
+
+        // Clear all YouTube clients and channels
+        {
+            let mut yt_guard = self.yt.lock().await;
+            yt_guard.clear();
+        }
+
+        // Reset current selections
+        self.current_channel = None;
+        self.current_broadcast = None;
+
+        // Update stored OAuth credentials for future comparisons
+        self.current_custom_client_id = new_custom_client_id.clone();
+        self.current_custom_client_secret = new_custom_client_secret.clone();
+
+        // Cancel existing background tasks since they have invalid YouTube clients
+        if let Some(handle) = self.metrics_task_handle.take() {
+            handle.abort();
+            let _ = handle.await; // Wait for clean shutdown
+            tracing::debug!("canceled metrics background task");
+        }
+        if let Some(handle) = self.chat_task_handle.take() {
+            handle.abort();
+            let _ = handle.await; // Wait for clean shutdown
+            tracing::debug!("canceled chat background task");
+        }
+
+        // Restart background tasks with empty channel map (they will be idle until re-auth)
+        let empty_channels = Arc::new(Mutex::new(HashMap::new()));
+        let base_interval = 30u64; // Use default until settings are applied again
+
+        // Spawn new metrics task
+        let metrics_task_handle = metrics::spawn_metrics_task(
+            self.tp.clone(),
+            empty_channels.clone(),
+            self.stream_selection_rx.clone(),
+            self.adaptive_state.clone(),
+            base_interval,
+            self.polling_interval_rx.clone(),
+        )
+        .await;
+
+        // Spawn new chat task
+        let chat_task_handle = chat::spawn_chat_task(
+            self.tp.clone(),
+            empty_channels,
+            self.stream_selection_rx.clone(),
+            self.adaptive_state.clone(),
+        )
+        .await;
+
+        // Store new task handles
+        self.metrics_task_handle = Some(metrics_task_handle);
+        self.chat_task_handle = Some(chat_task_handle);
+
+        tracing::info!(
+            "restarted background tasks with empty channel map after OAuth credential change"
+        );
+
+        // Notify user that re-authentication is required
+        self.tp
+            .notify(
+                touchportal_sdk::protocol::CreateNotificationCommand::builder()
+                    .notification_id("ytl_oauth_changed")
+                    .title("OAuth Credentials Changed")
+                    .message(
+                        "Custom OAuth credentials have been updated. All stored tokens are now invalid. \
+                        Please use 'Add YouTube Channel' to re-authenticate your accounts."
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .await;
+
+        // Update UI to reflect empty state
+        self.tp
+            .update_choices_in_ytl_channel(std::iter::once("No channels available"))
+            .await;
+
+        // Clear stream selection since we have no valid channels
+        let empty_selection = crate::background::metrics::StreamSelection {
+            channel_id: None,
+            broadcast_id: None,
+            live_chat_id: None,
+        };
+        if let Err(e) = self.stream_selection_tx.send(empty_selection) {
+            tracing::warn!(
+                error = %e,
+                "failed to send empty stream selection to new background tasks"
+            );
+        }
+
+        tracing::info!(
+            "OAuth credentials changed - background tasks restarted, user must re-authenticate"
+        );
+
+        Ok(())
     }
 }

@@ -5,6 +5,7 @@ use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;
 use std::ops::AsyncFnMut;
+use std::sync::Arc;
 use tokio_stream::StreamExt;
 pub mod actions;
 pub mod activity;
@@ -16,7 +17,7 @@ pub mod youtube_api;
 #[derive(Debug, Clone)]
 pub struct Channel {
     pub name: String,
-    pub yt: YouTubeClient,
+    pub yt: Arc<YouTubeClient>,
 }
 
 /// Complete token setup for both plugin and CLI
@@ -46,6 +47,8 @@ pub struct Channel {
 /// - Consider implementing quota donation/sharing system for heavy users
 pub async fn setup_youtube_clients<F>(
     stored_tokens: &str,
+    custom_client_id: Option<String>,
+    custom_client_secret: Option<String>,
     mut notify_callback: F,
 ) -> eyre::Result<(HashMap<String, Channel>, Vec<BasicTokenResponse>)>
 where
@@ -56,7 +59,12 @@ where
     // ==============================================================================
     // We centralize all OAuth operations through a single manager to maintain
     // consistency in client configuration and error handling across token flows.
-    let oauth_manager = oauth::OAuthManager::new();
+    // Custom OAuth credentials are used if provided, otherwise fallback to defaults.
+    // Use Arc to share the manager across multiple YouTube clients efficiently.
+    let oauth_manager = Arc::new(oauth::OAuthManager::with_custom_credentials(
+        custom_client_id,
+        custom_client_secret,
+    ));
 
     // ==============================================================================
     // Token Acquisition Strategy
@@ -101,7 +109,7 @@ where
             let mut token = TimeBoundAccessToken::expired(token);
 
             if token
-                .refresh(&oauth_manager)
+                .refresh(&*oauth_manager)
                 .await
                 .context("refresh token")?
             {
@@ -132,7 +140,7 @@ where
 
         // Create client with refreshed/fresh token and shared OAuth manager
         refreshed_tokens.push(final_token.raw_token().clone());
-        let client = YouTubeClient::new(final_token, oauth_manager);
+        let client = YouTubeClient::new(final_token, Arc::clone(&oauth_manager));
         yt_clients.push(client);
     }
 
@@ -161,7 +169,8 @@ where
     // TouchPortal plugin instance.
     let mut client_by_channel = HashMap::new();
     for client in yt_clients {
-        let channels_stream = client.list_my_channels();
+        let client_arc = Arc::new(client);
+        let channels_stream = client_arc.list_my_channels();
         let mut channels_stream = std::pin::pin!(channels_stream);
         while let Some(channel) = channels_stream.next().await {
             let channel = channel.context("fetch channel")?;
@@ -169,7 +178,7 @@ where
                 channel.id.clone(),
                 Channel {
                     name: channel.snippet.title,
-                    yt: client.clone(),
+                    yt: Arc::clone(&client_arc),
                 },
             );
         }

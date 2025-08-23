@@ -88,6 +88,48 @@ fn plugin() -> PluginDescription {
                 .build()
                 .unwrap(),
         )
+        // Custom OAuth credentials for heavy users with dedicated Google projects
+        .setting(
+            Setting::builder()
+                .name("Custom OAuth Client ID")
+                .initial("")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Custom OAuth Client ID")
+                        .body("Optional: Use your own Google OAuth client ID for dedicated API quota. Leave empty to use shared defaults. Both client ID and secret must be provided together for custom credentials to be used.")
+                        .doc_url("https://github.com/jonhoo/touchportal-plugin/tree/main/plugins/youtube/QUOTA.md")
+                        .build()
+                        .unwrap(),
+                )
+                .kind(SettingType::Text(
+                    TextSetting::builder()
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        )
+        .setting(
+            Setting::builder()
+                .name("Custom OAuth Client Secret")
+                .initial("")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Custom OAuth Client Secret")
+                        .body("Optional: Use your own Google OAuth client secret for dedicated API quota. Leave empty to use shared defaults. Both client ID and secret must be provided together for custom credentials to be used.")
+                        .doc_url("https://github.com/jonhoo/touchportal-plugin/tree/main/plugins/youtube/QUOTA.md")
+                        .build()
+                        .unwrap(),
+                )
+                .kind(SettingType::Text(
+                    TextSetting::builder()
+                        .is_password(true)
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        )
         // ==============================================================================
         // Main YouTube Live Category with Subcategories
         // ==============================================================================

@@ -131,12 +131,12 @@ pub async fn poll_and_update_metrics(
 /// Spawn the background metrics polling task
 pub async fn spawn_metrics_task(
     mut outgoing: crate::plugin::TouchPortalHandle,
-    channels: HashMap<String, Channel>,
+    channels: Arc<Mutex<HashMap<String, Channel>>>,
     stream_rx: watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     base_interval: u64,
     polling_interval_rx: watch::Receiver<u64>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut current_interval = base_interval;
         let mut interval = tokio::time::interval(Duration::from_secs(current_interval));
@@ -213,7 +213,13 @@ pub async fn spawn_metrics_task(
             if let (Some(channel_id), Some(broadcast_id)) =
                 (&selection.channel_id, &selection.broadcast_id)
             {
-                if let Some(channel) = channels.get(channel_id) {
+                // Get channel from shared state
+                let channel_opt = {
+                    let channels_guard = channels.lock().await;
+                    channels_guard.get(channel_id).cloned()
+                };
+
+                if let Some(channel) = channel_opt {
                     tracing::debug!(
                         channel = %channel_id,
                         broadcast = %broadcast_id,
@@ -238,5 +244,5 @@ pub async fn spawn_metrics_task(
                 outgoing.update_ytl_live_viewers_count("-").await;
             }
         }
-    });
+    })
 }

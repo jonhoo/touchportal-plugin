@@ -1,6 +1,8 @@
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::CreateNotificationCommand;
 
@@ -10,9 +12,14 @@ use crate::{Channel, oauth};
 /// Handle the complex OAuth flow for adding a new YouTube channel
 pub async fn handle_add_youtube_channel(
     tp: &mut crate::plugin::TouchPortalHandle,
-    yt: &mut HashMap<String, Channel>,
+    yt: &Arc<Mutex<HashMap<String, Channel>>>,
+    custom_client_id: Option<String>,
+    custom_client_secret: Option<String>,
 ) -> eyre::Result<()> {
-    let oauth_manager = oauth::OAuthManager::new();
+    let oauth_manager = Arc::new(oauth::OAuthManager::with_custom_credentials(
+        custom_client_id,
+        custom_client_secret,
+    ));
 
     tp.notify(
         CreateNotificationCommand::builder()
@@ -32,7 +39,10 @@ pub async fn handle_add_youtube_channel(
         .await
         .context("authorize additional YouTube account")?;
 
-    let client = YouTubeClient::new(TimeBoundAccessToken::new(new_token.clone()), oauth_manager);
+    let client = YouTubeClient::new(
+        TimeBoundAccessToken::new(new_token.clone()),
+        Arc::clone(&oauth_manager),
+    );
 
     let is_valid = client
         .validate_token()
@@ -43,8 +53,9 @@ pub async fn handle_add_youtube_channel(
         eyre::bail!("newly authenticated YouTube token failed validation");
     }
 
+    let client_arc = Arc::new(client);
     let mut new_channel_count = 0;
-    let channels_stream = client.list_my_channels();
+    let channels_stream = client_arc.list_my_channels();
     let mut channels_stream = std::pin::pin!(channels_stream);
     while let Some(channel) = channels_stream.next().await {
         let channel = channel.context("fetch channel for new account")?;
@@ -52,34 +63,46 @@ pub async fn handle_add_youtube_channel(
         let channel_name = channel.snippet.title.clone();
 
         // Overwrite any existing entry for this channel ID with the new token
-        yt.insert(
-            channel_id.clone(),
-            Channel {
-                name: channel_name,
-                yt: client.clone(),
-            },
-        );
+        {
+            let mut yt_guard = yt.lock().await;
+            yt_guard.insert(
+                channel_id.clone(),
+                Channel {
+                    name: channel_name,
+                    yt: Arc::clone(&client_arc),
+                },
+            );
+        }
 
         new_channel_count += 1;
     }
 
-    tp.update_choices_in_ytl_channel(yt.iter().map(|(id, c)| format!("{} - {id}", c.name)))
+    // Update UI choices
+    {
+        let yt_guard = yt.lock().await;
+        tp.update_choices_in_ytl_channel(
+            yt_guard.iter().map(|(id, c)| format!("{} - {id}", c.name)),
+        )
         .await;
+    }
 
     // Collect unique tokens by refresh token uniqueness
     let mut seen_refresh_tokens = HashSet::new();
     let mut all_tokens = Vec::new();
 
-    for channel in yt.values() {
-        let token = channel.yt.token().await;
+    {
+        let yt_guard = yt.lock().await;
+        for channel in yt_guard.values() {
+            let token = channel.yt.token().await;
 
-        if let Some(refresh_token) = token.refresh_token().map(RefreshToken::secret) {
-            if seen_refresh_tokens.insert(refresh_token.clone()) {
+            if let Some(refresh_token) = token.refresh_token().map(RefreshToken::secret) {
+                if seen_refresh_tokens.insert(refresh_token.clone()) {
+                    all_tokens.push(token);
+                }
+            } else {
+                // Token without refresh token - always include it
                 all_tokens.push(token);
             }
-        } else {
-            // Token without refresh token - always include it
-            all_tokens.push(token);
         }
     }
 

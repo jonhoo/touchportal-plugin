@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use eyre::Context;
-use tokio_stream::StreamExt;
-use crate::youtube_api::broadcasts::BroadcastLifeCycleStatus;
 use crate::Channel;
+use crate::youtube_api::broadcasts::BroadcastLifeCycleStatus;
+use eyre::Context;
+use std::collections::HashMap;
+use tokio_stream::StreamExt;
 
 use crate::background::metrics::StreamSelection;
 

@@ -6,8 +6,8 @@ use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;
 use std::ops::AsyncFnMut;
 use tokio_stream::StreamExt;
-pub mod activity;
 pub mod actions;
+pub mod activity;
 pub mod background;
 pub mod oauth;
 pub mod plugin;
@@ -22,6 +22,28 @@ pub struct Channel {
 /// Complete token setup for both plugin and CLI
 /// Handles token acquisition, refresh, validation, and channel mapping
 /// Returns (channel_mapping, refreshed_tokens)
+///
+/// TODO(jon): Add quota usage tracking and user education system
+/// The YouTube Data API v3 has a daily quota limit of 10,000 units per project.
+/// Current plugin usage patterns and costs (as of 2025):
+/// - liveChatMessages.list: ~1 unit (but needs polling every 1-2 seconds during active chat)
+/// - videos.list for metrics: ~1 unit (polled every 30-600 seconds based on adaptive algorithm)
+/// - liveChatMessages.insert (send message): 50 units each (expensive!)
+/// - liveChatBans.insert (ban user): 50 units each (expensive!)
+/// - liveBroadcasts operations: 50 units each (title/description updates)
+///
+/// QUOTA EXHAUSTION SCENARIOS:
+/// - 150-minute stream with 2-second chat polling = ~4,500 units just for chat monitoring
+/// - Add metrics polling every 60 seconds = ~150 units
+/// - A few chat messages or bans can easily push over daily limit
+///
+/// RECOMMENDED IMPROVEMENTS:
+/// - Add quota usage estimation and display in TouchPortal states
+/// - Show daily usage tracking: "Used 2,847 / 10,000 quota units today"
+/// - Warn users when approaching limits: "90% quota used - consider reducing polling frequency"
+/// - Implement quota-aware features: disable expensive actions when quota is low
+/// - Add user education about quota sharing across all plugin users
+/// - Consider implementing quota donation/sharing system for heavy users
 pub async fn setup_youtube_clients<F>(
     stored_tokens: &str,
     mut notify_callback: F,

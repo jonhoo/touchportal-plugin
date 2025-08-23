@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
 use eyre::Context;
 use oauth2::{RefreshToken, TokenResponse};
+use std::collections::{HashMap, HashSet};
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::CreateNotificationCommand;
 
@@ -32,8 +32,7 @@ pub async fn handle_add_youtube_channel(
         .await
         .context("authorize additional YouTube account")?;
 
-    let client =
-        YouTubeClient::new(TimeBoundAccessToken::new(new_token.clone()), oauth_manager);
+    let client = YouTubeClient::new(TimeBoundAccessToken::new(new_token.clone()), oauth_manager);
 
     let is_valid = client
         .validate_token()
@@ -64,10 +63,8 @@ pub async fn handle_add_youtube_channel(
         new_channel_count += 1;
     }
 
-    tp.update_choices_in_ytl_channel(
-        yt.iter().map(|(id, c)| format!("{} - {id}", c.name)),
-    )
-    .await;
+    tp.update_choices_in_ytl_channel(yt.iter().map(|(id, c)| format!("{} - {id}", c.name)))
+        .await;
 
     // Collect unique tokens by refresh token uniqueness
     let mut seen_refresh_tokens = HashSet::new();

@@ -1,13 +1,11 @@
+use crate::Channel;
+use crate::youtube_api::chat::{LiveChatMessage, LiveChatMessageDetails, LiveChatStream};
+use crate::youtube_api::client::YouTubeClient;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
-use crate::youtube_api::chat::{
-    LiveChatMessage, LiveChatMessageDetails, LiveChatStream,
-};
-use crate::youtube_api::client::YouTubeClient;
-use crate::Channel;
 
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
@@ -42,6 +40,11 @@ pub async fn process_chat_message(
             text_message_details,
         } => {
             let message_text = &text_message_details.message_text;
+
+            // TODO(jon): Add message.id to chat event local states for moderation support
+            // Currently missing message ID which is required for ytl_delete_chat_message action
+            // The message.id field contains the unique identifier needed for liveChatMessages.delete
+            // Add ytl_chat_message_id as a new local state to ytl_new_chat_message event in build.rs
 
             // Trigger chat message event with local states
             outgoing

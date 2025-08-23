@@ -1,9 +1,9 @@
+use crate::Channel;
+use crate::youtube_api::client::YouTubeClient;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
-use crate::youtube_api::client::YouTubeClient;
-use crate::Channel;
+use tokio::sync::{Mutex, watch};
 
 use crate::activity::AdaptivePollingState;
 
@@ -94,6 +94,25 @@ pub async fn poll_and_update_metrics(
             );
         }
         Err(e) => {
+            // TODO(jon): Improve error handling robustness for production use
+            // Current implementation immediately shows "X" on any error, but this could be improved:
+            //
+            // RATE LIMITING DETECTION:
+            // - Check for HTTP 403 with quotaExceeded error to distinguish from other failures
+            // - Show "QUOTA" instead of "X" when quota is exhausted
+            // - Implement exponential backoff: start with 2x interval, max 10x interval
+            // - Reset backoff on successful API call
+            //
+            // TRANSIENT ERROR HANDLING:
+            // - Retry network errors (HTTP 500, timeout, connection reset) with backoff
+            // - Don't clear states immediately on first failure - wait for 2-3 consecutive failures
+            // - Show different indicators: "?" for network errors, "X" for persistent failures
+            //
+            // TOKEN REFRESH INTEGRATION:
+            // - Detect HTTP 401/403 authentication errors
+            // - Trigger token refresh and retry the API call
+            // - Only clear states if token refresh also fails
+
             tracing::warn!(
                 broadcast_id = %broadcast_id,
                 error = %e,

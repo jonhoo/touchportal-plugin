@@ -1,17 +1,17 @@
-use eyre::Context;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
-use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
-use tokio_stream::StreamExt;
 use crate::youtube_api::broadcasts::{
     BroadcastStatus, LiveBroadcastUpdateRequest, LiveBroadcastUpdateSnippet,
 };
+use eyre::Context;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, watch};
+use tokio_stream::StreamExt;
+use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 
+use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
 use crate::background::{chat, metrics};
-use crate::actions::{oauth, stream_selection};
 use crate::{Channel, setup_youtube_clients};
 
 // You can look at the generated code for a plugin using this command:
@@ -328,12 +328,40 @@ impl PluginCallbacks for Plugin {
         Ok(())
     }
 
-    // TODO: Add thumbnail management action
-    // - New action: ytl_update_thumbnail with file path parameter
-    // - YouTube API: thumbnails.set endpoint
-    // - File upload handling for image files
-    // - Validation of image format and size requirements
-    // See: https://developers.google.com/youtube/v3/docs/thumbnails/set
+    // TODO(jon): CRITICAL - Add chat moderation actions (verified available, essential for production use)
+    // Live streamers need these moderation tools. All verified working in YouTube Data API v3:
+    //
+    // HIGH PRIORITY MODERATION ACTIONS:
+    // - ytl_send_chat_message: Use liveChatMessages.insert endpoint
+    //   * POST /youtube/v3/liveChat/messages with snippet.textMessageDetails.messageText
+    //   * Cost: 50 quota units per message (expensive - warn users about quota usage)
+    //   * Parameters: message text (validate length, filter inappropriate content)
+    //   * Requires current liveChatId from selected broadcast
+    //
+    // - ytl_ban_user: Use liveChatBans.insert endpoint
+    //   * POST /youtube/v3/liveChat/bans with snippet.bannedUserDetails.channelId
+    //   * Cost: 50 quota units per ban
+    //   * Parameters: channel ID to ban, ban type ("permanent" or "temporary")
+    //   * For temporary bans: include banDurationSeconds (10 seconds to 24 hours max)
+    //
+    // - ytl_delete_chat_message: Use liveChatMessages.delete endpoint
+    //   * DELETE /youtube/v3/liveChat/messages/{messageId}
+    //   * Requires message ID from chat events (add messageId to chat event local states)
+    //   * Cost: moderate quota usage
+    //
+    // IMPLEMENTATION REQUIREMENTS:
+    // - Add messageId field to chat message event local states for deletion support
+    // - Add user channelId to chat events for easy banning from chat messages
+    // - Validate ban durations (10s minimum, 24h maximum for temporary bans)
+    // - Handle quota exhaustion gracefully with user-friendly error messages
+    // - Consider rate limiting for chat message sending to prevent spam
+
+    // TODO(jon): Add thumbnail management (verified available, moderate priority)
+    // - ytl_update_thumbnail: Use thumbnails.set endpoint (POST /youtube/v3/thumbnails/set)
+    //   * Supports JPEG, PNG, GIF, BMP formats, max 2MB file size
+    //   * YouTube auto-resizes while maintaining aspect ratio
+    //   * Parameters: file path to image, uses current broadcast ID as video ID
+    //   * Implementation: multipart/form-data upload with proper error handling
 
     // TODO: Add channel information retrieval actions
     // - New actions to get channel data and store in TouchPortal's value system
@@ -351,13 +379,33 @@ impl PluginCallbacks for Plugin {
     // - Or: use video comments with specific formatting for later retrieval
     // - Would help streamers mark highlights for later editing/clipping
 
-    // TODO: Add poll/community integration (Limited by API availability)
-    // - New action: ytl_create_poll with title, options, duration parameters
-    // - New action: ytl_end_poll with poll ID parameter
-    // - YouTube API: Currently no public API for YouTube polls (Community tab polls)
-    // - Alternative: Could implement using Community posts API when available
-    // - State tracking for active polls using activePollItem pattern
-    // - Events for poll start, progress, and completion with local states
+    // TODO(jon): Add live chat poll functionality (VERIFIED AVAILABLE via liveChatMessages API)
+    // YouTube supports polls through the Live Chat API. Research confirmed this works:
+    //
+    // POLL CREATION ACTION:
+    // - ytl_create_poll: Use liveChatMessages.insert with type="pollEvent"
+    //   * Endpoint: POST /youtube/v3/liveChat/messages
+    //   * Parameters: question text, 2-4 poll options (minimum 2, maximum 4)
+    //   * JSON structure: snippet.pollDetails.metadata with questionText and options array
+    //   * Critical limitation: Only ONE active poll at a time per channel
+    //   * Error handling: Creating second poll while one active returns "preconditionCheckFailed"
+    //
+    // POLL RESULTS TRACKING (we have channel owner permissions):
+    // - Parse tally field from pollDetails.options in chat message responses
+    // - Add dynamic states using activePollItem pattern for vote counts
+    // - Monitor chat message stream for pollDetails to get real-time vote updates
+    //
+    // POLL MANAGEMENT STATES:
+    // - ytl_active_poll_question: Current poll question text (empty if no active poll)
+    // - ytl_active_poll_status: "active", "closed", or "-" for no poll
+    // - Dynamic poll option states: ytl_poll_option_N_text and ytl_poll_option_N_votes
+    //
+    // IMPLEMENTATION APPROACH:
+    // - Use activePollItem pattern for creating/destroying poll result states dynamically
+    // - Clear all poll states when stream selection changes
+    // - Handle the "one poll at a time" limitation in UI validation
+    // - Poll voting happens through YouTube chat interface (users click to vote)
+    // - No direct poll closing API - polls close via YouTube UI or automatically
 
     async fn on_select_ytl_channel_in_ytl_select_stream(
         &mut self,
@@ -515,7 +563,8 @@ impl Plugin {
             adaptive_state.clone(),
             base_interval,
             polling_interval_rx,
-        ).await;
+        )
+        .await;
 
         // ==============================================================================
         // Background Chat Monitoring Task
@@ -526,7 +575,8 @@ impl Plugin {
             client_by_channel.clone(),
             stream_selection_rx.clone(),
             adaptive_state.clone(),
-        ).await;
+        )
+        .await;
 
         // TODO: Add background task for poll result tracking using activePollItem
         // This would require:
@@ -548,5 +598,4 @@ impl Plugin {
             polling_interval_tx,
         })
     }
-
 }

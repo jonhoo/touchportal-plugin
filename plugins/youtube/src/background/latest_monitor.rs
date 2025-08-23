@@ -8,21 +8,6 @@ use tokio_stream::StreamExt;
 
 use crate::background::metrics::StreamSelection;
 
-/// Get the title of a specific broadcast
-async fn get_broadcast_title(channel: &Channel, broadcast_id: &str) -> eyre::Result<String> {
-    let broadcasts = channel.yt.list_my_live_broadcasts();
-    let mut broadcasts = std::pin::pin!(broadcasts);
-
-    while let Some(broadcast) = broadcasts.next().await {
-        let broadcast = broadcast.context("fetch broadcast for title")?;
-        if broadcast.id == broadcast_id {
-            return Ok(broadcast.snippet.title);
-        }
-    }
-
-    eyre::bail!("Broadcast {} not found", broadcast_id)
-}
-
 /// Check if the latest non-completed broadcast has changed for a given channel
 ///
 /// Returns Some((new_broadcast_id, new_live_chat_id)) if the latest broadcast
@@ -84,7 +69,6 @@ pub async fn check_for_latest_broadcast_change(
 /// it automatically switches to the new latest broadcast.
 /// Uses a fixed 5-minute interval for monitoring.
 pub async fn spawn_latest_monitor_task(
-    mut outgoing: crate::plugin::TouchPortalHandle,
     channels: Arc<Mutex<HashMap<String, Channel>>>,
     stream_rx: watch::Receiver<StreamSelection>,
     stream_selection_tx: watch::Sender<StreamSelection>,
@@ -136,22 +120,12 @@ pub async fn spawn_latest_monitor_task(
                             };
 
                             // Note that we **don't** update the TouchPortal settings
-                            // since they should remain set to "latest".
+                            // since we're using "latest", and so it'll be picked up automatically
+                            // on a plugin restart.
 
-                            // Get the new broadcast title for status update
-                            // TODO(claude): the broadcast title should be updated by the metrics background task, which already has access to this information, not here.
-                            match get_broadcast_title(&channel, &new_broadcast_id).await {
-                                Ok(title) => {
-                                    outgoing.update_ytl_current_stream_title(&title).await;
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        broadcast = %new_broadcast_id,
-                                        error = %e,
-                                        "failed to get title for new active broadcast"
-                                    );
-                                }
-                            }
+                            // The broadcast title will be updated by the metrics background task
+                            // which already fetches this information as part of its regular
+                            // polling.
 
                             // Send updated selection to background tasks
                             if let Err(e) = stream_selection_tx.send(new_selection) {
@@ -176,7 +150,7 @@ pub async fn spawn_latest_monitor_task(
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(
+                            tracing::error!(
                                 channel = %channel_id,
                                 error = %e,
                                 "failed to check for active broadcast"

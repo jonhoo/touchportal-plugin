@@ -54,7 +54,7 @@ async fn main() -> eyre::Result<()> {
     // Demo video statistics API
     if let Some((_, Channel { yt, .. })) = client_by_channel.iter().next() {
         eprintln!("==> Testing video statistics API");
-        match yt.get_video_statistics("dQw4w9WgXcQ").await {
+        match yt.get_video_metadata("dQw4w9WgXcQ").await {
             Ok(video) => {
                 let stats = &video.statistics;
                 eprintln!("Video {} statistics:", video.id);

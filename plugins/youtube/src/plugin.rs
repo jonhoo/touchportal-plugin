@@ -57,11 +57,9 @@ impl PluginCallbacks for Plugin {
             selected_broadcast_id: _,
         }: PluginSettings,
     ) -> eyre::Result<()> {
-        // Handle OAuth credential changes (highest priority - invalidates all tokens)
         self.handle_oauth_credential_change(&custom_o_auth_client_id, &custom_o_auth_client_secret)
             .await?;
 
-        // Handle polling interval changes - notify background tasks and adaptive state
         let new_polling_interval =
             base_polling_interval_seconds.max(crate::MIN_POLLING_INTERVAL_SECONDS as f64) as u64;
         if let Err(e) = self.polling_interval_tx.send(new_polling_interval) {
@@ -72,12 +70,6 @@ impl PluginCallbacks for Plugin {
             );
         }
 
-        // Update adaptive polling base interval
-        {
-            let mut adaptive_state = self.adaptive_state.lock().await;
-            adaptive_state.base_interval = new_polling_interval;
-        }
-
         tracing::debug!(
             polling_interval = new_polling_interval,
             smart_polling = smart_polling_adjustment,
@@ -86,6 +78,7 @@ impl PluginCallbacks for Plugin {
 
         Ok(())
     }
+
     #[tracing::instrument(skip(self), ret)]
     async fn on_ytl_add_youtube_channel(
         &mut self,
@@ -109,12 +102,12 @@ impl PluginCallbacks for Plugin {
     ) -> eyre::Result<()> {
         // Extract selections from the UI choices
         let ChoicesForYtlChannel::Dynamic(channel_selection) = ytl_channel else {
+            // TODO(claude): the other selection option here unselects the channel, so we would have to update the StreamSelection and fields in self.
             return Ok(());
         };
 
         let (channel_id, broadcast_id, selection) = match ytl_broadcast {
             ChoicesForYtlBroadcast::LatestNonCompletedBroadcast => {
-                // Handle "Latest non-completed broadcast" selection
                 stream_selection::handle_select_stream(
                     &mut self.tp,
                     &self.yt,
@@ -124,7 +117,7 @@ impl PluginCallbacks for Plugin {
                 .await?
             }
             ChoicesForYtlBroadcast::Dynamic(broadcast_selection) => {
-                // Handle manually selected broadcast
+                // Manually selected specific broadcast
                 stream_selection::handle_select_stream(
                     &mut self.tp,
                     &self.yt,
@@ -133,8 +126,8 @@ impl PluginCallbacks for Plugin {
                 )
                 .await?
             }
-            _ => {
-                // Skip other choices (like "Select channel first")
+            ChoicesForYtlBroadcast::SelectChannelFirst => {
+                // TODO(claude): this unselects the broadcast, so we would have to update the StreamSelection and self.current_broadcast. we should also notify the user that they have to select a channel for the broadcast list to be updated.
                 return Ok(());
             }
         };
@@ -142,6 +135,8 @@ impl PluginCallbacks for Plugin {
         // Store the selections
         self.current_channel = Some(channel_id);
         self.current_broadcast = Some(broadcast_id);
+
+        // TODO(claude): tracing::info! that a broadcast was chosen.
 
         // Notify background tasks of stream selection change
         if let Err(e) = self.stream_selection_tx.send(selection) {
@@ -165,35 +160,50 @@ impl PluginCallbacks for Plugin {
                 .notify(
                     CreateNotificationCommand::builder()
                         .notification_id("ytl_no_channel_selected")
-                        .title("No Channel Selected")
-                        .message("Please use the 'Select Stream' action to choose a channel and broadcast first.")
+                        .title("No channel selected")
+                        .message("Please use the 'Select stream' action to choose a channel and broadcast first.")
                         .build()
                         .unwrap(),
                 )
                 .await;
-            eyre::bail!("No channel selected - use 'Select Stream' action first");
+            return Ok(());
         };
         let Some(broadcast_id) = &self.current_broadcast else {
             self.tp
                 .notify(
                     CreateNotificationCommand::builder()
                         .notification_id("ytl_no_broadcast_selected")
-                        .title("No Broadcast Selected")
+                        .title("No broadcast selected")
                         .message(
-                            "Please use the 'Select Stream' action to choose a broadcast first.",
+                            "Please use the 'Select stream' action to choose a broadcast first.",
                         )
                         .build()
                         .unwrap(),
                 )
                 .await;
-            eyre::bail!("No broadcast selected - use 'Select Stream' action first");
+            return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
-        }
-        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        };
+        let Some(channel) = channel else {
+            self.tp
+                .notify(
+                    CreateNotificationCommand::builder()
+                        .notification_id("ytl_invalid_channel")
+                        .title("Invalid channel selected")
+                        .message(
+                            "The currently selected channel in the \
+                            'Select stream' action is no longer available.",
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .await;
+            return Ok(());
+        };
 
         tracing::info!(
             channel = %channel_id,
@@ -212,7 +222,7 @@ impl PluginCallbacks for Plugin {
                     .notify(
                         CreateNotificationCommand::builder()
                             .notification_id("ytl_broadcast_started")
-                            .title("Broadcast Started")
+                            .title("Broadcast started")
                             .message("Your live broadcast has been started successfully!")
                             .build()
                             .unwrap(),
@@ -226,7 +236,7 @@ impl PluginCallbacks for Plugin {
                     .notify(
                         CreateNotificationCommand::builder()
                             .notification_id("ytl_broadcast_start_failed")
-                            .title("Failed to Start Broadcast")
+                            .title("Failed to start broadcast")
                             .message(format!("Could not start broadcast: {}", e))
                             .build()
                             .unwrap(),
@@ -243,9 +253,11 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No channel selected - use 'Select Stream' action first");
         };
         let Some(broadcast_id) = &self.current_broadcast else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
@@ -253,6 +265,7 @@ impl PluginCallbacks for Plugin {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
         }
+        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
         .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
@@ -284,13 +297,13 @@ impl PluginCallbacks for Plugin {
                 .notify(
                     CreateNotificationCommand::builder()
                         .notification_id("ytl_empty_title")
-                        .title("Empty Title")
+                        .title("Empty title")
                         .message("Please provide a title for your stream.")
                         .build()
                         .unwrap(),
                 )
                 .await;
-            eyre::bail!("Title cannot be empty");
+            return Ok(());
         }
 
         if ytl_new_title.len() > 100 {
@@ -298,18 +311,20 @@ impl PluginCallbacks for Plugin {
                 .notify(
                     CreateNotificationCommand::builder()
                         .notification_id("ytl_title_too_long")
-                        .title("Title Too Long")
+                        .title("Title too long")
                         .message("Stream title must be 100 characters or less.")
                         .build()
                         .unwrap(),
                 )
                 .await;
-            eyre::bail!("Title too long (max 100 characters)");
+            return Ok(());
         }
         let Some(channel_id) = &self.current_channel else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No channel selected - use 'Select Stream' action first");
         };
         let Some(broadcast_id) = &self.current_broadcast else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
@@ -317,6 +332,7 @@ impl PluginCallbacks for Plugin {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
         }
+        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
         .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
@@ -346,18 +362,6 @@ impl PluginCallbacks for Plugin {
             .update_ytl_current_stream_title(&ytl_new_title)
             .await;
 
-        // Notify user of successful update
-        self.tp
-            .notify(
-                CreateNotificationCommand::builder()
-                    .notification_id("ytl_title_updated")
-                    .title("Title Updated")
-                    .message(format!("Stream title updated to: {}", ytl_new_title))
-                    .build()
-                    .unwrap(),
-            )
-            .await;
-
         tracing::info!("broadcast title updated successfully");
         Ok(())
     }
@@ -369,9 +373,11 @@ impl PluginCallbacks for Plugin {
         ytl_new_description: String,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No channel selected - use 'Select Stream' action first");
         };
         let Some(broadcast_id) = &self.current_broadcast else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("No broadcast selected - use 'Select Stream' action first");
         };
 
@@ -379,6 +385,7 @@ impl PluginCallbacks for Plugin {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
         }
+        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
         .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
 
         tracing::info!(
@@ -492,6 +499,7 @@ impl PluginCallbacks for Plugin {
         selected: ChoicesForYtlChannel,
     ) -> eyre::Result<()> {
         let ChoicesForYtlChannel::Dynamic(selected) = selected else {
+            // TODO(claude): this unselects the broadcast, so we would have to update the StreamSelection and self.current_broadcast.
             return Ok(());
         };
         let selected = selected
@@ -504,11 +512,13 @@ impl PluginCallbacks for Plugin {
             yt_guard.get(selected).cloned()
         };
         let Some(channel) = channel else {
+            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
             eyre::bail!("user selected unknown channel '{selected}'");
         };
 
         let broadcasts = channel.yt.list_my_live_broadcasts();
 
+        // TODO(claude): use the to_string of ChoicesForYtlBroadcast::LatestNonCompletedBroadcast here
         let mut broadcast_choices = vec!["Latest non-completed broadcast".to_string()];
         let mut stream = std::pin::pin!(broadcasts);
         while let Some(broadcast) = stream.next().await {
@@ -529,8 +539,31 @@ impl PluginCallbacks for Plugin {
         _selected: ChoicesForYtlBroadcast,
     ) -> eyre::Result<()> {
         // Nothing special needed here - the actual selection happens in on_ytl_select_stream
+        // TODO(claude): remind the user with a notification to run the action to save the selection.
         Ok(())
     }
+}
+
+/// Get the live_chat_id for a specific broadcast
+async fn get_live_chat_id_for_broadcast(
+    channel: &Channel,
+    broadcast_id: &str,
+) -> eyre::Result<String> {
+    // TODO(claude): use <https://developers.google.com/youtube/v3/live/docs/liveStreams/list> with id parameter to just look up the specific broadcast. also, don't resume using it if it's no longer active (eg, has completed).
+    let broadcasts = channel.yt.list_my_live_broadcasts();
+    let mut broadcasts = std::pin::pin!(broadcasts);
+
+    while let Some(broadcast) = broadcasts.next().await {
+        let broadcast = broadcast.context("fetch broadcast for live_chat_id")?;
+        if broadcast.id == broadcast_id {
+            return broadcast
+                .snippet
+                .live_chat_id
+                .ok_or_else(|| eyre::eyre!("Broadcast {} has no live chat", broadcast_id));
+        }
+    }
+
+    eyre::bail!("Broadcast {} not found", broadcast_id)
 }
 
 impl Plugin {
@@ -621,25 +654,11 @@ impl Plugin {
                 .await;
         }
 
+        // TODO(claude): if we have a current channel, also update the list of choices in ytl_broadcast.
+
         // ==============================================================================
         // Background Task Coordination
         // ==============================================================================
-        // Create tokio::watch channels for coordinating between action handlers and background tasks
-        let initial_stream = match (&current_channel, &current_broadcast) {
-            (Some(channel_id), Some(_broadcast_id)) => {
-                // We have both channel and broadcast, but need to get live_chat_id
-                // For now, we'll use ChannelOnly since we don't have live_chat_id at startup
-                // TODO(claude): query for the live chat id here and use the ChannelAndBroadcast variant.
-                StreamSelection::ChannelOnly {
-                    channel_id: channel_id.clone(),
-                }
-            }
-            (Some(channel_id), None) => StreamSelection::ChannelOnly {
-                channel_id: channel_id.clone(),
-            },
-            _ => StreamSelection::None,
-        };
-        let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
         // Initialize adaptive polling state
         let adaptive_enabled = settings.smart_polling_adjustment;
@@ -651,17 +670,53 @@ impl Plugin {
             adaptive_enabled,
         )));
 
-        // Initial status update
-        {
-            let state = adaptive_state.lock().await;
-            outgoing
-                .update_ytl_adaptive_polling_status(&state.get_status_description())
-                .await;
-        }
-        let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
-
         // Create shared channel state for background tasks
         let shared_channels = Arc::new(Mutex::new(client_by_channel));
+        let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
+
+        // Create tokio::watch channels for coordinating between action handlers and background tasks
+        let initial_stream = match (&current_channel, &current_broadcast) {
+            (Some(channel_id), Some(broadcast_id)) => {
+                // We have both channel and broadcast - get the live_chat_id
+                let yt_guard = shared_channels.lock().await;
+                let channel = yt_guard.get(channel_id);
+                match channel {
+                    Some(channel) => {
+                        match get_live_chat_id_for_broadcast(channel, broadcast_id).await {
+                            Ok(live_chat_id) => StreamSelection::ChannelAndBroadcast {
+                                channel_id: channel_id.clone(),
+                                broadcast_id: broadcast_id.clone(),
+                                live_chat_id,
+                                return_to_latest_on_completion: false,
+                            },
+                            Err(e) => {
+                                tracing::warn!(
+                                    channel = %channel_id,
+                                    broadcast = %broadcast_id,
+                                    error = %e,
+                                    "failed to get live_chat_id at startup, falling back to channel-only mode"
+                                );
+                                StreamSelection::ChannelOnly {
+                                    channel_id: channel_id.clone(),
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::warn!(
+                            channel = %channel_id,
+                            "selected channel not found at startup"
+                        );
+                        StreamSelection::None
+                    }
+                }
+            }
+            (Some(channel_id), None) => StreamSelection::ChannelOnly {
+                channel_id: channel_id.clone(),
+            },
+            _ => StreamSelection::None,
+        };
+        let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
         // ==============================================================================
         // Background Metrics Polling Task
@@ -695,7 +750,6 @@ impl Plugin {
         // ==============================================================================
         // Spawn the latest broadcast monitoring task
         let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
-            outgoing.clone(),
             Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
             stream_selection_tx.clone(),
@@ -777,15 +831,12 @@ impl Plugin {
         );
 
         // Clear all stored access tokens (they're now invalid)
-        self.tp.set_you_tube_api_access_tokens(String::new()).await;
-
-        // Clear all YouTube clients and channels
-        {
-            let mut yt_guard = self.yt.lock().await;
-            yt_guard.clear();
-        }
+        self.tp
+            .set_you_tube_api_access_tokens(String::from("[]"))
+            .await;
 
         // Reset current selections
+        // TODO(claude): consider not resetting these since the user may authenticate shortly and give us valid clients for them again.
         self.current_channel = None;
         self.current_broadcast = None;
 
@@ -804,55 +855,68 @@ impl Plugin {
             let _ = handle.await; // Wait for clean shutdown
             tracing::debug!("canceled chat background task");
         }
-
-        // Restart background tasks with empty channel map (they will be idle until re-auth)
-        let empty_channels = Arc::new(Mutex::new(HashMap::new()));
-        let base_interval = crate::MIN_POLLING_INTERVAL_SECONDS; // Use default until settings are applied again
-
-        // Spawn new metrics task
-        let metrics_task_handle = metrics::spawn_metrics_task(
-            self.tp.clone(),
-            empty_channels.clone(),
-            self.stream_selection_rx.clone(),
-            self.stream_selection_tx.clone(),
-            self.adaptive_state.clone(),
-            base_interval,
-            self.polling_interval_rx.clone(),
-        )
-        .await;
-
-        // Spawn new chat task
-        let chat_task_handle = chat::spawn_chat_task(
-            self.tp.clone(),
-            empty_channels.clone(),
-            self.stream_selection_rx.clone(),
-            self.adaptive_state.clone(),
-        )
-        .await;
-
         if let Some(handle) = self.latest_monitor_task_handle.take() {
             handle.abort();
             let _ = handle.await; // Wait for clean shutdown
             tracing::debug!("canceled latest monitor background task");
         }
 
-        // Spawn new latest monitor task
-        let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
-            self.tp.clone(),
-            empty_channels.clone(),
-            self.stream_selection_rx.clone(),
-            self.stream_selection_tx.clone(),
-        )
-        .await;
+        // Clear all YouTube clients and channels
+        {
+            let mut yt_guard = self.yt.lock().await;
+            yt_guard.clear();
+        }
+        // Also clear stream selection since we have no valid channels now
+        if let Err(e) = self
+            .stream_selection_tx
+            .send(crate::background::metrics::StreamSelection::None)
+        {
+            tracing::warn!(
+                error = %e,
+                "failed to send empty stream selection to new background tasks"
+            );
+        }
 
-        // Store new task handles
-        self.metrics_task_handle = Some(metrics_task_handle);
-        self.chat_task_handle = Some(chat_task_handle);
-        self.latest_monitor_task_handle = Some(latest_monitor_task_handle);
+        // Restart background tasks with empty channel map (they will be idle until re-auth)
+        let empty_channels = Arc::new(Mutex::new(HashMap::new()));
+        let base_interval = crate::MIN_POLLING_INTERVAL_SECONDS; // Use default until settings are applied again
 
-        tracing::info!(
-            "restarted background tasks with empty channel map after OAuth credential change"
+        // Spawn new metrics task
+        self.metrics_task_handle = Some(
+            metrics::spawn_metrics_task(
+                self.tp.clone(),
+                Arc::clone(&empty_channels),
+                self.stream_selection_rx.clone(),
+                self.stream_selection_tx.clone(),
+                Arc::clone(&self.adaptive_state),
+                base_interval,
+                self.polling_interval_rx.clone(),
+            )
+            .await,
         );
+
+        // Spawn new chat task
+        self.chat_task_handle = Some(
+            chat::spawn_chat_task(
+                self.tp.clone(),
+                Arc::clone(&empty_channels),
+                self.stream_selection_rx.clone(),
+                Arc::clone(&self.adaptive_state),
+            )
+            .await,
+        );
+
+        // Spawn new latest monitor task
+        self.latest_monitor_task_handle = Some(
+            latest_monitor::spawn_latest_monitor_task(
+                Arc::clone(&empty_channels),
+                self.stream_selection_rx.clone(),
+                self.stream_selection_tx.clone(),
+            )
+            .await,
+        );
+
+        tracing::info!("restarted background tasks after OAuth credential change");
 
         // Notify user that re-authentication is required
         self.tp
@@ -873,17 +937,6 @@ impl Plugin {
         self.tp
             .update_choices_in_ytl_channel(std::iter::once("No channels available"))
             .await;
-
-        // Clear stream selection since we have no valid channels
-        if let Err(e) = self
-            .stream_selection_tx
-            .send(crate::background::metrics::StreamSelection::None)
-        {
-            tracing::warn!(
-                error = %e,
-                "failed to send empty stream selection to new background tasks"
-            );
-        }
 
         tracing::info!(
             "OAuth credentials changed - background tasks restarted, user must re-authenticate"

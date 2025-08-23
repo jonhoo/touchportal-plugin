@@ -1,3 +1,4 @@
+use crate::plugin::TouchPortalHandle;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -318,13 +319,11 @@ impl AdaptivePollingState {
             .update_from_metrics(viewers, likes, views);
     }
 
-    pub fn should_recalculate_interval(&self) -> bool {
-        // Recalculate every 2 minutes or after significant changes
-        Instant::now().duration_since(self.last_interval_update) > Duration::from_secs(120)
-    }
-
-    pub fn calculate_optimal_interval(&mut self) -> u64 {
+    pub async fn calculate_optimal_interval(&mut self, outgoing: &mut TouchPortalHandle) -> u64 {
         if !self.enabled {
+            outgoing
+                .update_ytl_adaptive_polling_status(format!("{}s (Disabled)", self.base_interval))
+                .await;
             return self.base_interval;
         }
 
@@ -346,18 +345,7 @@ impl AdaptivePollingState {
         self.last_interval_update = Instant::now();
         self.current_interval = new_interval;
 
-        new_interval
-    }
-
-    pub fn get_status_description(&self) -> String {
-        if !self.enabled {
-            return format!("{}s (Disabled)", self.base_interval);
-        }
-
-        let chat_level = self.chat_tracker.calculate_activity_level();
-        let metrics_level = self.metrics_tracker.calculate_volatility();
-
-        let reason = match (chat_level, metrics_level) {
+        let reason = match (chat_level, metrics_volatility) {
             (ActivityLevel::High, ActivityLevel::High) => "Very Active",
             (ActivityLevel::High, _) => "Active Chat",
             (_, ActivityLevel::High) => "Changing Metrics",
@@ -365,6 +353,19 @@ impl AdaptivePollingState {
             _ => "Normal",
         };
 
-        format!("{}s ({})", self.current_interval, reason)
+        let description = format!("{}s ({})", self.current_interval, reason);
+
+        outgoing
+            .update_ytl_adaptive_polling_status(description)
+            .await;
+
+        tracing::trace!(
+            interval = new_interval,
+            activity = ?chat_level,
+            volatility = ?metrics_volatility,
+            "adaptive polling interval calculated"
+        );
+
+        new_interval
     }
 }

@@ -571,7 +571,7 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/docs/videos/list>
     #[instrument(skip(self), ret)]
-    pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
+    pub async fn get_video_metadata(&self, video_id: &str) -> eyre::Result<Video> {
         let url = "https://www.googleapis.com/youtube/v3/videos";
         let query_params = [
             ("part", "statistics,liveStreamingDetails,snippet"),

@@ -27,7 +27,7 @@ pub enum StreamSelection {
     WaitForActiveBroadcast { channel_id: String },
 }
 
-/// Poll video statistics and update TouchPortal states.
+/// Poll video metadata and update TouchPortal states.
 ///
 /// Also updates adaptive polling state based on metrics changes.
 ///
@@ -39,7 +39,7 @@ pub async fn poll_and_update_metrics(
     stream_rx: &watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
 ) -> bool {
-    match client.get_video_statistics(broadcast_id).await {
+    match client.get_video_metadata(broadcast_id).await {
         Ok(stats) => {
             // Check if the selected broadcast has changed during the API call
             {
@@ -96,7 +96,11 @@ pub async fn poll_and_update_metrics(
                 state.update_from_metrics(current_viewers, current_likes, current_views);
             }
 
-            // Update basic video statistics
+            // Update basic video metadata
+            outgoing
+                .update_ytl_current_stream_title(&stats.snippet.title)
+                .await;
+
             if let Some(view_count) = &stats.statistics.view_count {
                 outgoing.update_ytl_views_count(view_count).await;
             }
@@ -154,7 +158,7 @@ pub async fn poll_and_update_metrics(
             tracing::warn!(
                 broadcast_id = %broadcast_id,
                 error = %e,
-                "failed to poll video statistics"
+                "failed to poll video metadata"
             );
 
             // Clear metrics states on repeated failures to show current status
@@ -175,58 +179,36 @@ pub async fn spawn_metrics_task(
     mut stream_rx: watch::Receiver<StreamSelection>,
     stream_selection_tx: watch::Sender<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
-    base_interval: u64,
+    _base_interval: u64,
     polling_interval_rx: watch::Receiver<u64>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut current_interval = base_interval;
-        // TODO(claude): instead of using a tokio interval here, use a tokio::sleep, and each time it expires or the polling interval changes, ask the adaptive state for what the next sleep interval should be. then add that to the time of the last poll.
-        let mut interval = tokio::time::interval(Duration::from_secs(current_interval));
         let mut polling_interval_rx = polling_interval_rx;
+        let mut last_poll_time = tokio::time::Instant::now();
 
         loop {
-            // TODO(claude): compute the sleep time here at the top of the loop rather than updating it proactively
+            // Compute the sleep time at the top of each loop iteration
+            // so that we don't fail to take into account early continue or return.
+            let sleep_duration = {
+                let interval = {
+                    let mut state = adaptive_state.lock().await;
+                    state.calculate_optimal_interval(&mut outgoing).await
+                };
+
+                // Calculate time since last poll and determine sleep duration
+                let elapsed_since_last_poll = last_poll_time.elapsed();
+                let target_interval = Duration::from_secs(interval);
+
+                if elapsed_since_last_poll >= target_interval {
+                    Duration::from_millis(0) // Poll immediately
+                } else {
+                    target_interval - elapsed_since_last_poll
+                }
+            };
 
             tokio::select! {
-                _ = interval.tick() => {
-                    // Time to poll metrics - check if we should recalculate interval
-                    let should_recalculate = {
-                        let state = adaptive_state.lock().await;
-                        state.should_recalculate_interval()
-                    };
-
-                    if should_recalculate {
-                        let new_interval = {
-                            let mut state = adaptive_state.lock().await;
-                            state.calculate_optimal_interval()
-                        };
-
-                        if new_interval != current_interval {
-                            let (chat_level, metrics_level) = {
-                                let state = adaptive_state.lock().await;
-                                (state.chat_tracker.calculate_activity_level(),
-                                 state.metrics_tracker.calculate_volatility())
-                            };
-
-                            tracing::info!(
-                                old_interval = current_interval,
-                                new_interval = new_interval,
-                                chat_activity = ?chat_level,
-                                metrics_volatility = ?metrics_level,
-                                "adaptive polling interval updated"
-                            );
-                            current_interval = new_interval;
-                            interval = tokio::time::interval(Duration::from_secs(current_interval));
-
-                            // Update status display
-                            {
-                                let state = adaptive_state.lock().await;
-                                outgoing
-                                    .update_ytl_adaptive_polling_status(&state.get_status_description())
-                                    .await;
-                            }
-                        }
-                    }
+                _ = tokio::time::sleep(sleep_duration) => {
+                    // Time to poll metrics!
                 }
                 Ok(()) = polling_interval_rx.changed() => {
                     // Manual interval change (e.g., settings update)
@@ -234,19 +216,16 @@ pub async fn spawn_metrics_task(
                     {
                         let mut state = adaptive_state.lock().await;
                         state.base_interval = new_base_interval;
-                        // Recalculate with new base
-                        let new_interval = state.calculate_optimal_interval();
-                        if new_interval != current_interval {
-                            tracing::debug!(
-                                old_interval = current_interval,
-                                new_interval = new_interval,
-                                "updating polling interval from settings"
-                            );
-                            current_interval = new_interval;
-                            interval = tokio::time::interval(Duration::from_secs(current_interval));
-                        }
-                        continue;
+                        tracing::debug!(
+                            new_base_interval = new_base_interval,
+                            "updating base polling interval from settings"
+                        );
                     }
+                    continue; // Recalculate sleep time with new base interval
+                }
+                _ = stream_rx.changed() => {
+                    // Stream selection changed - continue to next iteration to recalculate sleep time
+                    continue;
                 }
             }
 
@@ -304,6 +283,7 @@ pub async fn spawn_metrics_task(
                 adaptive_state.clone(),
             )
             .await;
+            last_poll_time = tokio::time::Instant::now();
 
             // Check if broadcast has completed and we should return to waiting mode
             if broadcast_completed {

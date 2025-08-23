@@ -70,6 +70,8 @@ pub enum LiveBroadcastContent {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSnippet {
+    /// The video's title.
+    pub title: String,
     /// Indicates if the video is an upcoming/active live broadcast.
     pub live_broadcast_content: LiveBroadcastContent,
 }

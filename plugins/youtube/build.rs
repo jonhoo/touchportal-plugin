@@ -28,7 +28,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("OAuth Authentication")
-                        .body("Stores encrypted OAuth tokens for YouTube API access. These tokens are automatically managed through the authentication flow and should not be modified manually.")
+                        .body(
+                            "Stores encrypted OAuth tokens for YouTube API access. \
+                            These tokens are automatically managed through the authentication \
+                            flow and should not be modified manually."
+                        )
                         .doc_url("https://developers.google.com/youtube/v3/guides/auth/installed-apps")
                         .build()
                         .unwrap(),
@@ -51,7 +55,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("Adaptive API Usage")
-                        .body("Automatically adjusts polling frequency based on stream activity to optimize API quota usage. Increases polling during active streams and reduces it when idle.")
+                        .body(
+                            "Automatically adjusts polling frequency based on stream activity \
+                            to optimize API quota usage. Increases polling during active streams \
+                            and reduces it when idle."
+                        )
                         .build()
                         .unwrap(),
                 )
@@ -71,7 +79,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("API Request Frequency")
-                        .body("Sets the base interval (30-3600 seconds) between YouTube API requests. Lower values provide faster updates but consume more API quota. Recommended: 60-300 seconds for active monitoring.")
+                        .body(
+                            "Sets the base interval (30-3600 seconds) between YouTube API \
+                            requests. Lower values provide faster updates but consume more API \
+                            quota. Recommended: 60-300 seconds for active monitoring."
+                        )
                         .build()
                         .unwrap(),
                 )
@@ -93,7 +105,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("Current Channel Context")
-                        .body("The ID of the currently selected YouTube channel. This value is automatically set when you authenticate and select a channel for monitoring.")
+                        .body(
+                            "The ID of the currently selected YouTube channel. This value is \
+                            automatically set when you authenticate and select a channel for \
+                            monitoring."
+                        )
                         .build()
                         .unwrap(),
                 )
@@ -114,7 +130,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("Active Stream Context")
-                        .body("The ID of the currently monitored live broadcast. This value is automatically updated when a new live stream is detected on the selected channel.")
+                        .body(
+                            "The ID of the currently monitored live broadcast. This value is \
+                            automatically updated when a new live stream is detected on the \
+                            selected channel."
+                        )
                         .build()
                         .unwrap(),
                 )
@@ -135,7 +155,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("Custom OAuth Client ID")
-                        .body("Optional: Use your own Google OAuth client ID for dedicated API quota. Leave empty to use shared defaults. Both client ID and secret must be provided together for custom credentials to be used.")
+                        .body(
+                            "Optional: Use your own Google OAuth client ID for dedicated API \
+                            quota. Leave empty to use shared defaults. Both client ID and \
+                            secret must be provided together for custom credentials to be used."
+                        )
                         .doc_url("https://github.com/jonhoo/touchportal-plugin/tree/main/plugins/youtube/QUOTA.md")
                         .build()
                         .unwrap(),
@@ -155,7 +179,11 @@ fn plugin() -> PluginDescription {
                 .tooltip(
                     Tooltip::builder()
                         .title("Custom OAuth Client Secret")
-                        .body("Optional: Use your own Google OAuth client secret for dedicated API quota. Leave empty to use shared defaults. Both client ID and secret must be provided together for custom credentials to be used.")
+                        .body(
+                            "Optional: Use your own Google OAuth client secret for dedicated \
+                            API quota. Leave empty to use shared defaults. Both client ID and \
+                            secret must be provided together for custom credentials to be used."
+                        )
                         .doc_url("https://github.com/jonhoo/touchportal-plugin/tree/main/plugins/youtube/QUOTA.md")
                         .build()
                         .unwrap(),
@@ -225,7 +253,10 @@ fn plugin() -> PluginDescription {
                                     LingualLine::builder()
                                         .datum(
                                             Line::builder()
-                                                .line_format("Add another YouTube channel for multi-account management")
+                                                .line_format(
+                                                    "Add another YouTube channel for \
+                                                    multi-account management"
+                                                )
                                                 .build()
                                                 .unwrap(),
                                         )
@@ -278,7 +309,8 @@ fn plugin() -> PluginDescription {
                                         .datum(
                                             Line::builder()
                                                 .line_format(
-                                                    "Select broadcast {$ytl_broadcast$} from channel {$ytl_channel$}",
+                                                    "Select broadcast {$ytl_broadcast$} from \
+                                                    channel {$ytl_channel$}"
                                                 )
                                                 .build()
                                                 .unwrap(),
@@ -369,7 +401,9 @@ fn plugin() -> PluginDescription {
                                     LingualLine::builder()
                                         .datum(
                                             Line::builder()
-                                                .line_format("Update stream title to {$ytl_new_title$}")
+                                                .line_format(
+                                                    "Update stream title to {$ytl_new_title$}"
+                                                )
                                                 .build()
                                                 .unwrap(),
                                         )
@@ -406,7 +440,10 @@ fn plugin() -> PluginDescription {
                                     LingualLine::builder()
                                         .datum(
                                             Line::builder()
-                                                .line_format("Update stream description to {$ytl_new_description$}")
+                                                .line_format(
+                                                    "Update stream description to \
+                                                    {$ytl_new_description$}"
+                                                )
                                                 .build()
                                                 .unwrap(),
                                         )

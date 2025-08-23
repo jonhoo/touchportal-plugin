@@ -89,8 +89,8 @@ fn plugin() -> PluginDescription {
                 )
                 .kind(SettingType::Number(
                     NumberSetting::builder()
-                        .min_value(MIN_POLLING_INTERVAL_SECONDS as f64) // Minimum to avoid API quota exhaustion
-                        .max_value(3600.0) // Maximum 1 hour
+                        .min_value(MIN_POLLING_INTERVAL_SECONDS as f64)
+                        .max_value(3600.0)
                         .build()
                         .unwrap(),
                 ))
@@ -108,7 +108,7 @@ fn plugin() -> PluginDescription {
                         .body(
                             "The ID of the currently selected YouTube channel. This value is \
                             automatically set when you authenticate and select a channel for \
-                            monitoring."
+                            monitoring through the Select Stream action."
                         )
                         .build()
                         .unwrap(),
@@ -132,8 +132,8 @@ fn plugin() -> PluginDescription {
                         .title("Active Stream Context")
                         .body(
                             "The ID of the currently monitored live broadcast. This value is \
-                            automatically updated when a new live stream is detected on the \
-                            selected channel."
+                            automatically updated when a new live stream is selected through \
+                            the Select Stream action."
                         )
                         .build()
                         .unwrap(),
@@ -200,7 +200,6 @@ fn plugin() -> PluginDescription {
         // ==============================================================================
         // Main YouTube Live Category with Subcategories
         // ==============================================================================
-        // Following TwitchTheSecond plugin pattern for better organization
         .category(
             Category::builder()
                 .id("ytl_youtube_live")
@@ -309,7 +308,7 @@ fn plugin() -> PluginDescription {
                                         .datum(
                                             Line::builder()
                                                 .line_format(
-                                                    "Select broadcast {$ytl_broadcast$} from \
+                                                    "Use broadcast {$ytl_broadcast$} from \
                                                     channel {$ytl_channel$}"
                                                 )
                                                 .build()

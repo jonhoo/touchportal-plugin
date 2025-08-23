@@ -107,7 +107,7 @@ impl PluginCallbacks for Plugin {
             return Ok(());
         };
 
-        let (channel_id, broadcast_id, selection) = match ytl_broadcast {
+        let chosen = match ytl_broadcast {
             ChoicesForYtlBroadcast::LatestNonCompletedBroadcast => {
                 stream_selection::handle_select_stream(
                     &mut self.tp,
@@ -130,8 +130,13 @@ impl PluginCallbacks for Plugin {
             ChoicesForYtlBroadcast::SelectChannelFirst => {
                 // User selected "Select channel first" - they haven't selected a channel yet
                 notifications::need_to_select_channel_first(&mut self.tp).await?;
-                return Ok(());
+                None
             }
+        };
+
+        let Some((channel_id, broadcast_id, selection)) = chosen else {
+            // The handle functions above have sent some notifications instead.
+            return Ok(());
         };
 
         tracing::info!(

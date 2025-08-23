@@ -68,13 +68,22 @@ pub async fn handle_add_youtube_channel(
             yt_guard.insert(
                 channel_id.clone(),
                 Channel {
-                    name: channel_name,
+                    name: channel_name.clone(),
                     yt: Arc::clone(&client_arc),
                 },
             );
         }
 
-        // TODO(claude): send a notification that a new YouTube channel was successfully added (including the channel name)
+        // Send notification that the channel was successfully added
+        tp.notify(
+            CreateNotificationCommand::builder()
+                .notification_id("ytl_channel_added")
+                .title("YouTube channel added")
+                .message(format!("{channel_name} added"))
+                .build()
+                .unwrap(),
+        )
+        .await;
 
         new_channel_count += 1;
     }

@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 
 use crate::background::metrics::StreamSelection;
+use crate::notifications;
 
 #[derive(Debug, Clone)]
 pub enum BroadcastSelection {
@@ -19,7 +20,7 @@ pub async fn handle_select_stream(
     yt: &Arc<Mutex<HashMap<String, Channel>>>,
     channel_selection: String,
     broadcast_selection: BroadcastSelection,
-) -> eyre::Result<(String, String, StreamSelection)> {
+) -> eyre::Result<Option<(String, String, StreamSelection)>> {
     // Extract channel ID from the selected channel
     let channel_id = channel_selection
         .rsplit_once(" - ")
@@ -32,7 +33,8 @@ pub async fn handle_select_stream(
         if let Some(channel) = yt_guard.get(channel_id) {
             tp.update_ytl_selected_channel_name(&channel.name).await;
         } else {
-            // TODO(claude): this should give a channel_not_available notification and return
+            notifications::channel_not_available(tp).await?;
+            return Ok(None);
         }
     }
     // And persist it
@@ -53,7 +55,11 @@ pub async fn handle_select_stream(
             tp.update_ytl_current_stream_title("Waiting for active broadcast...")
                 .await;
 
-            Ok((channel_id.to_string(), "latest".to_string(), selection))
+            Ok(Some((
+                channel_id.to_string(),
+                "latest".to_string(),
+                selection,
+            )))
         }
         BroadcastSelection::Specific(broadcast_selection) => {
             // Extract broadcast ID and live chat ID for specific broadcast selection
@@ -67,9 +73,11 @@ pub async fn handle_select_stream(
                 let channel = {
                     let yt_guard = yt.lock().await;
                     yt_guard.get(channel_id).cloned()
-                }
-                // TODO(claude): this should not error, but instead just give a channel_not_available notification as above
-                .ok_or_else(|| eyre::eyre!("Selected channel not found"))?;
+                };
+                let Some(channel) = channel else {
+                    notifications::channel_not_available(tp).await?;
+                    return Ok(None);
+                };
 
                 // Fetch broadcast details to get live chat ID
                 // TODO(claude): use liveStreamingDetails.activeLiveChatId from video get_metadata here so you don't need the helper. note that the stream may have completed and thus not have an activeLiveChatId. in which case we should just move to StreamSelection::ChannelOnly and alert the user that the selected stream is no longer live.
@@ -108,7 +116,7 @@ pub async fn handle_select_stream(
                 "stream selected"
             );
 
-            Ok((channel_id.to_string(), broadcast_id, selection))
+            Ok(Some((channel_id.to_string(), broadcast_id, selection)))
         }
     }
 }

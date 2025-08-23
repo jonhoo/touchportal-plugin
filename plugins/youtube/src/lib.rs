@@ -14,6 +14,7 @@ use tokio_stream::StreamExt;
 pub mod actions;
 pub mod activity;
 pub mod background;
+pub mod notifications;
 pub mod oauth;
 pub mod plugin;
 pub mod youtube_api;

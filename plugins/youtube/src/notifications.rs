@@ -1,0 +1,62 @@
+//! Notification helpers for consistent user messaging across the plugin.
+
+use crate::plugin::TouchPortalHandle;
+use touchportal_sdk::protocol::CreateNotificationCommand;
+
+/// Notify user that no channel has been selected yet.
+pub async fn no_channel_selected(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_no_channel_selected")
+            .title("No channel selected")
+            .message(
+                "Please use the 'Select stream' action to choose a channel and broadcast first.",
+            )
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}
+
+/// Notify user that no broadcast has been selected yet.
+pub async fn no_broadcast_selected(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_no_broadcast_selected")
+            .title("No broadcast selected")
+            .message("Please use the 'Select stream' action to choose a broadcast from the channel first.")
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}
+
+/// Notify user that the selected channel is no longer available.
+pub async fn channel_not_available(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_channel_not_available")
+            .title("Channel not available")
+            .message("The selected channel is no longer available. Please authenticate the channel again or select a different one.")
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}
+
+/// Remind user to run the "Select Stream" action to save their selection.
+pub async fn remind_to_save_selection(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_save_selection_reminder")
+            .title("Selection ready")
+            .message("Please run the 'Select Stream' action to save your channel and broadcast selection.")
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}

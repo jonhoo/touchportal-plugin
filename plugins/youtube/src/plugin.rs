@@ -12,7 +12,7 @@ use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
 use crate::background::{chat, latest_monitor, metrics};
-use crate::{Channel, setup_youtube_clients};
+use crate::{Channel, notifications, setup_youtube_clients};
 
 // You can look at the generated code for a plugin using this command:
 //
@@ -132,11 +132,15 @@ impl PluginCallbacks for Plugin {
             }
         };
 
+        tracing::info!(
+            channel = %channel_id,
+            broadcast = %broadcast_id,
+            "broadcast selection updated"
+        );
+
         // Store the selections
         self.current_channel = Some(channel_id);
         self.current_broadcast = Some(broadcast_id);
-
-        // TODO(claude): tracing::info! that a broadcast was chosen.
 
         // Notify background tasks of stream selection change
         if let Err(e) = self.stream_selection_tx.send(selection) {
@@ -155,32 +159,11 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
-            // Provide user-friendly notification for missing selection
-            self.tp
-                .notify(
-                    CreateNotificationCommand::builder()
-                        .notification_id("ytl_no_channel_selected")
-                        .title("No channel selected")
-                        .message("Please use the 'Select stream' action to choose a channel and broadcast first.")
-                        .build()
-                        .unwrap(),
-                )
-                .await;
+            notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
         let Some(broadcast_id) = &self.current_broadcast else {
-            self.tp
-                .notify(
-                    CreateNotificationCommand::builder()
-                        .notification_id("ytl_no_broadcast_selected")
-                        .title("No broadcast selected")
-                        .message(
-                            "Please use the 'Select stream' action to choose a broadcast first.",
-                        )
-                        .build()
-                        .unwrap(),
-                )
-                .await;
+            notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
 
@@ -189,19 +172,7 @@ impl PluginCallbacks for Plugin {
             yt_guard.get(channel_id).cloned()
         };
         let Some(channel) = channel else {
-            self.tp
-                .notify(
-                    CreateNotificationCommand::builder()
-                        .notification_id("ytl_invalid_channel")
-                        .title("Invalid channel selected")
-                        .message(
-                            "The currently selected channel in the \
-                            'Select stream' action is no longer available.",
-                        )
-                        .build()
-                        .unwrap(),
-                )
-                .await;
+            notifications::channel_not_available(&mut self.tp).await?;
             return Ok(());
         };
 
@@ -253,20 +224,22 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No channel selected - use 'Select Stream' action first");
+            notifications::no_channel_selected(&mut self.tp).await?;
+            return Ok(());
         };
         let Some(broadcast_id) = &self.current_broadcast else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No broadcast selected - use 'Select Stream' action first");
+            notifications::no_broadcast_selected(&mut self.tp).await?;
+            return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
-        }
-        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        };
+        let Some(channel) = channel else {
+            notifications::channel_not_available(&mut self.tp).await?;
+            return Ok(());
+        };
 
         tracing::info!(
             channel = %channel_id,
@@ -320,20 +293,22 @@ impl PluginCallbacks for Plugin {
             return Ok(());
         }
         let Some(channel_id) = &self.current_channel else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No channel selected - use 'Select Stream' action first");
+            notifications::no_channel_selected(&mut self.tp).await?;
+            return Ok(());
         };
         let Some(broadcast_id) = &self.current_broadcast else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No broadcast selected - use 'Select Stream' action first");
+            notifications::no_broadcast_selected(&mut self.tp).await?;
+            return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
-        }
-        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        };
+        let Some(channel) = channel else {
+            notifications::channel_not_available(&mut self.tp).await?;
+            return Ok(());
+        };
 
         tracing::info!(
             channel = %channel_id,
@@ -373,20 +348,22 @@ impl PluginCallbacks for Plugin {
         ytl_new_description: String,
     ) -> eyre::Result<()> {
         let Some(channel_id) = &self.current_channel else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No channel selected - use 'Select Stream' action first");
+            notifications::no_channel_selected(&mut self.tp).await?;
+            return Ok(());
         };
         let Some(broadcast_id) = &self.current_broadcast else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("No broadcast selected - use 'Select Stream' action first");
+            notifications::no_broadcast_selected(&mut self.tp).await?;
+            return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
             yt_guard.get(channel_id).cloned()
-        }
-        // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-        .ok_or_else(|| eyre::eyre!("Selected channel not available"))?;
+        };
+        let Some(channel) = channel else {
+            notifications::channel_not_available(&mut self.tp).await?;
+            return Ok(());
+        };
 
         tracing::info!(
             channel = %channel_id,
@@ -512,14 +489,14 @@ impl PluginCallbacks for Plugin {
             yt_guard.get(selected).cloned()
         };
         let Some(channel) = channel else {
-            // TODO(claude): handle this the same as we do in start_broadcast instead of erroring here
-            eyre::bail!("user selected unknown channel '{selected}'");
+            notifications::channel_not_available(&mut self.tp).await?;
+            return Ok(());
         };
 
         let broadcasts = channel.yt.list_my_live_broadcasts();
 
-        // TODO(claude): use the to_string of ChoicesForYtlBroadcast::LatestNonCompletedBroadcast here
-        let mut broadcast_choices = vec!["Latest non-completed broadcast".to_string()];
+        let mut broadcast_choices =
+            vec![ChoicesForYtlBroadcast::LatestNonCompletedBroadcast.to_string()];
         let mut stream = std::pin::pin!(broadcasts);
         while let Some(broadcast) = stream.next().await {
             let broadcast = broadcast.context("fetch broadcast")?;
@@ -539,7 +516,7 @@ impl PluginCallbacks for Plugin {
         _selected: ChoicesForYtlBroadcast,
     ) -> eyre::Result<()> {
         // Nothing special needed here - the actual selection happens in on_ytl_select_stream
-        // TODO(claude): remind the user with a notification to run the action to save the selection.
+        notifications::remind_to_save_selection(&mut self.tp).await?;
         Ok(())
     }
 }

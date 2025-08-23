@@ -55,8 +55,9 @@ pub async fn process_chat_message(
                 )
                 .await;
 
-            // Update latest message state
-            outgoing.update_ytl_latest_chat_message(message_text).await;
+            // Update global states (triggers ytl_last_*_changed events)
+            outgoing.update_ytl_last_chat_message(message_text).await;
+            outgoing.update_ytl_last_chat_author(&author_name).await;
 
             tracing::debug!(
                 author = %author_name,
@@ -69,29 +70,26 @@ pub async fn process_chat_message(
                 .user_comment
                 .as_deref()
                 .unwrap_or("(no message)");
-            let amount_micros: u64 = super_chat_details.amount_micros.parse().unwrap_or(0);
-            let amount_display = format!(
-                "{:.2} {}",
-                amount_micros as f64 / 1_000_000.0,
-                super_chat_details.currency
-            );
+            // Use amountDisplayString from YouTube API instead of manual calculation
+            let amount_display = &super_chat_details.amount_display_string;
 
             // Trigger super chat event with local states
             outgoing
                 .trigger_ytl_new_super_chat(
                     message_text,
                     &author_name,
-                    &amount_display,
+                    amount_display,
                     &super_chat_details.currency,
                 )
                 .await;
 
-            // Update latest super chat state
+            // Update global states (triggers ytl_last_*_changed events)
+            outgoing.update_ytl_last_super_chat(message_text).await;
             outgoing
-                .update_ytl_latest_super_chat(&format!(
-                    "{}: {} ({})",
-                    author_name, message_text, amount_display
-                ))
+                .update_ytl_last_super_chat_author(&author_name)
+                .await;
+            outgoing
+                .update_ytl_last_super_chat_amount(amount_display)
                 .await;
 
             tracing::info!(
@@ -111,13 +109,10 @@ pub async fn process_chat_message(
                 .trigger_ytl_new_sponsor(&author_name, member_level_name, "1")
                 .await;
 
-            // Update latest sponsor state
-            outgoing
-                .update_ytl_latest_sponsor(&format!(
-                    "{}: 1 month - {}",
-                    author_name, member_level_name
-                ))
-                .await;
+            // Update global states (triggers ytl_last_*_changed events)
+            outgoing.update_ytl_last_sponsor(&author_name).await;
+            outgoing.update_ytl_last_sponsor_level(member_level_name).await;
+            outgoing.update_ytl_last_sponsor_tenure("1").await;
 
             tracing::info!(
                 author = %author_name,
@@ -130,21 +125,20 @@ pub async fn process_chat_message(
         } => {
             let member_level_name = &member_milestone_chat_details.member_level_name;
 
-            // Treat milestone as sponsor event with month information
+            // Trigger milestone-specific event
             outgoing
-                .trigger_ytl_new_sponsor(
+                .trigger_ytl_new_sponsor_milestone(
                     &author_name,
                     member_level_name,
                     &member_milestone_chat_details.member_month.to_string(),
                 )
                 .await;
 
-            // Update latest sponsor state
+            // Update global states (triggers ytl_last_*_changed events)
+            outgoing.update_ytl_last_sponsor(&author_name).await;
+            outgoing.update_ytl_last_sponsor_level(member_level_name).await;
             outgoing
-                .update_ytl_latest_sponsor(&format!(
-                    "{}: {} months - {}",
-                    author_name, member_milestone_chat_details.member_month, member_level_name
-                ))
+                .update_ytl_last_sponsor_tenure(&member_milestone_chat_details.member_month.to_string())
                 .await;
 
             tracing::info!(
@@ -179,7 +173,14 @@ pub async fn restart_chat_stream_optimized(
             channel_id,
             broadcast_id,
             live_chat_id,
-        } => {
+        }
+        // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
+        // | StreamSelection::LatestBroadcast {
+        //     channel_id,
+        //     current_broadcast_id: broadcast_id,
+        //     current_live_chat_id: live_chat_id,
+        // }
+        => {
             // Get channel from shared state
             let channel_opt = {
                 let channels_guard = channels.lock().await;
@@ -219,6 +220,8 @@ pub async fn spawn_chat_task(
         let selection = stream_rx.borrow().clone();
         let current_broadcast_id = match &selection {
             StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
+            // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
+            // StreamSelection::LatestBroadcast { current_broadcast_id, .. } => Some(current_broadcast_id.clone()),
             _ => None,
         };
         if current_broadcast_id != current_broadcast {
@@ -245,6 +248,8 @@ pub async fn spawn_chat_task(
                     let selection = stream_rx.borrow().clone();
                     let new_broadcast_id = match &selection {
                         StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
+                        // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
+                        // StreamSelection::LatestBroadcast { current_broadcast_id, .. } => Some(current_broadcast_id.clone()),
                         _ => None,
                     };
 

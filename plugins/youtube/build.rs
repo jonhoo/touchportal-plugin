@@ -456,8 +456,55 @@ fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 // ==============================================================================
-                // Chat Events - Analytics & Monitoring
+                // State-Based Chat Events - Analytics & Monitoring
                 // ==============================================================================
+                // These events trigger automatically when global states change
+                .event(
+                    Event::builder()
+                        .id("ytl_last_chat_message_changed")
+                        .name("On Last Chat Message Changed")
+                        .format("When the last chat message changes")
+                        .sub_category_id("ytl_analytics_monitoring")
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
+                        .value_state_id("ytl_last_chat_message")
+                        // NO local states - pure state-based event
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    Event::builder()
+                        .id("ytl_last_super_chat_changed")
+                        .name("On Last Super Chat Changed")
+                        .format("When the last super chat changes")
+                        .sub_category_id("ytl_analytics_monitoring")
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
+                        .value_state_id("ytl_last_super_chat")
+                        // NO local states - pure state-based event
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    Event::builder()
+                        .id("ytl_last_sponsor_changed")
+                        .name("On Last Sponsor Changed")
+                        .format("When the last sponsor changes")
+                        .sub_category_id("ytl_analytics_monitoring")
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
+                        .value_state_id("ytl_last_sponsor")
+                        // NO local states - pure state-based event
+                        .build()
+                        .unwrap(),
+                )
+                // ==============================================================================
+                // Action-Based Chat Events - Analytics & Monitoring
+                // ==============================================================================
+                // These events trigger explicitly with rich local state data
                 .event(
                     Event::builder()
                         .id("ytl_new_chat_message")
@@ -467,7 +514,6 @@ fn plugin() -> PluginDescription {
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_latest_chat_message")
                         .local_state(
                             LocalState::builder()
                                 .id("ytl_chat_message")
@@ -508,7 +554,6 @@ fn plugin() -> PluginDescription {
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_latest_super_chat")
                         .local_state(
                             LocalState::builder()
                                 .id("ytl_super_chat_message")
@@ -549,7 +594,6 @@ fn plugin() -> PluginDescription {
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_latest_sponsor")
                         .local_state(
                             LocalState::builder()
                                 .id("ytl_sponsor_name")
@@ -568,6 +612,39 @@ fn plugin() -> PluginDescription {
                             LocalState::builder()
                                 .id("ytl_sponsor_months")
                                 .name("YouTube Live - Months Sponsored")
+                                .build()
+                                .unwrap(),
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .event(
+                    Event::builder()
+                        .id("ytl_new_sponsor_milestone")
+                        .name("On New Sponsor Milestone")
+                        .format("When an existing sponsor reaches a new milestone")
+                        .sub_category_id("ytl_analytics_monitoring")
+                        .value(EventValueType::Text(
+                            EventTextConfiguration::builder().build().unwrap(),
+                        ))
+                        .local_state(
+                            LocalState::builder()
+                                .id("ytl_sponsor_milestone_name")
+                                .name("YouTube Live - Sponsor Milestone Name")
+                                .build()
+                                .unwrap(),
+                        )
+                        .local_state(
+                            LocalState::builder()
+                                .id("ytl_sponsor_milestone_level")
+                                .name("YouTube Live - Sponsor Milestone Level")
+                                .build()
+                                .unwrap(),
+                        )
+                        .local_state(
+                            LocalState::builder()
+                                .id("ytl_sponsor_milestone_months")
+                                .name("YouTube Live - Sponsor Milestone Months")
                                 .build()
                                 .unwrap(),
                         )
@@ -653,8 +730,8 @@ fn plugin() -> PluginDescription {
                 // Event Value States - these states hold the triggering values for events
                 .state(
                     State::builder()
-                        .id("ytl_latest_chat_message")
-                        .description("YouTube Live - Latest Chat Message")
+                        .id("ytl_last_chat_message")
+                        .description("YouTube Live - Last Chat Message")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
@@ -663,8 +740,8 @@ fn plugin() -> PluginDescription {
                 )
                 .state(
                     State::builder()
-                        .id("ytl_latest_super_chat")
-                        .description("YouTube Live - Latest Super Chat")
+                        .id("ytl_last_super_chat")
+                        .description("YouTube Live - Last Super Chat")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
@@ -673,8 +750,58 @@ fn plugin() -> PluginDescription {
                 )
                 .state(
                     State::builder()
-                        .id("ytl_latest_sponsor")
-                        .description("YouTube Live - Latest Sponsor")
+                        .id("ytl_last_sponsor")
+                        .description("YouTube Live - Last Sponsor")
+                        .initial("-")
+                        .parent_group("Chat Events")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_last_chat_author")
+                        .description("YouTube Live - Last Chat Author")
+                        .initial("-")
+                        .parent_group("Chat Events")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_last_super_chat_author")
+                        .description("YouTube Live - Last Super Chat Author")
+                        .initial("-")
+                        .parent_group("Chat Events")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_last_super_chat_amount")
+                        .description("YouTube Live - Last Super Chat Amount")
+                        .initial("-")
+                        .parent_group("Chat Events")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_last_sponsor_tenure")
+                        .description("YouTube Live - Last Sponsor Tenure")
+                        .initial("-")
+                        .parent_group("Chat Events")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_last_sponsor_level")
+                        .description("YouTube Live - Last Sponsor Level")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))

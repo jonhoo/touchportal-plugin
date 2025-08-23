@@ -617,7 +617,7 @@ impl Plugin {
             && let Some(channel) = client_by_channel.get(channel_id)
         {
             outgoing
-                .update_ytl_selected_channel_name(&channel.name)
+                .update_ytl_selected_channel_name(format!("{} - {}", channel.name, channel_id))
                 .await;
         }
 
@@ -629,6 +629,7 @@ impl Plugin {
             (Some(channel_id), Some(_broadcast_id)) => {
                 // We have both channel and broadcast, but need to get live_chat_id
                 // For now, we'll use ChannelOnly since we don't have live_chat_id at startup
+                // TODO(claude): query for the live chat id here and use the ChannelAndBroadcast variant.
                 StreamSelection::ChannelOnly {
                     channel_id: channel_id.clone(),
                 }
@@ -650,12 +651,6 @@ impl Plugin {
             adaptive_enabled,
         )));
 
-        tracing::info!(
-            adaptive_enabled = adaptive_enabled,
-            base_interval = base_interval,
-            "adaptive polling system initialized"
-        );
-
         // Initial status update
         {
             let state = adaptive_state.lock().await;
@@ -674,10 +669,10 @@ impl Plugin {
         // Spawn the metrics polling task
         let metrics_task_handle = metrics::spawn_metrics_task(
             outgoing.clone(),
-            shared_channels.clone(),
+            Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
             stream_selection_tx.clone(),
-            adaptive_state.clone(),
+            Arc::clone(&adaptive_state),
             base_interval,
             polling_interval_rx.clone(),
         )
@@ -689,9 +684,9 @@ impl Plugin {
         // Spawn the chat monitoring task
         let chat_task_handle = chat::spawn_chat_task(
             outgoing.clone(),
-            shared_channels.clone(),
+            Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
-            adaptive_state.clone(),
+            Arc::clone(&adaptive_state),
         )
         .await;
 
@@ -701,7 +696,7 @@ impl Plugin {
         // Spawn the latest broadcast monitoring task
         let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
             outgoing.clone(),
-            shared_channels.clone(),
+            Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
             stream_selection_tx.clone(),
         )

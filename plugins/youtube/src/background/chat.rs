@@ -9,30 +9,24 @@ use tokio_stream::StreamExt;
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
 
-/// Process a chat message and trigger appropriate TouchPortal events
-/// Also updates adaptive polling state based on chat activity
+/// Process a chat message and trigger appropriate TouchPortal events.
+///
+/// Also updates adaptive polling state based on chat activity.
 pub async fn process_chat_message(
     outgoing: &mut crate::plugin::TouchPortalHandle,
     message: LiveChatMessage,
-    adaptive_state: Arc<Mutex<AdaptivePollingState>>,
 ) {
     let author_name = message
         .author_details
         .as_ref()
-        .map(|a| a.display_name.clone())
-        .unwrap_or_else(|| "Anonymous".to_string());
+        .map(|a| a.display_name.as_str())
+        .unwrap_or("Anonymous");
     let author_id = message
         .author_details
         .as_ref()
-        .map(|a| a.channel_id.clone())
-        .unwrap_or_else(|| "unknown".to_string());
+        .map(|a| a.channel_id.as_str())
+        .unwrap_or("unknown");
     let timestamp = message.snippet.published_at.to_string();
-
-    // Register chat activity for adaptive polling
-    {
-        let mut state = adaptive_state.lock().await;
-        state.register_chat_message();
-    }
 
     match message.snippet.details {
         LiveChatMessageDetails::TextMessage {
@@ -47,19 +41,14 @@ pub async fn process_chat_message(
 
             // Trigger chat message event with local states
             outgoing
-                .force_trigger_ytl_new_chat_message(
-                    message_text,
-                    &author_name,
-                    &author_id,
-                    &timestamp,
-                )
+                .trigger_ytl_new_chat_message(message_text, &author_name, &author_id, &timestamp)
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
             outgoing.update_ytl_last_chat_message(message_text).await;
-            outgoing.update_ytl_last_chat_author(&author_name).await;
+            outgoing.update_ytl_last_chat_author(author_name).await;
 
-            tracing::debug!(
+            tracing::trace!(
                 author = %author_name,
                 message = %message_text,
                 "processed chat message"
@@ -70,31 +59,29 @@ pub async fn process_chat_message(
                 .user_comment
                 .as_deref()
                 .unwrap_or("(no message)");
-            // Use amountDisplayString from YouTube API instead of manual calculation
-            let amount_display = &super_chat_details.amount_display_string;
+            let amount = &super_chat_details.amount_display_string;
 
             // Trigger super chat event with local states
             outgoing
                 .trigger_ytl_new_super_chat(
                     message_text,
-                    &author_name,
-                    amount_display,
-                    &super_chat_details.currency,
+                    author_name,
+                    amount,
+                    super_chat_details.amount_micros,
+                    super_chat_details.currency,
                 )
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
             outgoing.update_ytl_last_super_chat(message_text).await;
             outgoing
-                .update_ytl_last_super_chat_author(&author_name)
+                .update_ytl_last_super_chat_author(author_name)
                 .await;
-            outgoing
-                .update_ytl_last_super_chat_amount(amount_display)
-                .await;
+            outgoing.update_ytl_last_super_chat_amount(amount).await;
 
-            tracing::info!(
+            tracing::trace!(
                 author = %author_name,
-                amount = %amount_display,
+                amount = %amount,
                 message = %message_text,
                 "processed super chat"
             );
@@ -106,17 +93,17 @@ pub async fn process_chat_message(
 
             // Trigger new member event with local states
             outgoing
-                .trigger_ytl_new_member(&author_name, member_level_name, "1")
+                .trigger_ytl_new_member(&author_name, member_level_name, "0")
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
-            outgoing.update_ytl_last_member(&author_name).await;
+            outgoing.update_ytl_last_member(author_name).await;
             outgoing
                 .update_ytl_last_member_level(member_level_name)
                 .await;
-            outgoing.update_ytl_last_member_tenure("1").await;
+            outgoing.update_ytl_last_member_tenure("0").await;
 
-            tracing::info!(
+            tracing::trace!(
                 author = %author_name,
                 level = %member_level_name,
                 "processed new member"
@@ -137,7 +124,7 @@ pub async fn process_chat_message(
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
-            outgoing.update_ytl_last_member(&author_name).await;
+            outgoing.update_ytl_last_member(author_name).await;
             outgoing
                 .update_ytl_last_member_level(member_level_name)
                 .await;
@@ -147,7 +134,7 @@ pub async fn process_chat_message(
                 )
                 .await;
 
-            tracing::info!(
+            tracing::trace!(
                 author = %author_name,
                 level = %member_level_name,
                 months = member_milestone_chat_details.member_month,
@@ -159,14 +146,14 @@ pub async fn process_chat_message(
             tracing::debug!(
                 author = %author_name,
                 message_type = ?message.snippet.details,
-                "received unprocessed message type"
+                "ignored chat message of odd type"
             );
         }
     }
 }
 
 /// Restart chat stream when stream selection changes
-pub async fn restart_chat_stream_optimized(
+pub async fn restart_chat_stream(
     chat_stream: &mut Option<Pin<Box<LiveChatStream>>>,
     channels: &Arc<Mutex<HashMap<String, Channel>>>,
     selection: &StreamSelection,
@@ -187,19 +174,29 @@ pub async fn restart_chat_stream_optimized(
                 channels_guard.get(channel_id).cloned()
             };
 
-            if let Some(channel) = channel_opt {
-                let new_stream = LiveChatStream::new((*channel.yt).clone(), live_chat_id.clone());
-                *chat_stream = Some(Box::pin(new_stream));
-
-                tracing::info!(
+            let Some(channel) = channel_opt else {
+                tracing::warn!(
                     channel = %channel_id,
                     broadcast = %broadcast_id,
-                    chat_id = %live_chat_id,
-                    "started chat monitoring"
+                    "asked to monitor broadcast, \
+                    but its channel does not have an authenticated client"
                 );
-            }
+                return;
+            };
+
+            let new_stream = LiveChatStream::new((*channel.yt).clone(), live_chat_id.clone());
+            *chat_stream = Some(Box::pin(new_stream));
+
+            tracing::info!(
+                channel = %channel_id,
+                broadcast = %broadcast_id,
+                chat_id = %live_chat_id,
+                "started monitoring chat"
+            );
         }
-        _ => {
+        StreamSelection::None
+        | StreamSelection::ChannelOnly { .. }
+        | StreamSelection::WaitForActiveBroadcast { .. } => {
             tracing::debug!("cleared chat stream (no broadcast selected)");
         }
     }
@@ -225,25 +222,48 @@ pub async fn spawn_chat_task(
             | StreamSelection::WaitForActiveBroadcast { .. } => None,
         };
         if current_broadcast_id != current_broadcast {
-            restart_chat_stream_optimized(&mut chat_stream, &channels, &selection).await;
+            restart_chat_stream(&mut chat_stream, &channels, &selection).await;
             current_broadcast = current_broadcast_id;
         }
 
+        let mut retry = tokio::time::interval(tokio::time::Duration::from_secs(1));
         loop {
             tokio::select! {
-                // Process chat messages immediately - never blocked by API calls
                 Some(chat_msg) = async {
                     match &mut chat_stream {
                         Some(stream) => stream.next().await,
-                        None => std::future::pending().await, // Wait indefinitely if no stream
+                        None => std::future::pending().await,
                     }
                 } => {
-                    if let Ok(msg) = chat_msg {
-                        process_chat_message(&mut outgoing, msg, adaptive_state.clone()).await;
+                    match chat_msg {
+                        Ok(msg) => {
+                            // Register chat activity for adaptive polling
+                            {
+                                let mut state = adaptive_state.lock().await;
+                                state.register_chat_message();
+                            }
+
+                            process_chat_message(&mut outgoing, msg).await;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                broadcast = %current_broadcast.as_ref().expect("we only have a chat stream if we have a broadcast"),
+                                error = %e,
+                                "failed to parse incoming chat message"
+                            );
+                        }
                     }
                 }
 
-                // React immediately to stream selection changes
+                // Retry creating the chat stream if we failed initially
+                _ = retry.tick(), if chat_stream.is_none() && current_broadcast.is_some() => {
+                    restart_chat_stream(
+                        &mut chat_stream,
+                        &channels,
+                        &selection,
+                    ).await;
+                }
+
                 Ok(()) = stream_rx.changed() => {
                     let selection = stream_rx.borrow().clone();
                     let new_broadcast_id = match &selection {
@@ -258,7 +278,7 @@ pub async fn spawn_chat_task(
                             "stream selection changed - updating chat stream"
                         );
 
-                        restart_chat_stream_optimized(
+                        restart_chat_stream(
                             &mut chat_stream,
                             &channels,
                             &selection,

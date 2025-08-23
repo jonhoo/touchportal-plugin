@@ -288,6 +288,12 @@ pub struct AdaptivePollingState {
 
 impl AdaptivePollingState {
     pub fn new(base_interval: u64, enabled: bool) -> Self {
+        tracing::info!(
+            enabled,
+            base_interval,
+            "adaptive polling system initialized"
+        );
+
         Self {
             base_interval,
             current_interval: base_interval,

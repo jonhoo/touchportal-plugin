@@ -99,16 +99,15 @@ where
     // ==============================================================================
     // Token Refresh Strategy for Long-Running Plugin
     // ==============================================================================
-    // For long-running plugins, we proactively refresh all old tokens to ensure
-    // they have maximum lifetime. Fresh tokens are validated after refresh to
-    // confirm they work correctly.
+    // We proactively refresh all old tokens to ensure they have maximum lifetime.
+    // All tokens are validated after refresh to confirm they work correctly.
     let mut yt_clients = Vec::new();
     let mut refreshed_tokens = Vec::new();
 
     for token in tokens {
         let final_token = if is_old {
-            // Always refresh old tokens proactively for long-running plugin
-            tracing::info!("proactively refreshing old token for maximum lifetime");
+            // Always refresh old tokens proactively since they may already have expired.
+            tracing::info!("proactively refreshing old token");
 
             let mut token = TimeBoundAccessToken::expired(token);
 
@@ -152,7 +151,6 @@ where
     // Token Validation After Refresh
     // ==============================================================================
     // Now that all tokens are fresh, validate them to ensure they work correctly.
-    // Any validation failures at this point indicate serious issues.
     for client in &yt_clients {
         let is_valid = client
             .validate_token()

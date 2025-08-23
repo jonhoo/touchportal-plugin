@@ -571,7 +571,7 @@ fn plugin() -> PluginDescription {
                     Event::builder()
                         .id("ytl_new_chat_message")
                         .name("On new chat message")
-                        .format("When you receive a chat message that $compare to $val")
+                        .format("When you receive a new chat message")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
@@ -639,6 +639,13 @@ fn plugin() -> PluginDescription {
                         )
                         .local_state(
                             LocalState::builder()
+                                .id("ytl_super_chat_amount_micros")
+                                .name("YouTube Live - Super Chat amount (in micros)")
+                                .build()
+                                .unwrap(),
+                        )
+                        .local_state(
+                            LocalState::builder()
                                 .id("ytl_super_chat_currency")
                                 .name("YouTube Live - Super Chat currency")
                                 .build()
@@ -651,7 +658,7 @@ fn plugin() -> PluginDescription {
                     Event::builder()
                         .id("ytl_new_member")
                         .name("On new member")
-                        .format("When you receive a new member")
+                        .format("When your channel gets a new member")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
@@ -762,7 +769,7 @@ fn plugin() -> PluginDescription {
                     State::builder()
                         .id("ytl_current_stream_title")
                         .description("YouTube Live - stream title")
-                        .initial("-")
+                        .initial("No stream selected...")
                         .parent_group("Stream Info")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
                         .build()

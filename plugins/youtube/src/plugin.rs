@@ -535,27 +535,6 @@ impl PluginCallbacks for Plugin {
     }
 }
 
-/// Get the live_chat_id for a specific broadcast
-async fn get_live_chat_id_for_broadcast(
-    channel: &Channel,
-    broadcast_id: &str,
-) -> eyre::Result<String> {
-    let broadcasts = channel.yt.list_my_live_broadcasts();
-    let mut broadcasts = std::pin::pin!(broadcasts);
-
-    while let Some(broadcast) = broadcasts.next().await {
-        let broadcast = broadcast.context("fetch broadcast for live_chat_id")?;
-        if broadcast.id == broadcast_id {
-            return broadcast
-                .snippet
-                .live_chat_id
-                .ok_or_else(|| eyre::eyre!("Broadcast {} has no live chat", broadcast_id));
-        }
-    }
-
-    eyre::bail!("Broadcast {} not found", broadcast_id)
-}
-
 impl Plugin {
     pub async fn new(
         settings: PluginSettings,
@@ -701,21 +680,41 @@ impl Plugin {
                 let channel = yt_guard.get(channel_id);
                 match channel {
                     Some(channel) => {
-                        // TODO(claude): use liveStreamingDetails.activeLiveChatId from video get_metadata here so you don't need the helper. note that the stream may have completed and thus not have an activeLiveChatId. in which case we should move to StreamSelection::ChannelOnly instead.
-                        match get_live_chat_id_for_broadcast(channel, broadcast_id).await {
-                            Ok(live_chat_id) => StreamSelection::ChannelAndBroadcast {
-                                channel_id: channel_id.clone(),
-                                broadcast_id: broadcast_id.clone(),
-                                live_chat_id,
-                                return_to_latest_on_completion: false,
-                            },
+                        match channel.yt.get_video_metadata(broadcast_id).await {
+                            Ok(video) => {
+                                match video
+                                    .live_streaming_details
+                                    .and_then(|details| details.active_live_chat_id)
+                                {
+                                    Some(live_chat_id) => StreamSelection::ChannelAndBroadcast {
+                                        channel_id: channel_id.clone(),
+                                        broadcast_id: broadcast_id.clone(),
+                                        live_chat_id,
+                                        return_to_latest_on_completion: false,
+                                    },
+                                    None => {
+                                        tracing::warn!(
+                                            channel = %channel_id,
+                                            broadcast = %broadcast_id,
+                                            "at startup, selected broadcast has no active live chat; it may have ended"
+                                        );
+                                        // Clear the broadcast setting since it's not usable for chat
+                                        outgoing.set_selected_broadcast_id(String::new()).await;
+                                        StreamSelection::ChannelOnly {
+                                            channel_id: channel_id.clone(),
+                                        }
+                                    }
+                                }
+                            }
                             Err(e) => {
                                 tracing::warn!(
                                     channel = %channel_id,
                                     broadcast = %broadcast_id,
                                     error = %e,
-                                    "failed to get live_chat_id at startup, falling back to channel-only mode"
+                                    "failed to get video metadata for selected broadcast at startup; it may have been deleted"
                                 );
+                                // Clear the broadcast setting since it's not accessible
+                                outgoing.set_selected_broadcast_id(String::new()).await;
                                 StreamSelection::ChannelOnly {
                                     channel_id: channel_id.clone(),
                                 }

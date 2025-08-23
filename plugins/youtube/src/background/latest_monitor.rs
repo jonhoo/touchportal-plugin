@@ -68,6 +68,7 @@ pub async fn check_for_latest_broadcast_change(
 /// when the user has selected WaitForActiveBroadcast mode. When a change is detected,
 /// it automatically switches to the new latest broadcast.
 /// Uses a fixed 5-minute interval for monitoring.
+// TODO(claude): extend this such that it also maintains the list of choices for the broadcast if no specific broadcast has yet been selected.
 pub async fn spawn_latest_monitor_task(
     channels: Arc<Mutex<HashMap<String, Channel>>>,
     stream_rx: watch::Receiver<StreamSelection>,

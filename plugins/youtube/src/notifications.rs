@@ -94,3 +94,17 @@ pub async fn need_to_select_channel_first(tp: &mut TouchPortalHandle) -> eyre::R
     .await;
     Ok(())
 }
+
+/// Notify user that their selected broadcast is no longer available.
+pub async fn selected_broadcast_not_available(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_broadcast_not_available")
+            .title("Broadcast not available")
+            .message("The selected broadcast is no longer available - it may have finished, been deleted, or had chat disabled. Please select a different broadcast or choose 'Latest' to wait for the next live stream.")
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}

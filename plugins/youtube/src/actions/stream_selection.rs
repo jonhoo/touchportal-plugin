@@ -1,9 +1,7 @@
 use crate::Channel;
-use eyre::Context;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_stream::StreamExt;
 
 use crate::background::metrics::StreamSelection;
 use crate::notifications;
@@ -49,8 +47,8 @@ pub async fn handle_select_stream(
 
             // Update settings for persistence
             tp.set_selected_channel_id(channel_id.to_string()).await;
-            // TODO(claude): here we need to set "latest" as the saved broadcast id, and then handle that again when we read settings back out.
-            tp.set_selected_broadcast_id("".to_string()).await; // Clear broadcast ID
+            // TODO(claude): here we need to set "latest" as the saved broadcast id, and then handle that again when we read settings back out. if you do, also think about anywhere else we set_selected_broadcast_id to an empty string and whether it should be set to "latest" there as well.
+            tp.set_selected_broadcast_id(String::new()).await; // Clear broadcast ID
 
             tp.update_ytl_current_stream_title("Waiting for active broadcast...")
                 .await;
@@ -79,23 +77,38 @@ pub async fn handle_select_stream(
                     return Ok(None);
                 };
 
-                // Fetch broadcast details to get live chat ID
-                // TODO(claude): use liveStreamingDetails.activeLiveChatId from video get_metadata here so you don't need the helper. note that the stream may have completed and thus not have an activeLiveChatId. in which case we should just move to StreamSelection::ChannelOnly and alert the user that the selected stream is no longer live.
-                let broadcasts = channel.yt.list_my_live_broadcasts();
-                let mut broadcasts = std::pin::pin!(broadcasts);
-
-                let mut live_chat_id = None;
-                while let Some(broadcast) = broadcasts.next().await {
-                    let broadcast = broadcast.context("fetch broadcast details")?;
-                    if broadcast.id == id {
-                        live_chat_id = broadcast.snippet.live_chat_id.clone();
-                        break;
+                // Fetch video metadata to get live chat ID
+                match channel.yt.get_video_metadata(&id).await {
+                    Ok(video) => {
+                        match video
+                            .live_streaming_details
+                            .and_then(|details| details.active_live_chat_id)
+                        {
+                            Some(live_chat_id) => (id, Some(live_chat_id)),
+                            None => {
+                                tracing::warn!(
+                                    broadcast = %id,
+                                    "selected broadcast has no active live chat; it may have ended"
+                                );
+                                // Clear the broadcast selection since it's not usable for chat
+                                tp.set_selected_broadcast_id(String::new()).await;
+                                notifications::selected_broadcast_not_available(tp).await?;
+                                return Ok(None);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            broadcast = %id,
+                            error = %e,
+                            "failed to get video metadata for selected broadcast; it may have been deleted"
+                        );
+                        // Clear the broadcast selection since it's not accessible
+                        tp.set_selected_broadcast_id(String::new()).await;
+                        notifications::selected_broadcast_not_available(tp).await?;
+                        return Ok(None);
                     }
                 }
-
-                let chat_id = live_chat_id
-                    .ok_or_else(|| eyre::eyre!("Live chat ID not found for broadcast {}", id))?;
-                (id, Some(chat_id))
             };
 
             // Create stream selection object

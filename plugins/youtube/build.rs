@@ -20,6 +20,8 @@ fn plugin() -> PluginDescription {
         // ==============================================================================
         // Settings Configuration
         // ==============================================================================
+        // TODO(claude): add a setting to for logging verbosity with the options info, debug, and trace, which should set the corresponding tracing logging level for the plugin.
+        //
         // Token storage for OAuth credentials across plugin restarts
         .setting(
             Setting::builder()
@@ -724,6 +726,7 @@ fn plugin() -> PluginDescription {
                 // States - Analytics & Monitoring
                 // ==============================================================================
                 // Stream Statistics States - polled periodically based on polling interval setting
+                // TODO(claude): add a state for LiveBroadcast.statistics.totalChatCount
                 .state(
                     State::builder()
                         .id("ytl_likes_count")

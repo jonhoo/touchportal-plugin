@@ -40,6 +40,11 @@ pub struct Plugin {
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     stream_selection_rx: watch::Receiver<StreamSelection>,
     polling_interval_rx: watch::Receiver<u64>,
+    // Runtime log level adjustment handle
+    pub log_level_reload_handle: tracing_subscriber::reload::Handle<
+        tracing_subscriber::EnvFilter,
+        tracing_subscriber::Registry,
+    >,
 }
 
 impl PluginCallbacks for Plugin {
@@ -51,6 +56,7 @@ impl PluginCallbacks for Plugin {
             base_polling_interval_seconds,
             custom_o_auth_client_id,
             custom_o_auth_client_secret,
+            logging_verbosity,
             // Read-only settings updated by the plugin - ignore these changes
             you_tube_api_access_tokens: _,
             selected_channel_id: _,
@@ -59,6 +65,9 @@ impl PluginCallbacks for Plugin {
     ) -> eyre::Result<()> {
         self.handle_oauth_credential_change(&custom_o_auth_client_id, &custom_o_auth_client_secret)
             .await?;
+
+        // Apply logging verbosity setting
+        self.update_logging_level(logging_verbosity)?;
 
         let new_polling_interval =
             base_polling_interval_seconds.max(crate::MIN_POLLING_INTERVAL_SECONDS as f64) as u64;
@@ -540,6 +549,10 @@ impl Plugin {
         settings: PluginSettings,
         mut outgoing: TouchPortalHandle,
         info: InfoMessage,
+        log_level_reload_handle: tracing_subscriber::reload::Handle<
+            tracing_subscriber::EnvFilter,
+            tracing_subscriber::Registry,
+        >,
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
@@ -786,7 +799,7 @@ impl Plugin {
         // - Event triggering: Poll start, progress, and completion events
         // See TouchPortal SDK documentation for activePollItem usage patterns
 
-        Ok(Self {
+        let mut plugin = Self {
             yt: shared_channels,
             tp: outgoing,
             current_channel,
@@ -801,7 +814,37 @@ impl Plugin {
             adaptive_state,
             stream_selection_rx,
             polling_interval_rx,
-        })
+            log_level_reload_handle,
+        };
+
+        // Apply the initial logging level from plugin settings
+        if let Err(e) = plugin.update_logging_level(settings.logging_verbosity) {
+            tracing::warn!(error = %e, "failed to apply initial logging level");
+        }
+
+        Ok(plugin)
+    }
+
+    /// Update the logging level based on user settings
+    fn update_logging_level(&mut self, level: LoggingVerbositySettingOptions) -> eyre::Result<()> {
+        use tracing_subscriber::filter::LevelFilter;
+
+        let level_filter = match level {
+            LoggingVerbositySettingOptions::Info => LevelFilter::INFO,
+            LoggingVerbositySettingOptions::Debug => LevelFilter::DEBUG,
+            LoggingVerbositySettingOptions::Trace => LevelFilter::TRACE,
+        };
+
+        self.log_level_reload_handle
+            .modify(|filter| {
+                *filter = tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(level_filter.into())
+                    .from_env_lossy()
+            })
+            .context("update logging level")?;
+        tracing::info!(level = %level, "logging level updated");
+
+        Ok(())
     }
 
     /// Handle OAuth credential changes when TouchPortal settings are updated.

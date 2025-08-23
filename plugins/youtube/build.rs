@@ -20,8 +20,34 @@ fn plugin() -> PluginDescription {
         // ==============================================================================
         // Settings Configuration
         // ==============================================================================
-        // TODO(claude): add a setting to for logging verbosity with the options info, debug, and trace, which should set the corresponding tracing logging level for the plugin.
-        //
+        // Logging verbosity control for debugging and monitoring
+        .setting(
+            Setting::builder()
+                .name("Logging verbosity")
+                .initial("info")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Plugin Logging Level")
+                        .body(
+                            "Controls the verbosity of plugin logging output. \
+                            Info shows basic operation messages, debug shows detailed \
+                            operation information, and trace shows comprehensive \
+                            debugging information including API calls."
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .kind(SettingType::Choice(
+                    ChoiceSetting::builder()
+                        .choice("info")
+                        .choice("debug")
+                        .choice("trace")
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        )
         // Token storage for OAuth credentials across plugin restarts
         .setting(
             Setting::builder()

@@ -25,6 +25,14 @@ fn plugin() -> PluginDescription {
             Setting::builder()
                 .name("YouTube API access tokens")
                 .initial("")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("OAuth Authentication")
+                        .body("Stores encrypted OAuth tokens for YouTube API access. These tokens are automatically managed through the authentication flow and should not be modified manually.")
+                        .doc_url("https://developers.google.com/youtube/v3/guides/auth/installed-apps")
+                        .build()
+                        .unwrap(),
+                )
                 .kind(SettingType::Text(
                     TextSetting::builder()
                         .read_only(true)
@@ -40,6 +48,13 @@ fn plugin() -> PluginDescription {
             Setting::builder()
                 .name("Smart polling adjustment")
                 .initial("On")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Adaptive API Usage")
+                        .body("Automatically adjusts polling frequency based on stream activity to optimize API quota usage. Increases polling during active streams and reduces it when idle.")
+                        .build()
+                        .unwrap(),
+                )
                 .kind(SettingType::Switch(
                     SwitchSetting::builder()
                         .build()
@@ -53,6 +68,13 @@ fn plugin() -> PluginDescription {
             Setting::builder()
                 .name("Base polling interval (seconds)")
                 .initial("60")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("API Request Frequency")
+                        .body("Sets the base interval (30-3600 seconds) between YouTube API requests. Lower values provide faster updates but consume more API quota. Recommended: 60-300 seconds for active monitoring.")
+                        .build()
+                        .unwrap(),
+                )
                 .kind(SettingType::Number(
                     NumberSetting::builder()
                         .min_value(MIN_POLLING_INTERVAL_SECONDS as f64) // Minimum to avoid API quota exhaustion
@@ -68,6 +90,13 @@ fn plugin() -> PluginDescription {
             Setting::builder()
                 .name("Selected channel ID")
                 .initial("")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Current Channel Context")
+                        .body("The ID of the currently selected YouTube channel. This value is automatically set when you authenticate and select a channel for monitoring.")
+                        .build()
+                        .unwrap(),
+                )
                 .kind(SettingType::Text(
                     TextSetting::builder()
                         .read_only(true)
@@ -82,6 +111,13 @@ fn plugin() -> PluginDescription {
             Setting::builder()
                 .name("Selected broadcast ID")
                 .initial("")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Active Stream Context")
+                        .body("The ID of the currently monitored live broadcast. This value is automatically updated when a new live stream is detected on the selected channel.")
+                        .build()
+                        .unwrap(),
+                )
                 .kind(SettingType::Text(
                     TextSetting::builder()
                         .read_only(true)

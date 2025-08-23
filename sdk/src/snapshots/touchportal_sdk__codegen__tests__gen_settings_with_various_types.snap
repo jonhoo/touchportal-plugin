@@ -98,4 +98,11 @@ impl PluginSettings {
         let value = info.into_iter().flatten().collect();
         serde_json::from_value(value).context("parse settings")
     }
+    pub fn from_settings_message(
+        settings: protocol::SettingsMessage,
+    ) -> ::eyre::Result<Self> {
+        use ::eyre::Context as _;
+        let value = settings.values.into_iter().flatten().collect();
+        serde_json::from_value(value).context("parse settings message")
+    }
 }

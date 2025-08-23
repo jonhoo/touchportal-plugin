@@ -294,6 +294,12 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                 let value = info.into_iter().flatten().collect();
                 serde_json::from_value(value).context("parse settings")
             }
+
+            pub fn from_settings_message(settings: protocol::SettingsMessage) -> ::eyre::Result<Self> {
+                use ::eyre::Context as _;
+                let value = settings.values.into_iter().flatten().collect();
+                serde_json::from_value(value).context("parse settings message")
+            }
         }
     }
 }
@@ -776,6 +782,28 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                 tracing::debug!(?event, "on_notification_clicked noop");
                 Ok(())
             }
+            /// Called when the user modifies and saves plugin settings in TouchPortal.
+            ///
+            /// This method is triggered when TouchPortal sends a settings update message containing
+            /// the complete current state of all plugin settings. Use this to synchronize your
+            /// plugin's internal configuration with user-modified settings.
+            ///
+            /// # Arguments
+            /// * `settings` - The complete current plugin settings parsed into the generated `PluginSettings` struct
+            ///
+            /// # Example
+            /// ```rust,ignore
+            /// async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+            ///     tracing::info!(?settings, "settings updated by user");
+            ///
+            ///     // Update your plugin's internal state based on new settings
+            ///     self.api_client.update_credentials(&settings.api_key)?;
+            ///     self.reconnect_if_needed().await?;
+            ///
+            ///     Ok(())
+            /// }
+            /// ```
+            async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()>;
         }
 
         #action_data_choices
@@ -833,6 +861,10 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     },
                     TouchPortalOutput::NotificationOptionClicked(event) => {
                         self.on_notification_clicked(event).await.context("handle notification click")?;
+                    }
+                    TouchPortalOutput::Settings(settings_msg) => {
+                        let settings = PluginSettings::from_settings_message(settings_msg).context("parse settings from message")?;
+                        self.on_settings_changed(settings).await.context("handle settings change")?;
                     }
                     _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
                 }

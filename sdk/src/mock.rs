@@ -550,4 +550,16 @@ impl TestScenario {
         });
         self.with_message(message)
     }
+
+    /// Add a settings change message to simulate TouchPortal sending updated plugin settings.
+    ///
+    /// This allows testing how the plugin responds to settings changes when the user
+    /// modifies plugin configuration in TouchPortal.
+    pub fn with_settings_change(
+        self,
+        settings: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    ) -> Self {
+        let message = TouchPortalOutput::Settings(protocol::SettingsMessage { values: settings });
+        self.with_message(message)
+    }
 }

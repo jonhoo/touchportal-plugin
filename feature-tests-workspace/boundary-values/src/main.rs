@@ -59,6 +59,12 @@ impl PluginCallbacks for Plugin {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+        tracing::info!(?settings, "plugin settings changed");
+        Ok(())
+    }
 }
 
 impl Plugin {

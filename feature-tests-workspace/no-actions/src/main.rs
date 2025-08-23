@@ -127,5 +127,5 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    Plugin::run_dynamic(addr).await
+    Plugin::run_dynamic_with(addr, Plugin::new).await
 }

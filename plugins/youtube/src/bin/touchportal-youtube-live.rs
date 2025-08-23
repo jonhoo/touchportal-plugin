@@ -1,3 +1,4 @@
+use touchportal_youtube_live::plugin::Plugin;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -13,7 +14,7 @@ async fn main() -> eyre::Result<()> {
         .with_ansi(false) // not supported by TouchPortal's log output
         .init();
 
-    touchportal_youtube_live::plugin::Plugin::run_dynamic("127.0.0.1:12136").await?;
+    Plugin::run_dynamic_with("127.0.0.1:12136", Plugin::new).await?;
 
     Ok(())
 }

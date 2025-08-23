@@ -887,14 +887,18 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
     quote! {
         #[allow(private_bounds)]
         impl Plugin where Self: PluginCallbacks {
-            pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
-                Self::run_dynamic_with_setup(addr, std::convert::identity).await
-            }
-
-            pub async fn run_dynamic_with_setup(
-                addr: impl tokio::net::ToSocketAddrs,
-                mutate: impl FnOnce(Plugin) -> Plugin,
-            ) -> eyre::Result<()> {
+            /// Run a dynamic plugin against TouchPortal running at the given `addr`.
+            ///
+            /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
+            /// callers to make last-minute adjustments to `Plugin` before we start using it for
+            /// real. Handy for injecting references to things like mock expectations.
+            pub async fn run_dynamic_with<C>(addr: impl tokio::net::ToSocketAddrs, constructor: C) -> eyre::Result<()>
+            where C: AsyncFnOnce(
+                PluginSettings,
+                TouchPortalHandle,
+                InfoMessage,
+            ) -> eyre::Result<Self>
+            {
                 use protocol::*;
                 use ::eyre::Context as _;
                 use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -952,13 +956,9 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
 
                 ::tracing::debug!("construct Plugin proper");
                 let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
-                let plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
+                let mut plugin = constructor(settings, TouchPortalHandle(send_outgoing), info)
                     .await
-                    .context("Plugin::new")?;
-
-                // Allow caller to make last-minute adjustments to `Plugin` before we start using
-                // it for real. Handy for injecting references to things like mock expectations.
-                let mut plugin = mutate(plugin);
+                    .context("run Plugin constructor")?;
 
                 // Set up re-use buffers
                 let mut line = String::new();

@@ -146,6 +146,7 @@ impl Plugin {
         _settings: PluginSettings,
         outgoing: TouchPortalHandle,
         info: InfoMessage,
+        mocks: touchportal_sdk::mock::MockExpectations,
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::info!("All data types plugin - comprehensive API testing");
@@ -153,7 +154,7 @@ impl Plugin {
         let plugin = Self {
             handle: outgoing,
             counter: Arc::new(RwLock::new(0)),
-            mocks: touchportal_sdk::mock::MockExpectations::new(),
+            mocks,
         };
 
         // Start background task to cycle color states
@@ -329,9 +330,8 @@ async fn main() -> eyre::Result<()> {
     });
 
     let expectations_for_verification = expectations.clone();
-    Plugin::run_dynamic_with_setup(addr, |mut plugin| {
-        plugin.mocks = expectations;
-        plugin
+    Plugin::run_dynamic_with(addr, async move |settings, outgoing, info| {
+        Plugin::new(settings, outgoing, info, expectations).await
     })
     .await?;
 

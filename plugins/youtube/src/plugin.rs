@@ -43,12 +43,25 @@ pub struct Plugin {
 
 impl PluginCallbacks for Plugin {
     #[tracing::instrument(skip(self), ret)]
-    async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+    async fn on_settings_changed(
+        &mut self,
+        PluginSettings {
+            smart_polling_adjustment,
+            base_polling_interval_seconds,
+            custom_o_auth_client_id,
+            custom_o_auth_client_secret,
+            // Read-only settings updated by the plugin - ignore these changes
+            you_tube_api_access_tokens: _,
+            selected_channel_id: _,
+            selected_broadcast_id: _,
+        }: PluginSettings,
+    ) -> eyre::Result<()> {
         // Handle OAuth credential changes (highest priority - invalidates all tokens)
-        self.handle_oauth_credential_change(&settings).await?;
+        self.handle_oauth_credential_change(&custom_o_auth_client_id, &custom_o_auth_client_secret)
+            .await?;
 
         // Handle polling interval changes - notify background tasks and adaptive state
-        let new_polling_interval = settings.base_polling_interval_seconds.max(30.0) as u64;
+        let new_polling_interval = base_polling_interval_seconds.max(30.0) as u64;
         if let Err(e) = self.polling_interval_tx.send(new_polling_interval) {
             tracing::warn!(
                 error = %e,
@@ -65,7 +78,7 @@ impl PluginCallbacks for Plugin {
 
         tracing::debug!(
             polling_interval = new_polling_interval,
-            smart_polling = settings.smart_polling_adjustment,
+            smart_polling = smart_polling_adjustment,
             "processed user-modifiable settings changes"
         );
 
@@ -692,8 +705,8 @@ impl Plugin {
 
     /// Handle OAuth credential changes when TouchPortal settings are updated.
     ///
-    /// This method will be called by the settings change callback (when available in future TouchPortal SDK)
-    /// to properly handle changes to custom OAuth client ID and secret settings.
+    /// This method will be called by the settings change callback to properly handle
+    /// changes to custom OAuth client ID and secret settings.
     ///
     /// When OAuth credentials change:
     /// 1. All existing access/refresh tokens become invalid immediately  
@@ -702,23 +715,23 @@ impl Plugin {
     /// 4. Plugin state must be reset (channels, current selections, etc.)
     ///
     /// # Arguments
-    /// * `new_settings` - Updated plugin settings containing potentially changed OAuth credentials
-    #[allow(dead_code)] // Will be used when settings change callback is implemented
+    /// * `new_custom_client_id` - New custom OAuth client ID (empty string if not set)
+    /// * `new_custom_client_secret` - New custom OAuth client secret (empty string if not set)
     async fn handle_oauth_credential_change(
         &mut self,
-        new_settings: &PluginSettings,
+        new_custom_client_id: &str,
+        new_custom_client_secret: &str,
     ) -> eyre::Result<()> {
         // Extract new custom OAuth credentials
-        let new_custom_client_id = if new_settings.custom_o_auth_client_id.trim().is_empty() {
+        let new_custom_client_id = if new_custom_client_id.trim().is_empty() {
             None
         } else {
-            Some(new_settings.custom_o_auth_client_id.clone())
+            Some(new_custom_client_id.to_string())
         };
-        let new_custom_client_secret = if new_settings.custom_o_auth_client_secret.trim().is_empty()
-        {
+        let new_custom_client_secret = if new_custom_client_secret.trim().is_empty() {
             None
         } else {
-            Some(new_settings.custom_o_auth_client_secret.clone())
+            Some(new_custom_client_secret.to_string())
         };
 
         // Early return if OAuth credentials haven't changed

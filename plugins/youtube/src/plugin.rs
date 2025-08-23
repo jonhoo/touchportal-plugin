@@ -17,7 +17,7 @@ use crate::{Channel, notifications, setup_youtube_clients};
 // You can look at the generated code for a plugin using this command:
 //
 // ```bash
-// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/entry.rs"
+// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/out/entry.rs"
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 

@@ -97,6 +97,32 @@ fn plugin() -> PluginDescription {
                 .build()
                 .unwrap(),
         )
+        // Latest broadcast check interval for monitoring mode
+        .setting(
+            Setting::builder()
+                .name("Latest broadcast check interval (minutes)")
+                .initial("5")
+                .tooltip(
+                    Tooltip::builder()
+                        .title("Latest Broadcast Monitoring Frequency")
+                        .body(
+                            "How often to check for new 'latest' broadcasts when monitoring mode \
+                            is active (1-60 minutes). Only applies when 'Latest non-completed \
+                            broadcast' option was selected. Recommended: 5-15 minutes."
+                        )
+                        .build()
+                        .unwrap(),
+                )
+                .kind(SettingType::Number(
+                    NumberSetting::builder()
+                        .min_value(1.0)
+                        .max_value(60.0)
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        )
         // Current selected channel (persisted across restarts)
         .setting(
             Setting::builder()

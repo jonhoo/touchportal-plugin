@@ -11,7 +11,7 @@ use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
-use crate::background::{chat, metrics};
+use crate::background::{chat, latest_monitor, metrics};
 use crate::{Channel, setup_youtube_clients};
 
 // You can look at the generated code for a plugin using this command:
@@ -35,6 +35,10 @@ pub struct Plugin {
     // Background task handles for cancellation and restart
     metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
     chat_task_handle: Option<tokio::task::JoinHandle<()>>,
+    latest_monitor_task_handle: Option<tokio::task::JoinHandle<()>>,
+    // Latest monitor interval control
+    monitor_interval_tx: watch::Sender<u64>,
+    monitor_interval_rx: watch::Receiver<u64>,
     // Stored parameters for background task restart
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     stream_selection_rx: watch::Receiver<StreamSelection>,
@@ -48,6 +52,7 @@ impl PluginCallbacks for Plugin {
         PluginSettings {
             smart_polling_adjustment,
             base_polling_interval_seconds,
+            latest_broadcast_check_interval_minutes,
             custom_o_auth_client_id,
             custom_o_auth_client_secret,
             // Read-only settings updated by the plugin - ignore these changes
@@ -77,8 +82,20 @@ impl PluginCallbacks for Plugin {
             adaptive_state.base_interval = new_polling_interval;
         }
 
+        // Handle latest broadcast monitor interval changes
+        let new_monitor_interval =
+            latest_broadcast_check_interval_minutes.max(1.0).min(60.0) as u64;
+        if let Err(e) = self.monitor_interval_tx.send(new_monitor_interval) {
+            tracing::warn!(
+                error = %e,
+                new_interval = new_monitor_interval,
+                "failed to notify latest monitor task of interval change"
+            );
+        }
+
         tracing::debug!(
             polling_interval = new_polling_interval,
+            monitor_interval = new_monitor_interval,
             smart_polling = smart_polling_adjustment,
             "processed user-modifiable settings changes"
         );
@@ -649,6 +666,13 @@ impl Plugin {
         }
         let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
 
+        // Initialize latest broadcast monitor interval (5 minutes default)
+        let monitor_interval_minutes = settings
+            .latest_broadcast_check_interval_minutes
+            .max(1.0)
+            .min(60.0) as u64;
+        let (monitor_interval_tx, monitor_interval_rx) = watch::channel(monitor_interval_minutes);
+
         // Create shared channel state for background tasks
         let shared_channels = Arc::new(Mutex::new(client_by_channel));
 
@@ -678,6 +702,20 @@ impl Plugin {
         )
         .await;
 
+        // ==============================================================================
+        // Background Latest Broadcast Monitoring Task
+        // ==============================================================================
+        // Spawn the latest broadcast monitoring task
+        let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
+            outgoing.clone(),
+            shared_channels.clone(),
+            stream_selection_rx.clone(),
+            stream_selection_tx.clone(),
+            monitor_interval_minutes,
+            monitor_interval_rx.clone(),
+        )
+        .await;
+
         // TODO: Add background task for poll result tracking using activePollItem
         // This would require:
         // - New background task: Poll monitoring and result updates
@@ -700,6 +738,9 @@ impl Plugin {
             current_custom_client_secret: custom_client_secret,
             metrics_task_handle: Some(metrics_task_handle),
             chat_task_handle: Some(chat_task_handle),
+            latest_monitor_task_handle: Some(latest_monitor_task_handle),
+            monitor_interval_tx,
+            monitor_interval_rx,
             adaptive_state,
             stream_selection_rx,
             polling_interval_rx,
@@ -798,15 +839,33 @@ impl Plugin {
         // Spawn new chat task
         let chat_task_handle = chat::spawn_chat_task(
             self.tp.clone(),
-            empty_channels,
+            empty_channels.clone(),
             self.stream_selection_rx.clone(),
             self.adaptive_state.clone(),
+        )
+        .await;
+
+        if let Some(handle) = self.latest_monitor_task_handle.take() {
+            handle.abort();
+            let _ = handle.await; // Wait for clean shutdown
+            tracing::debug!("canceled latest monitor background task");
+        }
+
+        // Spawn new latest monitor task
+        let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
+            self.tp.clone(),
+            empty_channels.clone(),
+            self.stream_selection_rx.clone(),
+            self.stream_selection_tx.clone(),
+            5, // Default 5 minutes until settings are applied again
+            self.monitor_interval_rx.clone(),
         )
         .await;
 
         // Store new task handles
         self.metrics_task_handle = Some(metrics_task_handle);
         self.chat_task_handle = Some(chat_task_handle);
+        self.latest_monitor_task_handle = Some(latest_monitor_task_handle);
 
         tracing::info!(
             "restarted background tasks with empty channel map after OAuth credential change"

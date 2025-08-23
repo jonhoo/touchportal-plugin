@@ -111,7 +111,9 @@ pub async fn process_chat_message(
 
             // Update global states (triggers ytl_last_*_changed events)
             outgoing.update_ytl_last_sponsor(&author_name).await;
-            outgoing.update_ytl_last_sponsor_level(member_level_name).await;
+            outgoing
+                .update_ytl_last_sponsor_level(member_level_name)
+                .await;
             outgoing.update_ytl_last_sponsor_tenure("1").await;
 
             tracing::info!(
@@ -136,9 +138,13 @@ pub async fn process_chat_message(
 
             // Update global states (triggers ytl_last_*_changed events)
             outgoing.update_ytl_last_sponsor(&author_name).await;
-            outgoing.update_ytl_last_sponsor_level(member_level_name).await;
             outgoing
-                .update_ytl_last_sponsor_tenure(&member_milestone_chat_details.member_month.to_string())
+                .update_ytl_last_sponsor_level(member_level_name)
+                .await;
+            outgoing
+                .update_ytl_last_sponsor_tenure(
+                    &member_milestone_chat_details.member_month.to_string(),
+                )
                 .await;
 
             tracing::info!(

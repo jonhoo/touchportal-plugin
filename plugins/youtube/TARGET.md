@@ -73,7 +73,7 @@ we update as stream events occur:
 - the last chat message's author;
 - the last super chat;
 - the last super chat's author; and
-- the last new sponsor.
+- the last new member.
 
 An alternative to keep the last for each of these is to use events with
 no value but with local state objects. That way, we can trigger those

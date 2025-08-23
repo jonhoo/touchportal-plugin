@@ -104,22 +104,22 @@ pub async fn process_chat_message(
         } => {
             let member_level_name = &new_sponsor_details.member_level_name;
 
-            // Trigger new sponsor event with local states
+            // Trigger new member event with local states
             outgoing
-                .trigger_ytl_new_sponsor(&author_name, member_level_name, "1")
+                .trigger_ytl_new_member(&author_name, member_level_name, "1")
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
-            outgoing.update_ytl_last_sponsor(&author_name).await;
+            outgoing.update_ytl_last_member(&author_name).await;
             outgoing
-                .update_ytl_last_sponsor_level(member_level_name)
+                .update_ytl_last_member_level(member_level_name)
                 .await;
-            outgoing.update_ytl_last_sponsor_tenure("1").await;
+            outgoing.update_ytl_last_member_tenure("1").await;
 
             tracing::info!(
                 author = %author_name,
                 level = %member_level_name,
-                "processed new sponsor"
+                "processed new member"
             );
         }
         LiveChatMessageDetails::MemberMilestone {
@@ -129,7 +129,7 @@ pub async fn process_chat_message(
 
             // Trigger milestone-specific event
             outgoing
-                .trigger_ytl_new_sponsor_milestone(
+                .trigger_ytl_new_member_milestone(
                     &author_name,
                     member_level_name,
                     &member_milestone_chat_details.member_month.to_string(),
@@ -137,12 +137,12 @@ pub async fn process_chat_message(
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)
-            outgoing.update_ytl_last_sponsor(&author_name).await;
+            outgoing.update_ytl_last_member(&author_name).await;
             outgoing
-                .update_ytl_last_sponsor_level(member_level_name)
+                .update_ytl_last_member_level(member_level_name)
                 .await;
             outgoing
-                .update_ytl_last_sponsor_tenure(
+                .update_ytl_last_member_tenure(
                     &member_milestone_chat_details.member_month.to_string(),
                 )
                 .await;

@@ -487,14 +487,14 @@ fn plugin() -> PluginDescription {
                 )
                 .event(
                     Event::builder()
-                        .id("ytl_last_sponsor_changed")
-                        .name("On last sponsor changed")
-                        .format("When the last sponsor changes")
+                        .id("ytl_last_member_changed")
+                        .name("On last member changed")
+                        .format("When the last member changes")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_last_sponsor")
+                        .value_state_id("ytl_last_member")
                         .build()
                         .unwrap(),
                 )
@@ -539,27 +539,27 @@ fn plugin() -> PluginDescription {
                 )
                 .event(
                     Event::builder()
-                        .id("ytl_last_sponsor_tenure_changed")
-                        .name("On last sponsor tenure changed")
-                        .format("When the last sponsor tenure changes")
+                        .id("ytl_last_member_tenure_changed")
+                        .name("On last member tenure changed")
+                        .format("When the last member tenure changes")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_last_sponsor_tenure")
+                        .value_state_id("ytl_last_member_tenure")
                         .build()
                         .unwrap(),
                 )
                 .event(
                     Event::builder()
-                        .id("ytl_last_sponsor_level_changed")
-                        .name("On last sponsor level changed")
-                        .format("When the last sponsor level changes")
+                        .id("ytl_last_member_level_changed")
+                        .name("On last member level changed")
+                        .format("When the last member level changes")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
-                        .value_state_id("ytl_last_sponsor_level")
+                        .value_state_id("ytl_last_member_level")
                         .build()
                         .unwrap(),
                 )
@@ -649,31 +649,31 @@ fn plugin() -> PluginDescription {
                 )
                 .event(
                     Event::builder()
-                        .id("ytl_new_sponsor")
-                        .name("On new sponsor")
-                        .format("When you receive a new sponsor/member")
+                        .id("ytl_new_member")
+                        .name("On new member")
+                        .format("When you receive a new member")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_name")
-                                .name("YouTube Live - sponsor name")
+                                .id("ytl_member_name")
+                                .name("YouTube Live - member name")
                                 .build()
                                 .unwrap(),
                         )
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_level")
-                                .name("YouTube Live - sponsorship level")
+                                .id("ytl_member_level")
+                                .name("YouTube Live - membership level")
                                 .build()
                                 .unwrap(),
                         )
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_months")
-                                .name("YouTube Live - months sponsored")
+                                .id("ytl_member_months")
+                                .name("YouTube Live - months as member")
                                 .build()
                                 .unwrap(),
                         )
@@ -682,31 +682,31 @@ fn plugin() -> PluginDescription {
                 )
                 .event(
                     Event::builder()
-                        .id("ytl_new_sponsor_milestone")
-                        .name("On new sponsor milestone")
-                        .format("When an existing sponsor reaches a new milestone")
+                        .id("ytl_new_member_milestone")
+                        .name("On new member milestone")
+                        .format("When an existing member reaches a new milestone")
                         .sub_category_id("ytl_analytics_monitoring")
                         .value(EventValueType::Text(
                             EventTextConfiguration::builder().build().unwrap(),
                         ))
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_milestone_name")
-                                .name("YouTube Live - sponsor milestone name")
+                                .id("ytl_member_milestone_name")
+                                .name("YouTube Live - member milestone name")
                                 .build()
                                 .unwrap(),
                         )
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_milestone_level")
-                                .name("YouTube Live - sponsor milestone level")
+                                .id("ytl_member_milestone_level")
+                                .name("YouTube Live - member milestone level")
                                 .build()
                                 .unwrap(),
                         )
                         .local_state(
                             LocalState::builder()
-                                .id("ytl_sponsor_milestone_months")
-                                .name("YouTube Live - sponsor milestone months")
+                                .id("ytl_member_milestone_months")
+                                .name("YouTube Live - member milestone months")
                                 .build()
                                 .unwrap(),
                         )
@@ -812,8 +812,8 @@ fn plugin() -> PluginDescription {
                 )
                 .state(
                     State::builder()
-                        .id("ytl_last_sponsor")
-                        .description("YouTube Live - last sponsor")
+                        .id("ytl_last_member")
+                        .description("YouTube Live - last member")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
@@ -852,8 +852,8 @@ fn plugin() -> PluginDescription {
                 )
                 .state(
                     State::builder()
-                        .id("ytl_last_sponsor_tenure")
-                        .description("YouTube Live - last sponsor tenure")
+                        .id("ytl_last_member_tenure")
+                        .description("YouTube Live - last member tenure")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
@@ -862,8 +862,8 @@ fn plugin() -> PluginDescription {
                 )
                 .state(
                     State::builder()
-                        .id("ytl_last_sponsor_level")
-                        .description("YouTube Live - last sponsor level")
+                        .id("ytl_last_member_level")
+                        .description("YouTube Live - last member level")
                         .initial("-")
                         .parent_group("Chat Events")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))

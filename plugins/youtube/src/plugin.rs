@@ -595,10 +595,18 @@ impl Plugin {
         // Background Task Coordination
         // ==============================================================================
         // Create tokio::watch channels for coordinating between action handlers and background tasks
-        let initial_stream = StreamSelection {
-            channel_id: current_channel.clone(),
-            broadcast_id: current_broadcast.clone(),
-            live_chat_id: None,
+        let initial_stream = match (&current_channel, &current_broadcast) {
+            (Some(channel_id), Some(_broadcast_id)) => {
+                // We have both channel and broadcast, but need to get live_chat_id
+                // For now, we'll use ChannelOnly since we don't have live_chat_id at startup
+                StreamSelection::ChannelOnly {
+                    channel_id: channel_id.clone(),
+                }
+            }
+            (Some(channel_id), None) => StreamSelection::ChannelOnly {
+                channel_id: channel_id.clone(),
+            },
+            _ => StreamSelection::None,
         };
         let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
@@ -809,12 +817,10 @@ impl Plugin {
             .await;
 
         // Clear stream selection since we have no valid channels
-        let empty_selection = crate::background::metrics::StreamSelection {
-            channel_id: None,
-            broadcast_id: None,
-            live_chat_id: None,
-        };
-        if let Err(e) = self.stream_selection_tx.send(empty_selection) {
+        if let Err(e) = self
+            .stream_selection_tx
+            .send(crate::background::metrics::StreamSelection::None)
+        {
             tracing::warn!(
                 error = %e,
                 "failed to send empty stream selection to new background tasks"

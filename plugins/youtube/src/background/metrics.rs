@@ -9,10 +9,17 @@ use crate::activity::AdaptivePollingState;
 
 /// Stream selection data for coordinating between action handlers and background tasks
 #[derive(Debug, Clone, PartialEq)]
-pub struct StreamSelection {
-    pub channel_id: Option<String>,
-    pub broadcast_id: Option<String>,
-    pub live_chat_id: Option<String>,
+pub enum StreamSelection {
+    /// No stream is selected
+    None,
+    /// Only a channel is selected (no specific broadcast)
+    ChannelOnly { channel_id: String },
+    /// Channel and broadcast are selected
+    ChannelAndBroadcast {
+        channel_id: String,
+        broadcast_id: String,
+        live_chat_id: String,
+    },
 }
 
 /// Poll video statistics and update TouchPortal states
@@ -28,10 +35,14 @@ pub async fn poll_and_update_metrics(
         Ok(stats) => {
             // Check if the selected broadcast has changed during the API call
             let current_selection = stream_rx.borrow().clone();
-            if current_selection.broadcast_id.as_ref() != Some(&broadcast_id.to_string()) {
+            let current_broadcast_id = match &current_selection {
+                StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id),
+                _ => None,
+            };
+            if current_broadcast_id != Some(&broadcast_id.to_string()) {
                 tracing::debug!(
                     polled_broadcast = %broadcast_id,
-                    current_broadcast = ?current_selection.broadcast_id,
+                    current_broadcast = ?current_broadcast_id,
                     "broadcast changed during metrics poll - discarding results"
                 );
                 return;
@@ -210,38 +221,43 @@ pub async fn spawn_metrics_task(
             // Get current stream selection (non-blocking)
             let selection = stream_rx.borrow().clone();
 
-            if let (Some(channel_id), Some(broadcast_id)) =
-                (&selection.channel_id, &selection.broadcast_id)
-            {
-                // Get channel from shared state
-                let channel_opt = {
-                    let channels_guard = channels.lock().await;
-                    channels_guard.get(channel_id).cloned()
-                };
+            match selection {
+                StreamSelection::ChannelAndBroadcast {
+                    channel_id,
+                    broadcast_id,
+                    ..
+                } => {
+                    // Get channel from shared state
+                    let channel_opt = {
+                        let channels_guard = channels.lock().await;
+                        channels_guard.get(&channel_id).cloned()
+                    };
 
-                if let Some(channel) = channel_opt {
-                    tracing::debug!(
-                        channel = %channel_id,
-                        broadcast = %broadcast_id,
-                        "polling metrics"
-                    );
+                    if let Some(channel) = channel_opt {
+                        tracing::debug!(
+                            channel = %channel_id,
+                            broadcast = %broadcast_id,
+                            "polling metrics"
+                        );
 
-                    // Poll metrics without blocking chat processing
-                    poll_and_update_metrics(
-                        &mut outgoing,
-                        &channel.yt,
-                        broadcast_id,
-                        &stream_rx,
-                        adaptive_state.clone(),
-                    )
-                    .await;
+                        // Poll metrics without blocking chat processing
+                        poll_and_update_metrics(
+                            &mut outgoing,
+                            &channel.yt,
+                            &broadcast_id,
+                            &stream_rx,
+                            adaptive_state.clone(),
+                        )
+                        .await;
+                    }
                 }
-            } else {
-                // No stream selected - clear metrics states
-                outgoing.update_ytl_views_count("-").await;
-                outgoing.update_ytl_likes_count("-").await;
-                outgoing.update_ytl_dislikes_count("-").await;
-                outgoing.update_ytl_live_viewers_count("-").await;
+                _ => {
+                    // No broadcast selected - clear metrics states
+                    outgoing.update_ytl_views_count("-").await;
+                    outgoing.update_ytl_likes_count("-").await;
+                    outgoing.update_ytl_dislikes_count("-").await;
+                    outgoing.update_ytl_live_viewers_count("-").await;
+                }
             }
         }
     })

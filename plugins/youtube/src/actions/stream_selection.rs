@@ -75,10 +75,10 @@ pub async fn handle_select_stream(
     };
 
     // Create stream selection object - live_chat_id is always present for valid broadcasts
-    let selection = StreamSelection {
-        channel_id: Some(channel_id.to_string()),
-        broadcast_id: Some(broadcast_id.clone()),
-        live_chat_id: live_chat_id,
+    let selection = StreamSelection::ChannelAndBroadcast {
+        channel_id: channel_id.to_string(),
+        broadcast_id: broadcast_id.clone(),
+        live_chat_id: live_chat_id.expect("live_chat_id should always be present for broadcasts"),
     };
 
     // Update settings for persistence

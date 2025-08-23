@@ -169,36 +169,38 @@ pub async fn process_chat_message(
 pub async fn restart_chat_stream_optimized(
     chat_stream: &mut Option<Pin<Box<LiveChatStream>>>,
     channels: &Arc<Mutex<HashMap<String, Channel>>>,
-    channel_id: Option<String>,
-    broadcast_id: Option<String>,
-    live_chat_id: Option<String>,
+    selection: &StreamSelection,
 ) {
     // Clean up old stream
     *chat_stream = None;
 
-    if let (Some(channel_id), Some(broadcast_id), Some(chat_id)) =
-        (channel_id, broadcast_id, live_chat_id)
-    {
-        // Get channel from shared state
-        let channel_opt = {
-            let channels_guard = channels.lock().await;
-            channels_guard.get(&channel_id).cloned()
-        };
+    match selection {
+        StreamSelection::ChannelAndBroadcast {
+            channel_id,
+            broadcast_id,
+            live_chat_id,
+        } => {
+            // Get channel from shared state
+            let channel_opt = {
+                let channels_guard = channels.lock().await;
+                channels_guard.get(channel_id).cloned()
+            };
 
-        if let Some(channel) = channel_opt {
-            // Live chat ID is always available for valid broadcasts - start streaming immediately
-            let new_stream = LiveChatStream::new((*channel.yt).clone(), chat_id.clone());
-            *chat_stream = Some(Box::pin(new_stream));
+            if let Some(channel) = channel_opt {
+                let new_stream = LiveChatStream::new((*channel.yt).clone(), live_chat_id.clone());
+                *chat_stream = Some(Box::pin(new_stream));
 
-            tracing::info!(
-                channel = %channel_id,
-                broadcast = %broadcast_id,
-                chat_id = %chat_id,
-                "started chat monitoring"
-            );
+                tracing::info!(
+                    channel = %channel_id,
+                    broadcast = %broadcast_id,
+                    chat_id = %live_chat_id,
+                    "started chat monitoring"
+                );
+            }
         }
-    } else {
-        tracing::debug!("cleared chat stream (no stream selected)");
+        _ => {
+            tracing::debug!("cleared chat stream (no broadcast selected)");
+        }
     }
 }
 
@@ -215,16 +217,13 @@ pub async fn spawn_chat_task(
 
         // Initialize chat stream if we have a current broadcast
         let selection = stream_rx.borrow().clone();
-        if selection.broadcast_id != current_broadcast {
-            restart_chat_stream_optimized(
-                &mut chat_stream,
-                &channels,
-                selection.channel_id,
-                selection.broadcast_id.clone(),
-                selection.live_chat_id,
-            )
-            .await;
-            current_broadcast = selection.broadcast_id;
+        let current_broadcast_id = match &selection {
+            StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
+            _ => None,
+        };
+        if current_broadcast_id != current_broadcast {
+            restart_chat_stream_optimized(&mut chat_stream, &channels, &selection).await;
+            current_broadcast = current_broadcast_id;
         }
 
         loop {
@@ -244,22 +243,24 @@ pub async fn spawn_chat_task(
                 // React immediately to stream selection changes
                 Ok(()) = stream_rx.changed() => {
                     let selection = stream_rx.borrow().clone();
+                    let new_broadcast_id = match &selection {
+                        StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
+                        _ => None,
+                    };
 
-                    if selection.broadcast_id != current_broadcast {
+                    if new_broadcast_id != current_broadcast {
                         tracing::debug!(
                             old_broadcast = ?current_broadcast,
-                            new_broadcast = ?selection.broadcast_id,
+                            new_broadcast = ?new_broadcast_id,
                             "stream selection changed - updating chat stream"
                         );
 
                         restart_chat_stream_optimized(
                             &mut chat_stream,
                             &channels,
-                            selection.channel_id,
-                            selection.broadcast_id.clone(),
-                            selection.live_chat_id
+                            &selection,
                         ).await;
-                        current_broadcast = selection.broadcast_id;
+                        current_broadcast = new_broadcast_id;
                     }
                 }
             }

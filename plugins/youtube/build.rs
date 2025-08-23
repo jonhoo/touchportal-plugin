@@ -1,5 +1,8 @@
 use touchportal_sdk::{reexport::HexColor, *};
 
+/// Minimum polling interval to avoid YouTube API quota exhaustion
+const MIN_POLLING_INTERVAL_SECONDS: u64 = 30;
+
 fn plugin() -> PluginDescription {
     PluginDescription::builder()
         .api(ApiVersion::V4_3)
@@ -52,7 +55,7 @@ fn plugin() -> PluginDescription {
                 .initial("60")
                 .kind(SettingType::Number(
                     NumberSetting::builder()
-                        .min_value(30.0) // Minimum to avoid API quota exhaustion
+                        .min_value(MIN_POLLING_INTERVAL_SECONDS as f64) // Minimum to avoid API quota exhaustion
                         .max_value(3600.0) // Maximum 1 hour
                         .build()
                         .unwrap(),
@@ -620,4 +623,13 @@ fn plugin() -> PluginDescription {
 fn main() {
     let plugin = plugin();
     touchportal_sdk::codegen::export(&plugin);
+
+    // Generate constants for use in src/
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let constants_content = format!(
+        "/// Minimum polling interval to avoid YouTube API quota exhaustion\n\
+         pub const MIN_POLLING_INTERVAL_SECONDS: u64 = {};\n",
+        MIN_POLLING_INTERVAL_SECONDS
+    );
+    std::fs::write(out_dir.join("constants.rs"), constants_content).unwrap();
 }

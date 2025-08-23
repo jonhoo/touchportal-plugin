@@ -61,7 +61,8 @@ impl PluginCallbacks for Plugin {
             .await?;
 
         // Handle polling interval changes - notify background tasks and adaptive state
-        let new_polling_interval = base_polling_interval_seconds.max(30.0) as u64;
+        let new_polling_interval =
+            base_polling_interval_seconds.max(crate::MIN_POLLING_INTERVAL_SECONDS as f64) as u64;
         if let Err(e) = self.polling_interval_tx.send(new_polling_interval) {
             tracing::warn!(
                 error = %e,
@@ -625,7 +626,9 @@ impl Plugin {
 
         // Initialize adaptive polling state
         let adaptive_enabled = settings.smart_polling_adjustment;
-        let base_interval = settings.base_polling_interval_seconds.max(30.0) as u64;
+        let base_interval = settings
+            .base_polling_interval_seconds
+            .max(crate::MIN_POLLING_INTERVAL_SECONDS as f64) as u64;
         let adaptive_state = Arc::new(Mutex::new(AdaptivePollingState::new(
             base_interval,
             adaptive_enabled,
@@ -779,7 +782,7 @@ impl Plugin {
 
         // Restart background tasks with empty channel map (they will be idle until re-auth)
         let empty_channels = Arc::new(Mutex::new(HashMap::new()));
-        let base_interval = 30u64; // Use default until settings are applied again
+        let base_interval = crate::MIN_POLLING_INTERVAL_SECONDS; // Use default until settings are applied again
 
         // Spawn new metrics task
         let metrics_task_handle = metrics::spawn_metrics_task(

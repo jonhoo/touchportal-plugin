@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+// Include build-generated constants
+// Contains: MIN_POLLING_INTERVAL_SECONDS
+include!(concat!(env!("OUT_DIR"), "/constants.rs"));
+
 use crate::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;

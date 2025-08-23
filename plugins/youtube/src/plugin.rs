@@ -8,6 +8,7 @@ use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 
+use crate::actions::stream_selection::BroadcastSelection;
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
@@ -26,7 +27,8 @@ pub struct Plugin {
     yt: Arc<Mutex<HashMap<String, Channel>>>,
     tp: TouchPortalHandle,
     current_channel: Option<String>,
-    current_broadcast: Option<String>,
+    // TODO(claude): nothing currently sets current_broadcast to a specific broadcast ID once a latest stream has been found. this field probably has to be converted to a `tokio::sync::watch` that gets updated by the latest monitor background task. it must also be unset when it is detected that the broadcast has ended.
+    current_broadcast_id: Option<String>,
     stream_selection_tx: watch::Sender<StreamSelection>,
     polling_interval_tx: watch::Sender<u64>,
     // Track OAuth credentials to detect changes that invalidate tokens
@@ -150,13 +152,16 @@ impl PluginCallbacks for Plugin {
 
         tracing::info!(
             channel = %channel_id,
-            broadcast = %broadcast_id,
+            broadcast = ?broadcast_id,
             "broadcast selection updated"
         );
 
         // Store the selections
         self.current_channel = Some(channel_id);
-        self.current_broadcast = Some(broadcast_id);
+        self.current_broadcast_id = match broadcast_id {
+            BroadcastSelection::Latest => None,
+            BroadcastSelection::Specific(id) => Some(id),
+        };
 
         // Notify background tasks of stream selection change
         if let Err(e) = self.stream_selection_tx.send(selection) {
@@ -178,7 +183,7 @@ impl PluginCallbacks for Plugin {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast else {
+        let Some(broadcast_id) = &self.current_broadcast_id else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
@@ -243,7 +248,7 @@ impl PluginCallbacks for Plugin {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast else {
+        let Some(broadcast_id) = &self.current_broadcast_id else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
@@ -312,7 +317,7 @@ impl PluginCallbacks for Plugin {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast else {
+        let Some(broadcast_id) = &self.current_broadcast_id else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
@@ -367,7 +372,7 @@ impl PluginCallbacks for Plugin {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast else {
+        let Some(broadcast_id) = &self.current_broadcast_id else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
@@ -621,11 +626,8 @@ impl Plugin {
             Some(settings.selected_channel_id.clone())
         };
 
-        let current_broadcast = if settings.selected_broadcast_id.is_empty() {
-            None
-        } else {
-            Some(settings.selected_broadcast_id.clone())
-        };
+        let current_broadcast =
+            stream_selection::BroadcastSelection::from_saved_id(&settings.selected_broadcast_id);
 
         // Update channel name state and initialize broadcast choices if we have a current channel
         if let Some(channel_id) = &current_channel
@@ -687,7 +689,16 @@ impl Plugin {
 
         // Create tokio::watch channels for coordinating between action handlers and background tasks
         let initial_stream = match (&current_channel, &current_broadcast) {
-            (Some(channel_id), Some(broadcast_id)) => {
+            (Some(channel_id), Some(stream_selection::BroadcastSelection::Latest)) => {
+                // Special case: "latest" means WaitForActiveBroadcast mode
+                StreamSelection::WaitForActiveBroadcast {
+                    channel_id: channel_id.clone(),
+                }
+            }
+            (
+                Some(channel_id),
+                Some(stream_selection::BroadcastSelection::Specific(broadcast_id)),
+            ) => {
                 // We have both channel and broadcast - get the live_chat_id
                 let yt_guard = shared_channels.lock().await;
                 let channel = yt_guard.get(channel_id);
@@ -799,11 +810,16 @@ impl Plugin {
         // - Event triggering: Poll start, progress, and completion events
         // See TouchPortal SDK documentation for activePollItem usage patterns
 
+        let current_broadcast = match current_broadcast {
+            Some(BroadcastSelection::Latest) => None,
+            Some(BroadcastSelection::Specific(id)) => Some(id),
+            None => None,
+        };
         let mut plugin = Self {
             yt: shared_channels,
             tp: outgoing,
             current_channel,
-            current_broadcast,
+            current_broadcast_id: current_broadcast,
             stream_selection_tx,
             polling_interval_tx,
             current_custom_client_id: custom_client_id,
@@ -900,7 +916,7 @@ impl Plugin {
         // Reset current selections
         // TODO(claude): consider not resetting these since the user may authenticate shortly and give us valid clients for them again.
         self.current_channel = None;
-        self.current_broadcast = None;
+        self.current_broadcast_id = None;
 
         // Update stored OAuth credentials for future comparisons
         self.current_custom_client_id = new_custom_client_id.clone();

@@ -12,13 +12,25 @@ pub enum BroadcastSelection {
     Specific(String),
 }
 
+impl BroadcastSelection {
+    pub fn from_saved_id(id: &str) -> Option<Self> {
+        if id == "latest" {
+            Some(BroadcastSelection::Latest)
+        } else if !id.is_empty() {
+            Some(BroadcastSelection::Specific(id.to_string()))
+        } else {
+            None
+        }
+    }
+}
+
 /// Handle the complex stream selection logic for choosing a broadcast
 pub async fn handle_select_stream(
     tp: &mut crate::plugin::TouchPortalHandle,
     yt: &Arc<Mutex<HashMap<String, Channel>>>,
     channel_selection: String,
     broadcast_selection: BroadcastSelection,
-) -> eyre::Result<Option<(String, String, StreamSelection)>> {
+) -> eyre::Result<Option<(String, BroadcastSelection, StreamSelection)>> {
     // Extract channel ID from the selected channel
     let channel_id = channel_selection
         .rsplit_once(" - ")
@@ -47,15 +59,14 @@ pub async fn handle_select_stream(
 
             // Update settings for persistence
             tp.set_selected_channel_id(channel_id.to_string()).await;
-            // TODO(claude): here we need to set "latest" as the saved broadcast id, and then handle that again when we read settings back out. if you do, also think about anywhere else we set_selected_broadcast_id to an empty string and whether it should be set to "latest" there as well.
-            tp.set_selected_broadcast_id(String::new()).await; // Clear broadcast ID
+            tp.set_selected_broadcast_id("latest".to_string()).await;
 
             tp.update_ytl_current_stream_title("Waiting for active broadcast...")
                 .await;
 
             Ok(Some((
                 channel_id.to_string(),
-                "latest".to_string(),
+                BroadcastSelection::Latest,
                 selection,
             )))
         }
@@ -129,7 +140,11 @@ pub async fn handle_select_stream(
                 "stream selected"
             );
 
-            Ok(Some((channel_id.to_string(), broadcast_id, selection)))
+            Ok(Some((
+                channel_id.to_string(),
+                BroadcastSelection::Specific(broadcast_id),
+                selection,
+            )))
         }
     }
 }

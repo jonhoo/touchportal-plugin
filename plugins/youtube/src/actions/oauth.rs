@@ -27,7 +27,7 @@ pub async fn handle_add_youtube_channel(
             .title("Check your browser")
             .message(
                 "You need to authenticate to YouTube \
-                to add another account.",
+                in your browser to add another account.",
             )
             .build()
             .unwrap(),
@@ -73,6 +73,8 @@ pub async fn handle_add_youtube_channel(
                 },
             );
         }
+
+        // TODO(claude): send a notification that a new YouTube channel was successfully added (including the channel name)
 
         new_channel_count += 1;
     }

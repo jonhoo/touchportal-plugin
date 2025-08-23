@@ -535,7 +535,6 @@ async fn get_live_chat_id_for_broadcast(
     channel: &Channel,
     broadcast_id: &str,
 ) -> eyre::Result<String> {
-    // TODO(claude): use <https://developers.google.com/youtube/v3/live/docs/liveStreams/list> with id parameter to just look up the specific broadcast. also, don't resume using it if it's no longer active (eg, has completed).
     let broadcasts = channel.yt.list_my_live_broadcasts();
     let mut broadcasts = std::pin::pin!(broadcasts);
 
@@ -697,6 +696,7 @@ impl Plugin {
                 let channel = yt_guard.get(channel_id);
                 match channel {
                     Some(channel) => {
+                        // TODO(claude): use liveStreamingDetails.activeLiveChatId from video get_metadata here so you don't need the helper. note that the stream may have completed and thus not have an activeLiveChatId. in which case we should move to StreamSelection::ChannelOnly instead.
                         match get_live_chat_id_for_broadcast(channel, broadcast_id).await {
                             Ok(live_chat_id) => StreamSelection::ChannelAndBroadcast {
                                 channel_id: channel_id.clone(),

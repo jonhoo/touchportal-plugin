@@ -31,6 +31,12 @@ pub struct ChatActivityTracker {
     total_messages: u64,
 }
 
+impl Default for ChatActivityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatActivityTracker {
     pub fn new() -> Self {
         Self {
@@ -92,13 +98,12 @@ impl ChatActivityTracker {
         self.recent_peak = self.recent_peak.max(self.rolling_average);
 
         // Set session baseline if we have enough data (10 minutes into session)
-        if self.session_baseline.is_none() {
-            if let Some(start) = self.session_start {
-                if now.duration_since(start) > Duration::from_secs(600) {
-                    // 10 minutes
-                    self.session_baseline = Some(self.rolling_average);
-                }
-            }
+        if self.session_baseline.is_none()
+            && let Some(start) = self.session_start
+            && now.duration_since(start) > Duration::from_secs(600)
+        {
+            // 10 minutes
+            self.session_baseline = Some(self.rolling_average);
         }
     }
 
@@ -162,6 +167,12 @@ pub struct MetricsVolatilityTracker {
     last_update: Instant,
 }
 
+impl Default for MetricsVolatilityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetricsVolatilityTracker {
     pub fn new() -> Self {
         Self {
@@ -184,29 +195,30 @@ impl MetricsVolatilityTracker {
         let mut change_count = 0;
 
         // Calculate percentage changes
-        if let (Some(current), Some(last)) = (viewers, self.last_viewers) {
-            if last > 0 {
-                let change = (current as f64 - last as f64).abs() / last as f64;
-                total_change += change;
-                change_count += 1;
-            }
+        if let (Some(current), Some(last)) = (viewers, self.last_viewers)
+            && last > 0
+        {
+            let change = (current as f64 - last as f64).abs() / last as f64;
+            total_change += change;
+            change_count += 1;
         }
 
-        if let (Some(current), Some(last)) = (likes, self.last_likes) {
-            if last > 0 {
-                let change = (current as f64 - last as f64).abs() / last as f64;
-                total_change += change;
-                change_count += 1;
-            }
+        if let (Some(current), Some(last)) = (likes, self.last_likes)
+            && last > 0
+        {
+            let change = (current as f64 - last as f64).abs() / last as f64;
+            total_change += change;
+            change_count += 1;
         }
 
         // Views typically grow monotonically, so we look at rate of growth
-        if let (Some(current), Some(last)) = (views, self.last_views) {
-            if last > 0 && current > last {
-                let growth_rate = (current as f64 - last as f64) / last as f64;
-                total_change += growth_rate;
-                change_count += 1;
-            }
+        if let (Some(current), Some(last)) = (views, self.last_views)
+            && last > 0
+            && current > last
+        {
+            let growth_rate = (current as f64 - last as f64) / last as f64;
+            total_change += growth_rate;
+            change_count += 1;
         }
 
         // Store average change if we have any measurements

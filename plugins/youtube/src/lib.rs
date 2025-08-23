@@ -113,7 +113,7 @@ where
             let mut token = TimeBoundAccessToken::expired(token);
 
             if token
-                .refresh(&*oauth_manager)
+                .refresh(&oauth_manager)
                 .await
                 .context("refresh token")?
             {

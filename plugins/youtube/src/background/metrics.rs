@@ -129,7 +129,7 @@ pub async fn poll_and_update_metrics(
                 "updated metrics"
             );
 
-            return broadcast_completed;
+            broadcast_completed
         }
         Err(e) => {
             // TODO(jon): Improve error handling robustness for production use
@@ -163,7 +163,7 @@ pub async fn poll_and_update_metrics(
             outgoing.update_ytl_dislikes_count("X").await;
             outgoing.update_ytl_live_viewers_count("X").await;
 
-            return false; // Error - assume not completed
+            false // Error - assume not completed
         }
     }
 }

@@ -93,7 +93,7 @@ impl PluginCallbacks for Plugin {
     ) -> eyre::Result<()> {
         oauth::handle_add_youtube_channel(
             &mut self.tp,
-            &mut self.yt,
+            &self.yt,
             self.current_custom_client_id.clone(),
             self.current_custom_client_secret.clone(),
         )
@@ -227,7 +227,7 @@ impl PluginCallbacks for Plugin {
                         CreateNotificationCommand::builder()
                             .notification_id("ytl_broadcast_start_failed")
                             .title("Failed to Start Broadcast")
-                            .message(&format!("Could not start broadcast: {}", e))
+                            .message(format!("Could not start broadcast: {}", e))
                             .build()
                             .unwrap(),
                     )
@@ -352,7 +352,7 @@ impl PluginCallbacks for Plugin {
                 CreateNotificationCommand::builder()
                     .notification_id("ytl_title_updated")
                     .title("Title Updated")
-                    .message(&format!("Stream title updated to: {}", ytl_new_title))
+                    .message(format!("Stream title updated to: {}", ytl_new_title))
                     .build()
                     .unwrap(),
             )
@@ -613,12 +613,12 @@ impl Plugin {
         };
 
         // Update channel name state if we have a current channel
-        if let Some(channel_id) = &current_channel {
-            if let Some(channel) = client_by_channel.get(channel_id) {
-                outgoing
-                    .update_ytl_selected_channel_name(&channel.name)
-                    .await;
-            }
+        if let Some(channel_id) = &current_channel
+            && let Some(channel) = client_by_channel.get(channel_id)
+        {
+            outgoing
+                .update_ytl_selected_channel_name(&channel.name)
+                .await;
         }
 
         // ==============================================================================

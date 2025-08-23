@@ -190,7 +190,7 @@ impl YouTubeClient {
             tracing::debug!("access token expired, attempting refresh");
 
             // Token needs refresh
-            if token.refresh(&*self.oauth_manager).await? {
+            if token.refresh(&self.oauth_manager).await? {
                 tracing::debug!("access token successfully refreshed");
             } else {
                 tracing::error!("access token refresh failed, client is unusable");

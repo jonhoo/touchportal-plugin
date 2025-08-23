@@ -12,6 +12,8 @@ use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
 use tokio_stream::{Stream, StreamExt};
 
+type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>> + Send>>;
+
 /// A streaming implementation for YouTube Live Chat Messages.
 ///
 /// This stream connects to the YouTube Live Chat Messages `streamList` API and provides
@@ -25,7 +27,7 @@ use tokio_stream::{Stream, StreamExt};
 /// to avoid missing messages during reconnection.
 pub struct LiveChatStream {
     /// The underlying byte stream from the HTTP response
-    bytes_stream: Option<Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>> + Send>>>,
+    bytes_stream: Option<ByteStream>,
     /// Buffer for accumulating bytes until we have complete JSON lines
     buffer: Vec<u8>,
     /// Current batch of messages from the most recent API response

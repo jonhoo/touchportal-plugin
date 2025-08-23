@@ -53,7 +53,41 @@ pub async fn remind_to_save_selection(tp: &mut TouchPortalHandle) -> eyre::Resul
         CreateNotificationCommand::builder()
             .notification_id("ytl_save_selection_reminder")
             .title("Selection ready")
-            .message("Please run the 'Select Stream' action to save your channel and broadcast selection.")
+            .message("Please run the 'Select stream' action to save your channel and broadcast selection.")
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}
+
+/// Notify user they need to add a YouTube account first.
+pub async fn need_to_add_youtube_account(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_no_channels_available")
+            .title("No YouTube channels")
+            .message(
+                "You need to add a YouTube channel first. \
+                Use the 'Add YouTube channel' action to authenticate and add your account.",
+            )
+            .build()
+            .unwrap(),
+    )
+    .await;
+    Ok(())
+}
+
+/// Notify user they need to select a channel first to see broadcasts.
+pub async fn need_to_select_channel_first(tp: &mut TouchPortalHandle) -> eyre::Result<()> {
+    tp.notify(
+        CreateNotificationCommand::builder()
+            .notification_id("ytl_select_channel_first")
+            .title("Channel selection required")
+            .message(
+                "Please select a channel first to see available broadcasts. \
+                The broadcast list will update automatically once a channel is selected.",
+            )
             .build()
             .unwrap(),
     )

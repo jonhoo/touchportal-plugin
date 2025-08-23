@@ -102,7 +102,8 @@ impl PluginCallbacks for Plugin {
     ) -> eyre::Result<()> {
         // Extract selections from the UI choices
         let ChoicesForYtlChannel::Dynamic(channel_selection) = ytl_channel else {
-            // TODO(claude): the other selection option here unselects the channel, so we would have to update the StreamSelection and fields in self.
+            // User selected "No channels available" - they need to add a YouTube account
+            notifications::need_to_add_youtube_account(&mut self.tp).await?;
             return Ok(());
         };
 
@@ -127,7 +128,8 @@ impl PluginCallbacks for Plugin {
                 .await?
             }
             ChoicesForYtlBroadcast::SelectChannelFirst => {
-                // TODO(claude): this unselects the broadcast, so we would have to update the StreamSelection and self.current_broadcast. we should also notify the user that they have to select a channel for the broadcast list to be updated.
+                // User selected "Select channel first" - they haven't selected a channel yet
+                notifications::need_to_select_channel_first(&mut self.tp).await?;
                 return Ok(());
             }
         };
@@ -476,7 +478,8 @@ impl PluginCallbacks for Plugin {
         selected: ChoicesForYtlChannel,
     ) -> eyre::Result<()> {
         let ChoicesForYtlChannel::Dynamic(selected) = selected else {
-            // TODO(claude): this unselects the broadcast, so we would have to update the StreamSelection and self.current_broadcast.
+            // User selected "No channels available" in dropdown - they need to add a YouTube account
+            notifications::need_to_add_youtube_account(&mut self.tp).await?;
             return Ok(());
         };
         let selected = selected
@@ -513,9 +516,15 @@ impl PluginCallbacks for Plugin {
     async fn on_select_ytl_broadcast_in_ytl_select_stream(
         &mut self,
         _instance: String,
-        _selected: ChoicesForYtlBroadcast,
+        selected: ChoicesForYtlBroadcast,
     ) -> eyre::Result<()> {
-        // Nothing special needed here - the actual selection happens in on_ytl_select_stream
+        // Check if user selected "Select channel first" option
+        if matches!(selected, ChoicesForYtlBroadcast::SelectChannelFirst) {
+            notifications::need_to_select_channel_first(&mut self.tp).await?;
+            return Ok(());
+        }
+
+        // For other selections, remind user to save their selection
         notifications::remind_to_save_selection(&mut self.tp).await?;
         Ok(())
     }
@@ -622,16 +631,45 @@ impl Plugin {
             Some(settings.selected_broadcast_id.clone())
         };
 
-        // Update channel name state if we have a current channel
+        // Update channel name state and initialize broadcast choices if we have a current channel
         if let Some(channel_id) = &current_channel
             && let Some(channel) = client_by_channel.get(channel_id)
         {
             outgoing
                 .update_ytl_selected_channel_name(format!("{} - {}", channel.name, channel_id))
                 .await;
-        }
 
-        // TODO(claude): if we have a current channel, also update the list of choices in ytl_broadcast.
+            // Fetch broadcasts for the current channel and update the choices
+            let broadcasts = channel.yt.list_my_live_broadcasts();
+            let mut broadcast_choices =
+                vec![ChoicesForYtlBroadcast::LatestNonCompletedBroadcast.to_string()];
+            let mut stream = std::pin::pin!(broadcasts);
+            while let Some(broadcast) = stream.next().await {
+                match broadcast {
+                    Ok(broadcast) => {
+                        broadcast_choices
+                            .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            channel = %channel_id,
+                            "failed to fetch broadcast during initialization"
+                        );
+                        break;
+                    }
+                }
+            }
+
+            outgoing
+                .update_choices_in_ytl_broadcast(broadcast_choices.into_iter())
+                .await;
+
+            tracing::debug!(
+                channel = %channel_id,
+                "initialized broadcast choices on startup"
+            );
+        }
 
         // ==============================================================================
         // Background Task Coordination

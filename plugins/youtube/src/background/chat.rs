@@ -179,14 +179,8 @@ pub async fn restart_chat_stream_optimized(
             channel_id,
             broadcast_id,
             live_chat_id,
-        }
-        // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
-        // | StreamSelection::LatestBroadcast {
-        //     channel_id,
-        //     current_broadcast_id: broadcast_id,
-        //     current_live_chat_id: live_chat_id,
-        // }
-        => {
+            return_to_latest_on_completion: _,
+        } => {
             // Get channel from shared state
             let channel_opt = {
                 let channels_guard = channels.lock().await;
@@ -226,9 +220,9 @@ pub async fn spawn_chat_task(
         let selection = stream_rx.borrow().clone();
         let current_broadcast_id = match &selection {
             StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
-            // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
-            // StreamSelection::LatestBroadcast { current_broadcast_id, .. } => Some(current_broadcast_id.clone()),
-            _ => None,
+            StreamSelection::None
+            | StreamSelection::ChannelOnly { .. }
+            | StreamSelection::WaitForActiveBroadcast { .. } => None,
         };
         if current_broadcast_id != current_broadcast {
             restart_chat_stream_optimized(&mut chat_stream, &channels, &selection).await;
@@ -254,9 +248,7 @@ pub async fn spawn_chat_task(
                     let selection = stream_rx.borrow().clone();
                     let new_broadcast_id = match &selection {
                         StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
-                        // TODO: Uncomment when Agent 2 adds LatestBroadcast variant
-                        // StreamSelection::LatestBroadcast { current_broadcast_id, .. } => Some(current_broadcast_id.clone()),
-                        _ => None,
+                        StreamSelection::None | StreamSelection::ChannelOnly { .. } | StreamSelection::WaitForActiveBroadcast { .. } => None,
                     };
 
                     if new_broadcast_id != current_broadcast {

@@ -1,5 +1,6 @@
 use crate::Channel;
 use crate::youtube_api::client::YouTubeClient;
+use crate::youtube_api::videos::LiveBroadcastContent;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,18 +20,23 @@ pub enum StreamSelection {
         channel_id: String,
         broadcast_id: String,
         live_chat_id: String,
+        /// If true, return to WaitForActiveBroadcast mode when this broadcast completes
+        return_to_latest_on_completion: bool,
     },
+    /// Waiting for an active broadcast to appear on the channel
+    WaitForActiveBroadcast { channel_id: String },
 }
 
 /// Poll video statistics and update TouchPortal states
 /// Also updates adaptive polling state based on metrics changes
+/// Returns true if broadcast appears to have completed (no live streaming details)
 pub async fn poll_and_update_metrics(
     outgoing: &mut crate::plugin::TouchPortalHandle,
     client: &YouTubeClient,
     broadcast_id: &str,
     stream_rx: &watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
-) {
+) -> bool {
     match client.get_video_statistics(broadcast_id).await {
         Ok(stats) => {
             // Check if the selected broadcast has changed during the API call
@@ -45,7 +51,7 @@ pub async fn poll_and_update_metrics(
                     current_broadcast = ?current_broadcast_id,
                     "broadcast changed during metrics poll - discarding results"
                 );
-                return;
+                return false;
             }
 
             // Extract metrics for adaptive polling tracking
@@ -63,6 +69,23 @@ pub async fn poll_and_update_metrics(
                 .view_count
                 .as_ref()
                 .and_then(|s| s.parse::<u64>().ok());
+
+            // Check if broadcast has completed using liveBroadcastContent
+            // This is more reliable than checking live_streaming_details
+            let broadcast_completed = match &stats.snippet.live_broadcast_content {
+                LiveBroadcastContent::Live => {
+                    tracing::debug!(broadcast = %broadcast_id, status = "live", "broadcast is currently live");
+                    false
+                }
+                LiveBroadcastContent::Upcoming => {
+                    tracing::debug!(broadcast = %broadcast_id, status = "upcoming", "broadcast is upcoming");
+                    false
+                }
+                LiveBroadcastContent::None => {
+                    tracing::debug!(broadcast = %broadcast_id, status = "none", "broadcast completed");
+                    true
+                }
+            };
 
             // Update adaptive polling state with new metrics
             {
@@ -101,8 +124,12 @@ pub async fn poll_and_update_metrics(
                 views = ?stats.statistics.view_count,
                 likes = ?stats.statistics.like_count,
                 live_viewers = ?stats.live_streaming_details.as_ref().and_then(|d| d.concurrent_viewers),
+                broadcast_status = ?stats.snippet.live_broadcast_content,
+                broadcast_completed = broadcast_completed,
                 "updated metrics"
             );
+
+            return broadcast_completed;
         }
         Err(e) => {
             // TODO(jon): Improve error handling robustness for production use
@@ -135,6 +162,8 @@ pub async fn poll_and_update_metrics(
             outgoing.update_ytl_likes_count("X").await;
             outgoing.update_ytl_dislikes_count("X").await;
             outgoing.update_ytl_live_viewers_count("X").await;
+
+            return false; // Error - assume not completed
         }
     }
 }
@@ -144,6 +173,7 @@ pub async fn spawn_metrics_task(
     mut outgoing: crate::plugin::TouchPortalHandle,
     channels: Arc<Mutex<HashMap<String, Channel>>>,
     stream_rx: watch::Receiver<StreamSelection>,
+    stream_selection_tx: watch::Sender<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     base_interval: u64,
     polling_interval_rx: watch::Receiver<u64>,
@@ -225,6 +255,7 @@ pub async fn spawn_metrics_task(
                 StreamSelection::ChannelAndBroadcast {
                     channel_id,
                     broadcast_id,
+                    return_to_latest_on_completion,
                     ..
                 } => {
                     // Get channel from shared state
@@ -241,7 +272,7 @@ pub async fn spawn_metrics_task(
                         );
 
                         // Poll metrics without blocking chat processing
-                        poll_and_update_metrics(
+                        let broadcast_completed = poll_and_update_metrics(
                             &mut outgoing,
                             &channel.yt,
                             &broadcast_id,
@@ -249,6 +280,34 @@ pub async fn spawn_metrics_task(
                             adaptive_state.clone(),
                         )
                         .await;
+
+                        // Check if broadcast has completed and we should return to waiting mode
+                        if return_to_latest_on_completion && broadcast_completed {
+                            // Broadcast completed - return to WaitForActiveBroadcast mode
+                            let wait_selection = StreamSelection::WaitForActiveBroadcast {
+                                channel_id: channel_id.clone(),
+                            };
+
+                            tracing::info!(
+                                channel = %channel_id,
+                                broadcast = %broadcast_id,
+                                "broadcast completed - returning to wait for active broadcast mode"
+                            );
+
+                            // Update TouchPortal state
+                            outgoing.set_selected_broadcast_id("".to_string()).await;
+                            outgoing
+                                .update_ytl_current_stream_title("Waiting for active broadcast...")
+                                .await;
+
+                            // Send selection change to background tasks
+                            if let Err(e) = stream_selection_tx.send(wait_selection) {
+                                tracing::warn!(
+                                    error = %e,
+                                    "failed to send completion transition to background tasks"
+                                );
+                            }
+                        }
                     }
                 }
                 _ => {

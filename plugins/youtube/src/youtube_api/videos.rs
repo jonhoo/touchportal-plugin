@@ -36,6 +36,8 @@ pub struct VideoListResponse {
 pub struct Video {
     /// The ID that YouTube uses to uniquely identify the video.
     pub id: String,
+    /// Contains basic details about the video.
+    pub snippet: VideoSnippet,
     /// Contains statistics about the video.
     pub statistics: VideoStatistics,
     /// Contains live streaming details for live broadcasts.
@@ -45,6 +47,31 @@ pub struct Video {
     /// this field populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_streaming_details: Option<LiveStreamingDetails>,
+}
+
+/// Live broadcast content status for a video.
+///
+/// Indicates the current live broadcast state of a video.
+/// See: <https://developers.google.com/youtube/v3/docs/videos#snippet.liveBroadcastContent>
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LiveBroadcastContent {
+    /// The video is currently an active live broadcast
+    Live,
+    /// The video is a scheduled live broadcast that has not yet started
+    Upcoming,
+    /// The video is not a live broadcast
+    None,
+}
+
+/// Basic details about the video.
+///
+/// See: <https://developers.google.com/youtube/v3/docs/videos#snippet>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSnippet {
+    /// Indicates if the video is an upcoming/active live broadcast.
+    pub live_broadcast_content: LiveBroadcastContent,
 }
 
 /// Statistics about the video.

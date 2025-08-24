@@ -10,8 +10,8 @@ use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
-use crate::background::metrics::StreamSelection;
-use crate::background::{broadcast_monitor, chat, metrics};
+use crate::background::video_metrics::StreamSelection;
+use crate::background::{broadcast_metrics, broadcast_monitor, chat, video_metrics};
 use crate::{Channel, notifications, setup_youtube_clients};
 
 // You can look at the generated code for a plugin using this command:
@@ -31,7 +31,8 @@ pub struct Plugin {
     current_custom_client_id: Option<String>,
     current_custom_client_secret: Option<String>,
     // Background task handles for cancellation and restart
-    metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
+    video_metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
+    broadcast_metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
     chat_task_handle: Option<tokio::task::JoinHandle<()>>,
     broadcast_monitor_task_handle: Option<tokio::task::JoinHandle<()>>,
     // Stored parameters for background task restart
@@ -758,15 +759,27 @@ impl Plugin {
         let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
         // ==============================================================================
-        // Background Metrics Polling Task
+        // Background Video Metrics Polling Task
         // ==============================================================================
-        // Spawn the metrics polling task
-        let metrics_task_handle = metrics::spawn_metrics_task(
+        // Spawn the video metrics polling task (views, likes, concurrent viewers)
+        let video_metrics_task_handle = video_metrics::spawn_metrics_task(
             outgoing.clone(),
             Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
             Arc::clone(&adaptive_state),
-            base_interval,
+            polling_interval_rx.clone(),
+        )
+        .await;
+
+        // ==============================================================================
+        // Background Broadcast Metrics Polling Task
+        // ==============================================================================
+        // Spawn the broadcast metrics polling task (chat count)
+        let broadcast_metrics_task_handle = broadcast_metrics::spawn_broadcast_metrics_task(
+            outgoing.clone(),
+            Arc::clone(&shared_channels),
+            stream_selection_rx.clone(),
+            Arc::clone(&adaptive_state),
             polling_interval_rx.clone(),
         )
         .await;
@@ -813,7 +826,8 @@ impl Plugin {
             polling_interval_tx,
             current_custom_client_id: custom_client_id,
             current_custom_client_secret: custom_client_secret,
-            metrics_task_handle: Some(metrics_task_handle),
+            video_metrics_task_handle: Some(video_metrics_task_handle),
+            broadcast_metrics_task_handle: Some(broadcast_metrics_task_handle),
             chat_task_handle: Some(chat_task_handle),
             broadcast_monitor_task_handle: Some(broadcast_monitor_task_handle),
             adaptive_state,
@@ -933,10 +947,15 @@ impl Plugin {
         self.current_custom_client_secret = new_custom_client_secret.clone();
 
         // Cancel existing background tasks since they have invalid YouTube clients
-        if let Some(handle) = self.metrics_task_handle.take() {
+        if let Some(handle) = self.video_metrics_task_handle.take() {
             handle.abort();
             let _ = handle.await; // Wait for clean shutdown
             tracing::debug!("canceled metrics background task");
+        }
+        if let Some(handle) = self.broadcast_metrics_task_handle.take() {
+            handle.abort();
+            let _ = handle.await; // Wait for clean shutdown
+            tracing::debug!("canceled chat metrics background task");
         }
         if let Some(handle) = self.chat_task_handle.take() {
             handle.abort();
@@ -965,16 +984,26 @@ impl Plugin {
 
         // Restart background tasks with empty channel map (they will be idle until re-auth)
         let empty_channels = Arc::new(Mutex::new(HashMap::new()));
-        let base_interval = crate::MIN_POLLING_INTERVAL_SECONDS; // Use default until settings are applied again
 
         // Spawn new metrics task
-        self.metrics_task_handle = Some(
-            metrics::spawn_metrics_task(
+        self.video_metrics_task_handle = Some(
+            video_metrics::spawn_metrics_task(
                 self.tp.clone(),
                 Arc::clone(&empty_channels),
                 self.stream_selection_rx.clone(),
                 Arc::clone(&self.adaptive_state),
-                base_interval,
+                self.polling_interval_rx.clone(),
+            )
+            .await,
+        );
+
+        // Spawn new broadcast metrics task
+        self.broadcast_metrics_task_handle = Some(
+            broadcast_metrics::spawn_broadcast_metrics_task(
+                self.tp.clone(),
+                Arc::clone(&empty_channels),
+                self.stream_selection_rx.clone(),
+                Arc::clone(&self.adaptive_state),
                 self.polling_interval_rx.clone(),
             )
             .await,

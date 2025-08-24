@@ -156,7 +156,6 @@ pub async fn spawn_metrics_task(
     channels: Arc<Mutex<HashMap<String, Channel>>>,
     mut stream_rx: watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
-    _base_interval: u64,
     polling_interval_rx: watch::Receiver<u64>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {

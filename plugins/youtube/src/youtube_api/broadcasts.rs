@@ -58,6 +58,12 @@ pub struct LiveBroadcast {
     pub snippet: LiveBroadcastSnippet,
     /// Contains information about the broadcast's status.
     pub status: LiveBroadcastStatus,
+    /// Contains statistics about the broadcast.
+    ///
+    /// This field is only present if the `statistics` part was requested in the API call.
+    /// It includes metrics like total chat count for live broadcasts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statistics: Option<LiveBroadcastStatistics>,
 }
 
 /// The snippet object contains basic details about the broadcast.
@@ -188,6 +194,25 @@ impl fmt::Display for BroadcastPrivacyStatus {
             Self::Private => write!(f, "private"),
         }
     }
+}
+
+/// The statistics object contains information about the broadcast's engagement metrics.
+///
+/// This object contains statistics about the broadcast, including the total number
+/// of live chat messages. These statistics are only available during active broadcasts
+/// and when the broadcast has live chat enabled.
+///
+/// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#statistics>
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveBroadcastStatistics {
+    /// The total number of live chat messages associated with the broadcast.
+    ///
+    /// This count is only present if the broadcast has the live chat feature enabled
+    /// and is currently live. The count represents all chat messages sent during
+    /// the live broadcast, including messages from viewers and moderators.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_chat_count: Option<String>,
 }
 
 /// Status values for live broadcast transitions.

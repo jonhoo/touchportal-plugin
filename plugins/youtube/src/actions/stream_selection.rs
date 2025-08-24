@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::background::metrics::StreamSelection;
+use crate::background::video_metrics::StreamSelection;
 use crate::notifications;
 
 #[derive(Debug, Clone)]

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 
-use crate::background::metrics::StreamSelection;
+use crate::background::video_metrics::StreamSelection;
 use crate::plugin::{ChoicesForYtlBroadcast, TouchPortalHandle};
 
 /// Result of broadcast monitoring that handles multiple responsibilities in one API call

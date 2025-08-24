@@ -7,7 +7,7 @@ use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 
 use crate::activity::AdaptivePollingState;
-use crate::background::metrics::StreamSelection;
+use crate::background::video_metrics::StreamSelection;
 
 /// Process a chat message and trigger appropriate TouchPortal events.
 ///

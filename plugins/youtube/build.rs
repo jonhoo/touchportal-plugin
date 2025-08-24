@@ -753,15 +753,16 @@ fn plugin() -> PluginDescription {
                 // ==============================================================================
                 // Stream Statistics States - polled periodically based on polling interval setting
                 //
-                // TODO(claude): add a state for LiveBroadcast.statistics.totalChatCount
-                // This requires either: (1) updating metrics poller to also call
-                // liveBroadcasts.list API or (2) make the broadcast monitor background task
-                // responsible for continuously extracting and updating this information when a
-                // stream is selected (in which case it should also use the smart adaptive polling
-                // interval logic during those periods of time). Option 1 adds API calls, option
-                // 2 changes the monitor's scope significantly. A third option is to start yet
-                // another background task like the metrics poller that polls this other endpoint
-                // instead. Need to decide on the architectural approach.
+                .state(
+                    State::builder()
+                        .id("ytl_chat_count")
+                        .description("YouTube Live - chat messages")
+                        .initial("-")
+                        .parent_group("Stream Metrics")
+                        .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
                 .state(
                     State::builder()
                         .id("ytl_likes_count")

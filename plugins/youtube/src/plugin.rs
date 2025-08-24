@@ -946,17 +946,14 @@ impl Plugin {
             let mut yt_guard = self.yt.lock().await;
             yt_guard.clear();
         }
-        // Also clear stream selection since we have no valid channels now
-        // TODO(claude): consider not resetting these since the user may authenticate shortly and give us valid clients for them again.
-        if let Err(e) = self
-            .stream_selection_tx
-            .send(crate::background::metrics::StreamSelection::None)
-        {
-            tracing::warn!(
-                error = %e,
-                "failed to send empty stream selection to new background tasks"
-            );
-        }
+
+        // Preserve stream selection across OAuth credential changes
+        // (i.e., don't update stream_selection_tx).
+        //
+        // The user's stream selection remains conceptually valid - only the authentication tokens
+        // have changed. Background tasks are restarted with an empty channel map and will remain
+        // idle until re-authentication, at which point the preserved selection can be used again
+        // without requiring user re-selection.
 
         // Restart background tasks with empty channel map (they will be idle until re-auth)
         let empty_channels = Arc::new(Mutex::new(HashMap::new()));

@@ -21,7 +21,6 @@ use crate::{Channel, notifications, setup_youtube_clients};
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
-// TODO(claude): consider all uses of `watch::Receiver::borrow` and whether they should be `borrow_and_update` instead. read <https://docs.rs/tokio/latest/tokio/sync/watch/struct.Receiver.html#method.borrow_and_update>
 #[derive(Debug)]
 pub struct Plugin {
     yt: Arc<Mutex<HashMap<String, Channel>>>,

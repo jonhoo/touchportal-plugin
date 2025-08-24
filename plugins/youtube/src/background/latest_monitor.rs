@@ -71,7 +71,7 @@ pub async fn check_for_latest_broadcast_change(
 // TODO(claude): extend this such that it also maintains the list of choices for the broadcast if no specific broadcast has yet been selected.
 pub async fn spawn_latest_monitor_task(
     channels: Arc<Mutex<HashMap<String, Channel>>>,
-    stream_rx: watch::Receiver<StreamSelection>,
+    mut stream_rx: watch::Receiver<StreamSelection>,
     stream_selection_tx: watch::Sender<StreamSelection>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -85,7 +85,7 @@ pub async fn spawn_latest_monitor_task(
             tokio::select! {
                 _ = interval.tick() => {
                     // Time to check for latest broadcast changes
-                    let selection = stream_rx.borrow().clone();
+                    let selection = stream_rx.borrow_and_update().clone();
 
                     let StreamSelection::WaitForActiveBroadcast { channel_id } = &selection else {
                         // Not in wait mode - do nothing

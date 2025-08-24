@@ -212,7 +212,7 @@ pub async fn spawn_metrics_task(
                 }
                 Ok(()) = polling_interval_rx.changed() => {
                     // Manual interval change (e.g., settings update)
-                    let new_base_interval = *polling_interval_rx.borrow();
+                    let new_base_interval = *polling_interval_rx.borrow_and_update();
                     {
                         let mut state = adaptive_state.lock().await;
                         state.base_interval = new_base_interval;
@@ -231,7 +231,7 @@ pub async fn spawn_metrics_task(
 
             // Get current stream selection (non-blocking)
             let (channel_id, broadcast_id, return_to_latest_on_completion) = loop {
-                let selection = stream_rx.borrow().clone();
+                let selection = stream_rx.borrow_and_update().clone();
                 match selection {
                     StreamSelection::ChannelAndBroadcast {
                         channel_id,

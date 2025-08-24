@@ -214,7 +214,7 @@ pub async fn spawn_chat_task(
         let mut current_broadcast: Option<String> = None;
 
         // Initialize chat stream if we have a current broadcast
-        let selection = stream_rx.borrow().clone();
+        let selection = stream_rx.borrow_and_update().clone();
         let current_broadcast_id = match &selection {
             StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
             StreamSelection::None
@@ -265,7 +265,7 @@ pub async fn spawn_chat_task(
                 }
 
                 Ok(()) = stream_rx.changed() => {
-                    let selection = stream_rx.borrow().clone();
+                    let selection = stream_rx.borrow_and_update().clone();
                     let new_broadcast_id = match &selection {
                         StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
                         StreamSelection::None | StreamSelection::ChannelOnly { .. } | StreamSelection::WaitForActiveBroadcast { .. } => None,

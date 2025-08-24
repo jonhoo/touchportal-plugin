@@ -1021,7 +1021,6 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
     }
 }
 
-// TODO(claude): all the snapshot tests below should be using prettyplease-formatted values
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1273,7 +1272,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1282,7 +1282,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1291,7 +1292,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1300,7 +1302,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1467,7 +1470,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1492,7 +1496,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1501,7 +1506,8 @@ mod tests {
         let settings_code = gen_settings(&plugin).to_string();
 
         assert_valid_rust_syntax(&settings_code);
-        assert_snapshot!(settings_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&settings_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1510,7 +1516,8 @@ mod tests {
         let outgoing_code = gen_outgoing(&plugin).to_string();
 
         assert_valid_rust_syntax(&outgoing_code);
-        assert_snapshot!(outgoing_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&outgoing_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1519,7 +1526,8 @@ mod tests {
         let incoming_code = gen_incoming(&plugin).to_string();
 
         assert_valid_rust_syntax(&incoming_code);
-        assert_snapshot!(incoming_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&incoming_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1527,7 +1535,8 @@ mod tests {
         let connect_code = gen_connect("com.test.connect").to_string();
 
         assert_valid_rust_syntax(&connect_code);
-        assert_snapshot!(connect_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&connect_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]

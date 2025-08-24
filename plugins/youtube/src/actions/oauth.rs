@@ -15,6 +15,7 @@ pub async fn handle_add_youtube_channel(
     yt: &Arc<Mutex<HashMap<String, Channel>>>,
     custom_client_id: Option<String>,
     custom_client_secret: Option<String>,
+    http_client: reqwest::Client,
 ) -> eyre::Result<()> {
     let oauth_manager = Arc::new(oauth::OAuthManager::with_custom_credentials(
         custom_client_id,
@@ -42,6 +43,7 @@ pub async fn handle_add_youtube_channel(
     let client = YouTubeClient::new(
         TimeBoundAccessToken::new(new_token.clone()),
         Arc::clone(&oauth_manager),
+        http_client,
     );
 
     let is_valid = client

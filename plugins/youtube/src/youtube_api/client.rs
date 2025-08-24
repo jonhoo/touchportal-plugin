@@ -134,7 +134,7 @@ pub struct YouTubeClient {
 }
 
 impl YouTubeClient {
-    /// Creates a new YouTube API client with the provided OAuth2 token and OAuth manager.
+    /// Creates a new YouTube API client with the provided OAuth2 token, OAuth manager, and HTTP client.
     ///
     /// The token expiry time is calculated from when the token was created plus the `expires_in`
     /// duration minus a 5-minute safety buffer to prevent edge-case failures.
@@ -143,9 +143,12 @@ impl YouTubeClient {
     ///
     /// * `token` - A valid [`BasicTokenResponse`] containing the OAuth2 access token
     /// * `oauth_manager` - Shared OAuth manager for token refresh operations
-    pub fn new(token: TimeBoundAccessToken, oauth_manager: Arc<OAuthManager>) -> Self {
-        let client = reqwest::Client::new();
-
+    /// * `client` - Shared HTTP client for making API requests
+    pub fn new(
+        token: TimeBoundAccessToken,
+        oauth_manager: Arc<OAuthManager>,
+        client: reqwest::Client,
+    ) -> Self {
         Self {
             token: Arc::new(Mutex::new(token)),
             oauth_manager,

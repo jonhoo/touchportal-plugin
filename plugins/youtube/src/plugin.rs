@@ -43,6 +43,8 @@ pub struct Plugin {
         tracing_subscriber::EnvFilter,
         tracing_subscriber::Registry,
     >,
+    // Shared HTTP client for all YouTube API operations
+    http_client: reqwest::Client,
 }
 
 impl PluginCallbacks for Plugin {
@@ -96,6 +98,7 @@ impl PluginCallbacks for Plugin {
             &self.yt,
             self.current_custom_client_id.clone(),
             self.current_custom_client_secret.clone(),
+            self.http_client.clone(),
         )
         .await
     }
@@ -580,11 +583,15 @@ impl Plugin {
                 .await;
         };
 
+        // Create shared HTTP client for all YouTube API operations
+        let shared_http_client = reqwest::Client::new();
+
         let (client_by_channel, refreshed_tokens) = setup_youtube_clients(
             &settings.you_tube_api_access_tokens,
             custom_client_id.clone(),
             custom_client_secret.clone(),
             notify_callback,
+            shared_http_client.clone(),
         )
         .await?;
 
@@ -813,6 +820,7 @@ impl Plugin {
             stream_selection_rx,
             polling_interval_rx,
             log_level_reload_handle,
+            http_client: shared_http_client,
         };
 
         // Apply the initial logging level from plugin settings

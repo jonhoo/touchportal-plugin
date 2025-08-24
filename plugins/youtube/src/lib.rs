@@ -55,10 +55,19 @@ pub async fn setup_youtube_clients<F>(
     custom_client_id: Option<String>,
     custom_client_secret: Option<String>,
     mut notify_callback: F,
+    shared_http_client: reqwest::Client,
 ) -> eyre::Result<(HashMap<String, Channel>, Vec<BasicTokenResponse>)>
 where
     F: AsyncFnMut(&str, &str, &str),
 {
+    // ==============================================================================
+    // Shared HTTP Client Usage
+    // ==============================================================================
+    // The HTTP client is provided by the caller and shared across all YouTube API operations.
+    // This reduces memory usage and improves connection reuse across different channels.
+    // YouTube API may require redirects, so caller should use default redirect policy.
+    // OAuth operations use their own secure client with redirect protection.
+
     // ==============================================================================
     // OAuth Manager Setup
     // ==============================================================================
@@ -142,9 +151,13 @@ where
             TimeBoundAccessToken::new(token)
         };
 
-        // Create client with refreshed/fresh token and shared OAuth manager
+        // Create client with refreshed/fresh token, shared OAuth manager, and shared HTTP client
         refreshed_tokens.push(final_token.raw_token().clone());
-        let client = YouTubeClient::new(final_token, Arc::clone(&oauth_manager));
+        let client = YouTubeClient::new(
+            final_token,
+            Arc::clone(&oauth_manager),
+            shared_http_client.clone(),
+        );
         yt_clients.push(client);
     }
 

@@ -36,23 +36,24 @@ const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
 /// The OAuthManager encapsulates all OAuth operations, providing a consistent interface
 /// for both initial user authentication and token refresh operations. It uses constant
 /// OAuth client configuration and handles the security aspects of the authorization flow.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OAuthManager {
     custom_client_id: Option<String>,
     custom_client_secret: Option<String>,
+    /// HTTP client configured with security restrictions for OAuth operations
+    http_client: reqwest::Client,
 }
 
 impl OAuthManager {
     /// Creates a new OAuth manager instance with default hardcoded credentials.
-    pub const fn new() -> Self {
-        Self {
-            custom_client_id: None,
-            custom_client_secret: None,
-        }
+    /// Uses a secure HTTP client with redirect protection for SSRF prevention.
+    pub fn new() -> Self {
+        Self::with_custom_credentials(None, None)
     }
 
     /// Creates a new OAuth manager instance with custom credentials.
     /// If either credential is empty, falls back to hardcoded defaults.
+    /// Uses a secure HTTP client with redirect protection for SSRF prevention.
     pub fn with_custom_credentials(
         client_id: Option<String>,
         client_secret: Option<String>,
@@ -65,9 +66,16 @@ impl OAuthManager {
             _ => (None, None),
         };
 
+        let http_client = reqwest::ClientBuilder::new()
+            // SSRF no thank you.
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("building secure OAuth reqwest client should not fail");
+
         Self {
             custom_client_id,
             custom_client_secret,
+            http_client,
         }
     }
 
@@ -129,15 +137,10 @@ impl OAuthManager {
             .await
             .context("await user authorization code")?;
 
-        let http_client = reqwest::ClientBuilder::new()
-            // SSRF no thank you.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("building reqwest client should not fail");
         let token_result = client
             .exchange_code(authorization_code)
             .set_pkce_verifier(pkce_verifier)
-            .request_async(&http_client)
+            .request_async(&self.http_client)
             .await
             .context("exchange authorization code with access token")?;
 
@@ -188,15 +191,9 @@ impl OAuthManager {
                 TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL"),
             );
 
-        let http_client = reqwest::ClientBuilder::new()
-            // SSRF no thank you.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("building reqwest client should not fail");
-
         match client
             .exchange_refresh_token(refresh_token)
-            .request_async(&http_client)
+            .request_async(&self.http_client)
             .await
         {
             Ok(new_token) => {

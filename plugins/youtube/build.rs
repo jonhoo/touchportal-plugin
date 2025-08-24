@@ -136,7 +136,7 @@ fn plugin() -> PluginDescription {
                         .body(
                             "The ID of the currently selected YouTube channel. This value is \
                             automatically set when you authenticate and select a channel for \
-                            monitoring through the Select Stream action."
+                            monitoring through the Select stream action."
                         )
                         .build()
                         .unwrap(),
@@ -161,7 +161,7 @@ fn plugin() -> PluginDescription {
                         .body(
                             "The ID of the currently monitored live broadcast. This value is \
                             automatically updated when a new live stream is selected through \
-                            the Select Stream action."
+                            the Select stream action."
                         )
                         .build()
                         .unwrap(),
@@ -299,7 +299,7 @@ fn plugin() -> PluginDescription {
                 .action(
                     Action::builder()
                         .id("ytl_select_stream")
-                        .name("Select Stream")
+                        .name("Select stream")
                         .implementation(ActionImplementation::Dynamic)
                         .sub_category_id("ytl_configuration")
                         .datum(

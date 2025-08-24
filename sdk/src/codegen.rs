@@ -1021,6 +1021,7 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
     }
 }
 
+// TODO(claude): all the snapshot tests below should be using prettyplease-formatted values
 #[cfg(test)]
 mod tests {
     use super::*;

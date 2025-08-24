@@ -705,13 +705,6 @@ fn plugin() -> PluginDescription {
                                 .build()
                                 .unwrap(),
                         )
-                        .local_state(
-                            LocalState::builder()
-                                .id("ytl_member_months")
-                                .name("YouTube Live - months as member")
-                                .build()
-                                .unwrap(),
-                        )
                         .build()
                         .unwrap(),
                 )

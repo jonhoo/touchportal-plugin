@@ -93,7 +93,7 @@ pub async fn process_chat_message(
 
             // Trigger new member event with local states
             outgoing
-                .trigger_ytl_new_member(&author_name, member_level_name, "0")
+                .trigger_ytl_new_member(&author_name, member_level_name)
                 .await;
 
             // Update global states (triggers ytl_last_*_changed events)

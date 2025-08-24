@@ -1,6 +1,5 @@
 use crate::Channel;
 use crate::youtube_api::client::YouTubeClient;
-use crate::youtube_api::videos::LiveBroadcastContent;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,15 +29,13 @@ pub enum StreamSelection {
 /// Poll video metadata and update TouchPortal states.
 ///
 /// Also updates adaptive polling state based on metrics changes.
-///
-/// Returns true if broadcast appears to have completed.
 pub async fn poll_and_update_metrics(
     outgoing: &mut crate::plugin::TouchPortalHandle,
     client: &YouTubeClient,
     broadcast_id: &str,
     stream_rx: &watch::Receiver<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
-) -> bool {
+) {
     match client.get_video_metadata(broadcast_id).await {
         Ok(stats) => {
             // Check if the selected broadcast has changed during the API call
@@ -54,7 +51,7 @@ pub async fn poll_and_update_metrics(
                         current_broadcast = ?current_broadcast_id,
                         "broadcast changed during metrics poll - discarding results"
                     );
-                    return false;
+                    return;
                 }
             }
 
@@ -73,22 +70,6 @@ pub async fn poll_and_update_metrics(
                 .view_count
                 .as_ref()
                 .and_then(|s| s.parse::<u64>().ok());
-
-            // If we spot that the broadcast has completed, re-start the search for "latest"
-            let broadcast_completed = match &stats.snippet.live_broadcast_content {
-                LiveBroadcastContent::Live => {
-                    tracing::trace!(broadcast = %broadcast_id, status = "live", "broadcast is currently live");
-                    false
-                }
-                LiveBroadcastContent::Upcoming => {
-                    tracing::trace!(broadcast = %broadcast_id, status = "upcoming", "broadcast is upcoming");
-                    false
-                }
-                LiveBroadcastContent::None => {
-                    tracing::trace!(broadcast = %broadcast_id, status = "none", "broadcast completed");
-                    true
-                }
-            };
 
             // Update adaptive polling state with new metrics
             {
@@ -129,11 +110,8 @@ pub async fn poll_and_update_metrics(
                 likes = ?stats.statistics.like_count,
                 live_viewers = ?stats.live_streaming_details.as_ref().and_then(|d| d.concurrent_viewers),
                 broadcast_status = ?stats.snippet.live_broadcast_content,
-                broadcast_completed = broadcast_completed,
                 "updated metrics"
             );
-
-            broadcast_completed
         }
         Err(e) => {
             // TODO(jon): Improve error handling robustness for production use
@@ -167,7 +145,7 @@ pub async fn poll_and_update_metrics(
             outgoing.update_ytl_dislikes_count("X").await;
             outgoing.update_ytl_live_viewers_count("X").await;
 
-            false // Error - assume not completed
+            // Error occurred during polling
         }
     }
 }
@@ -177,7 +155,6 @@ pub async fn spawn_metrics_task(
     mut outgoing: crate::plugin::TouchPortalHandle,
     channels: Arc<Mutex<HashMap<String, Channel>>>,
     mut stream_rx: watch::Receiver<StreamSelection>,
-    stream_selection_tx: watch::Sender<StreamSelection>,
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     _base_interval: u64,
     polling_interval_rx: watch::Receiver<u64>,
@@ -224,22 +201,21 @@ pub async fn spawn_metrics_task(
                     continue; // Recalculate sleep time with new base interval
                 }
                 _ = stream_rx.changed() => {
-                    // Stream selection changed - continue to next iteration to recalculate sleep time
-                    continue;
+                    // Stream selection changed -- immediately fetch new metadata if we can
                 }
             }
 
             // Get current stream selection (non-blocking)
-            let (channel_id, broadcast_id, return_to_latest_on_completion) = loop {
+            let (channel_id, broadcast_id) = loop {
                 let selection = stream_rx.borrow_and_update().clone();
                 match selection {
                     StreamSelection::ChannelAndBroadcast {
                         channel_id,
                         broadcast_id,
-                        return_to_latest_on_completion,
+                        return_to_latest_on_completion: _,
                         live_chat_id: _,
                     } => {
-                        break (channel_id, broadcast_id, return_to_latest_on_completion);
+                        break (channel_id, broadcast_id);
                     }
                     _ => {
                         // No broadcast selected - clear metrics states
@@ -275,7 +251,7 @@ pub async fn spawn_metrics_task(
                 broadcast = %broadcast_id,
                 "polling metrics"
             );
-            let broadcast_completed = poll_and_update_metrics(
+            poll_and_update_metrics(
                 &mut outgoing,
                 &channel.yt,
                 &broadcast_id,
@@ -284,51 +260,6 @@ pub async fn spawn_metrics_task(
             )
             .await;
             last_poll_time = tokio::time::Instant::now();
-
-            // Check if broadcast has completed and we should return to waiting mode
-            if broadcast_completed {
-                let next_selection = if return_to_latest_on_completion {
-                    // Broadcast completed - return to WaitForActiveBroadcast mode
-                    tracing::info!(
-                        channel = %channel_id,
-                        broadcast = %broadcast_id,
-                        "broadcast completed - returning to wait for active broadcast mode"
-                    );
-
-                    outgoing
-                        .update_ytl_current_stream_title("Waiting for active broadcast...")
-                        .await;
-
-                    StreamSelection::WaitForActiveBroadcast {
-                        channel_id: channel_id.clone(),
-                    }
-                } else {
-                    // Broadcast completed, so user must select a new one
-                    tracing::info!(
-                        channel = %channel_id,
-                        broadcast = %broadcast_id,
-                        "broadcast completed - returning to broadcast selection mode"
-                    );
-
-                    // Clear the selected stream dropdown selection.
-                    outgoing.set_selected_broadcast_id(String::new()).await;
-                    outgoing
-                        .update_ytl_current_stream_title("No stream selected...")
-                        .await;
-
-                    StreamSelection::ChannelOnly {
-                        channel_id: channel_id.clone(),
-                    }
-                };
-
-                // Send selection change to background tasks
-                if let Err(e) = stream_selection_tx.send(next_selection) {
-                    tracing::warn!(
-                        error = %e,
-                        "failed to send completion transition to background tasks"
-                    );
-                }
-            }
         }
     })
 }

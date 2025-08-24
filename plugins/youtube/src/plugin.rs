@@ -11,7 +11,7 @@ use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
-use crate::background::{chat, latest_monitor, metrics};
+use crate::background::{broadcast_monitor, chat, metrics};
 use crate::{Channel, notifications, setup_youtube_clients};
 
 // You can look at the generated code for a plugin using this command:
@@ -33,7 +33,7 @@ pub struct Plugin {
     // Background task handles for cancellation and restart
     metrics_task_handle: Option<tokio::task::JoinHandle<()>>,
     chat_task_handle: Option<tokio::task::JoinHandle<()>>,
-    latest_monitor_task_handle: Option<tokio::task::JoinHandle<()>>,
+    broadcast_monitor_task_handle: Option<tokio::task::JoinHandle<()>>,
     // Stored parameters for background task restart
     adaptive_state: Arc<Mutex<AdaptivePollingState>>,
     stream_selection_rx: watch::Receiver<StreamSelection>,
@@ -765,7 +765,6 @@ impl Plugin {
             outgoing.clone(),
             Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
-            stream_selection_tx.clone(),
             Arc::clone(&adaptive_state),
             base_interval,
             polling_interval_rx.clone(),
@@ -787,11 +786,12 @@ impl Plugin {
         // ==============================================================================
         // Background Latest Broadcast Monitoring Task
         // ==============================================================================
-        // Spawn the latest broadcast monitoring task
-        let latest_monitor_task_handle = latest_monitor::spawn_latest_monitor_task(
+        // Spawn the broadcast monitoring task
+        let broadcast_monitor_task_handle = broadcast_monitor::spawn_broadcast_monitor_task(
             Arc::clone(&shared_channels),
             stream_selection_rx.clone(),
             stream_selection_tx.clone(),
+            outgoing.clone(),
         )
         .await;
 
@@ -815,7 +815,7 @@ impl Plugin {
             current_custom_client_secret: custom_client_secret,
             metrics_task_handle: Some(metrics_task_handle),
             chat_task_handle: Some(chat_task_handle),
-            latest_monitor_task_handle: Some(latest_monitor_task_handle),
+            broadcast_monitor_task_handle: Some(broadcast_monitor_task_handle),
             adaptive_state,
             stream_selection_rx,
             polling_interval_rx,
@@ -943,7 +943,7 @@ impl Plugin {
             let _ = handle.await; // Wait for clean shutdown
             tracing::debug!("canceled chat background task");
         }
-        if let Some(handle) = self.latest_monitor_task_handle.take() {
+        if let Some(handle) = self.broadcast_monitor_task_handle.take() {
             handle.abort();
             let _ = handle.await; // Wait for clean shutdown
             tracing::debug!("canceled latest monitor background task");
@@ -973,7 +973,6 @@ impl Plugin {
                 self.tp.clone(),
                 Arc::clone(&empty_channels),
                 self.stream_selection_rx.clone(),
-                self.stream_selection_tx.clone(),
                 Arc::clone(&self.adaptive_state),
                 base_interval,
                 self.polling_interval_rx.clone(),
@@ -992,12 +991,13 @@ impl Plugin {
             .await,
         );
 
-        // Spawn new latest monitor task
-        self.latest_monitor_task_handle = Some(
-            latest_monitor::spawn_latest_monitor_task(
+        // Spawn new broadcast monitor task
+        self.broadcast_monitor_task_handle = Some(
+            broadcast_monitor::spawn_broadcast_monitor_task(
                 Arc::clone(&empty_channels),
                 self.stream_selection_rx.clone(),
                 self.stream_selection_tx.clone(),
+                self.tp.clone(),
             )
             .await,
         );

@@ -8,7 +8,6 @@ use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
 
-use crate::actions::stream_selection::BroadcastSelection;
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
 use crate::background::metrics::StreamSelection;
@@ -22,13 +21,11 @@ use crate::{Channel, notifications, setup_youtube_clients};
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
+// TODO(claude): consider all uses of `watch::Receiver::borrow` and whether they should be `borrow_and_update` instead. read <https://docs.rs/tokio/latest/tokio/sync/watch/struct.Receiver.html#method.borrow_and_update>
 #[derive(Debug)]
 pub struct Plugin {
     yt: Arc<Mutex<HashMap<String, Channel>>>,
     tp: TouchPortalHandle,
-    current_channel: Option<String>,
-    // TODO(claude): nothing currently sets current_broadcast to a specific broadcast ID once a latest stream has been found. this field probably has to be converted to a `tokio::sync::watch` that gets updated by the latest monitor background task. it must also be unset when it is detected that the broadcast has ended.
-    current_broadcast_id: Option<String>,
     stream_selection_tx: watch::Sender<StreamSelection>,
     polling_interval_tx: watch::Sender<u64>,
     // Track OAuth credentials to detect changes that invalidate tokens
@@ -156,13 +153,6 @@ impl PluginCallbacks for Plugin {
             "broadcast selection updated"
         );
 
-        // Store the selections
-        self.current_channel = Some(channel_id);
-        self.current_broadcast_id = match broadcast_id {
-            BroadcastSelection::Latest => None,
-            BroadcastSelection::Specific(id) => Some(id),
-        };
-
         // Notify background tasks of stream selection change
         if let Err(e) = self.stream_selection_tx.send(selection) {
             tracing::warn!(
@@ -179,18 +169,18 @@ impl PluginCallbacks for Plugin {
         &mut self,
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
-        let Some(channel_id) = &self.current_channel else {
+        let Some(channel_id) = self.current_channel() else {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast_id else {
+        let Some(broadcast_id) = self.current_broadcast_id() else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
-            yt_guard.get(channel_id).cloned()
+            yt_guard.get(&channel_id).cloned()
         };
         let Some(channel) = channel else {
             notifications::channel_not_available(&mut self.tp).await?;
@@ -206,7 +196,7 @@ impl PluginCallbacks for Plugin {
         // Transition broadcast from testing -> live
         match channel
             .yt
-            .transition_live_broadcast(broadcast_id, BroadcastStatus::Live)
+            .transition_live_broadcast(&broadcast_id, BroadcastStatus::Live)
             .await
         {
             Ok(_) => {
@@ -244,18 +234,18 @@ impl PluginCallbacks for Plugin {
         &mut self,
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
-        let Some(channel_id) = &self.current_channel else {
+        let Some(channel_id) = self.current_channel() else {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast_id else {
+        let Some(broadcast_id) = self.current_broadcast_id() else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
-            yt_guard.get(channel_id).cloned()
+            yt_guard.get(&channel_id).cloned()
         };
         let Some(channel) = channel else {
             notifications::channel_not_available(&mut self.tp).await?;
@@ -271,7 +261,7 @@ impl PluginCallbacks for Plugin {
         // Transition broadcast from live -> complete
         channel
             .yt
-            .transition_live_broadcast(broadcast_id, BroadcastStatus::Complete)
+            .transition_live_broadcast(&broadcast_id, BroadcastStatus::Complete)
             .await
             .context("transition broadcast to complete")?;
 
@@ -313,18 +303,18 @@ impl PluginCallbacks for Plugin {
                 .await;
             return Ok(());
         }
-        let Some(channel_id) = &self.current_channel else {
+        let Some(channel_id) = self.current_channel() else {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast_id else {
+        let Some(broadcast_id) = self.current_broadcast_id() else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
-            yt_guard.get(channel_id).cloned()
+            yt_guard.get(&channel_id).cloned()
         };
         let Some(channel) = channel else {
             notifications::channel_not_available(&mut self.tp).await?;
@@ -368,18 +358,18 @@ impl PluginCallbacks for Plugin {
         _mode: protocol::ActionInteractionMode,
         ytl_new_description: String,
     ) -> eyre::Result<()> {
-        let Some(channel_id) = &self.current_channel else {
+        let Some(channel_id) = self.current_channel() else {
             notifications::no_channel_selected(&mut self.tp).await?;
             return Ok(());
         };
-        let Some(broadcast_id) = &self.current_broadcast_id else {
+        let Some(broadcast_id) = self.current_broadcast_id() else {
             notifications::no_broadcast_selected(&mut self.tp).await?;
             return Ok(());
         };
 
         let channel = {
             let yt_guard = self.yt.lock().await;
-            yt_guard.get(channel_id).cloned()
+            yt_guard.get(&channel_id).cloned()
         };
         let Some(channel) = channel else {
             notifications::channel_not_available(&mut self.tp).await?;
@@ -810,16 +800,9 @@ impl Plugin {
         // - Event triggering: Poll start, progress, and completion events
         // See TouchPortal SDK documentation for activePollItem usage patterns
 
-        let current_broadcast = match current_broadcast {
-            Some(BroadcastSelection::Latest) => None,
-            Some(BroadcastSelection::Specific(id)) => Some(id),
-            None => None,
-        };
         let mut plugin = Self {
             yt: shared_channels,
             tp: outgoing,
-            current_channel,
-            current_broadcast_id: current_broadcast,
             stream_selection_tx,
             polling_interval_tx,
             current_custom_client_id: custom_client_id,
@@ -839,6 +822,31 @@ impl Plugin {
         }
 
         Ok(plugin)
+    }
+
+    /// Get the current broadcast ID from the stream selection watch receiver.
+    ///
+    /// This method synchronously reads the current stream selection and extracts
+    /// the broadcast ID if one is selected. Returns None if no broadcast is
+    /// selected or we're in WaitForActiveBroadcast mode.
+    fn current_broadcast_id(&self) -> Option<String> {
+        match &*self.stream_selection_rx.borrow() {
+            StreamSelection::ChannelAndBroadcast { broadcast_id, .. } => Some(broadcast_id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get the current channel ID from the stream selection watch receiver.
+    ///
+    /// This method synchronously reads the current stream selection and extracts
+    /// the channel ID if one is selected. Returns None if no channel is selected.
+    fn current_channel(&self) -> Option<String> {
+        match &*self.stream_selection_rx.borrow() {
+            StreamSelection::ChannelOnly { channel_id } => Some(channel_id.clone()),
+            StreamSelection::ChannelAndBroadcast { channel_id, .. } => Some(channel_id.clone()),
+            StreamSelection::WaitForActiveBroadcast { channel_id } => Some(channel_id.clone()),
+            StreamSelection::None => None,
+        }
     }
 
     /// Update the logging level based on user settings
@@ -913,11 +921,6 @@ impl Plugin {
             .set_you_tube_api_access_tokens(String::from("[]"))
             .await;
 
-        // Reset current selections
-        // TODO(claude): consider not resetting these since the user may authenticate shortly and give us valid clients for them again.
-        self.current_channel = None;
-        self.current_broadcast_id = None;
-
         // Update stored OAuth credentials for future comparisons
         self.current_custom_client_id = new_custom_client_id.clone();
         self.current_custom_client_secret = new_custom_client_secret.clone();
@@ -945,6 +948,7 @@ impl Plugin {
             yt_guard.clear();
         }
         // Also clear stream selection since we have no valid channels now
+        // TODO(claude): consider not resetting these since the user may authenticate shortly and give us valid clients for them again.
         if let Err(e) = self
             .stream_selection_tx
             .send(crate::background::metrics::StreamSelection::None)

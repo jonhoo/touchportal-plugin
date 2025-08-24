@@ -12,7 +12,11 @@ struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
-    // No required methods - all have default implementations for plugins with no actions
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+        tracing::info!(?settings, "plugin settings changed");
+        Ok(())
+    }
 }
 
 impl Plugin {
@@ -123,5 +127,5 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    Plugin::run_dynamic(addr).await
+    Plugin::run_dynamic_with(addr, Plugin::new).await
 }

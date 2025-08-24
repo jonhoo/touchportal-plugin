@@ -12,6 +12,8 @@ use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
 use tokio_stream::{Stream, StreamExt};
 
+type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>> + Send>>;
+
 /// A streaming implementation for YouTube Live Chat Messages.
 ///
 /// This stream connects to the YouTube Live Chat Messages `streamList` API and provides
@@ -25,7 +27,7 @@ use tokio_stream::{Stream, StreamExt};
 /// to avoid missing messages during reconnection.
 pub struct LiveChatStream {
     /// The underlying byte stream from the HTTP response
-    bytes_stream: Option<Pin<Box<dyn Stream<Item = Result<Bytes, eyre::Error>>>>>,
+    bytes_stream: Option<ByteStream>,
     /// Buffer for accumulating bytes until we have complete JSON lines
     buffer: Vec<u8>,
     /// Current batch of messages from the most recent API response
@@ -312,7 +314,7 @@ pub enum LiveChatMessageDetails {
     SuperSticker {
         super_sticker_details: SuperStickerDetails,
     },
-    /// A message indicating that a viewer became a new channel member (sponsor).
+    /// A message indicating that a viewer became a new channel member.
     ///
     /// These messages appear when someone joins a channel's membership program for the first time
     /// or upgrades to a higher membership tier. The details include the membership level name
@@ -384,17 +386,17 @@ pub enum LiveChatMessageDetails {
     /// can be posted. No additional details are provided beyond the basic message fields.
     #[serde(rename = "chatEndedEvent")]
     ChatEnded,
-    /// A system message indicating that sponsor-only mode was activated.
+    /// A system message indicating that member-only mode was activated.
     ///
-    /// When this mode is active, only channel members (sponsors) can post messages in chat.
+    /// When this mode is active, only channel members can post messages in chat.
     /// Regular viewers can still see the chat but cannot participate until the mode is
     /// disabled. This is a moderation tool used to reduce chat volume or maintain
     /// member-exclusive discussions.
     #[serde(rename = "sponsorOnlyModeStartedEvent")]
     SponsorOnlyModeStarted,
-    /// A system message indicating that sponsor-only mode was deactivated.
+    /// A system message indicating that member-only mode was deactivated.
     ///
-    /// This message appears when the broadcaster or moderators disable sponsor-only mode,
+    /// This message appears when the broadcaster or moderators disable member-only mode,
     /// allowing all viewers to post messages in chat again. The chat returns to normal
     /// participation mode where any viewer can send messages.
     #[serde(rename = "sponsorOnlyModeEndedEvent")]
@@ -456,7 +458,7 @@ pub struct LiveChatMessageAuthor {
     /// Chat owners typically have special privileges and distinctive visual styling
     /// in chat interfaces to distinguish them from regular viewers.
     pub is_chat_owner: bool,
-    /// Whether the author is a channel member (sponsor).
+    /// Whether the author is a channel member.
     ///
     /// `true` if the user has purchased a channel membership. Members typically
     /// receive special badges, emoji privileges, and other perks. Their messages
@@ -604,7 +606,7 @@ pub struct MemberMilestoneChatDetails {
     pub member_level_name: String,
 }
 
-/// Details about a new sponsor event.
+/// Details about a new member event.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewSponsorDetails {

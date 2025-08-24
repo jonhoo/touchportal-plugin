@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 // You can look at the generated code for a plugin using this command:
 //
 // ```bash
-// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/entry.rs"
+// cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/out/entry.rs"
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 
@@ -75,6 +75,12 @@ impl PluginCallbacks for Plugin {
         instance: String,
         selected: ChoicesForTpPl002Choice,
     ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
+        tracing::info!(?settings, "plugin settings changed");
         Ok(())
     }
 }

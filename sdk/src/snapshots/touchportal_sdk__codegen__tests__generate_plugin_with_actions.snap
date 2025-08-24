@@ -1,6 +1,5 @@
 ---
 source: sdk/src/codegen.rs
-assertion_line: 1253
 expression: generated
 ---
 use ::touchportal_sdk::protocol;
@@ -20,18 +19,35 @@ impl PluginSettings {
         let value = info.into_iter().flatten().collect();
         serde_json::from_value(value).context("parse settings")
     }
+    pub fn from_settings_message(
+        settings: protocol::SettingsMessage,
+    ) -> ::eyre::Result<Self> {
+        use ::eyre::Context as _;
+        let value = settings.values.into_iter().flatten().collect();
+        serde_json::from_value(value).context("parse settings message")
+    }
 }
+#[allow(private_bounds)]
 impl Plugin
 where
     Self: PluginCallbacks,
 {
-    pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
-        Self::run_dynamic_with_setup(addr, std::convert::identity).await
-    }
-    pub async fn run_dynamic_with_setup(
+    /// Run a dynamic plugin against TouchPortal running at the given `addr`.
+    ///
+    /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
+    /// callers to make last-minute adjustments to `Plugin` before we start using it for
+    /// real. Handy for injecting references to things like mock expectations.
+    pub async fn run_dynamic_with<C>(
         addr: impl tokio::net::ToSocketAddrs,
-        mutate: impl FnOnce(Plugin) -> Plugin,
-    ) -> eyre::Result<()> {
+        constructor: C,
+    ) -> eyre::Result<()>
+    where
+        C: AsyncFnOnce(
+            PluginSettings,
+            TouchPortalHandle,
+            InfoMessage,
+        ) -> eyre::Result<Self>,
+    {
         use protocol::*;
         use ::eyre::Context as _;
         use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -80,10 +96,9 @@ where
         };
         ::tracing::debug!("construct Plugin proper");
         let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
-        let plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
+        let mut plugin = constructor(settings, TouchPortalHandle(send_outgoing), info)
             .await
-            .context("Plugin::new")?;
-        let mut plugin = mutate(plugin);
+            .context("run Plugin constructor")?;
         let mut line = String::new();
         let mut out_buf = Vec::new();
         loop {
@@ -230,6 +245,39 @@ trait PluginCallbacks {
         tracing::debug!(? event, "on_notification_clicked noop");
         Ok(())
     }
+    /// Called when the user modifies and saves plugin settings in TouchPortal.
+    ///
+    /// This method is triggered when TouchPortal sends a settings update message containing
+    /// the complete current state of all plugin settings. Use this to synchronize your
+    /// plugin's internal configuration with user-modified settings.
+    ///
+    /// You will generally want to take the `settings` argument using exhaustive
+    /// struct-destructure syntax (i.e., `PluginSettings { field1, field2: _ }`) so that the
+    /// compiler will remind you to update the method if new settings are added.
+    ///
+    /// Remember that this will also be triggered when read-only settings are updated, even
+    /// though they're updated _by the plugin_. You'll probably want to ignore updates to
+    /// such settings.
+    ///
+    /// # Arguments
+    /// * `settings` - The complete current plugin settings parsed into the generated `PluginSettings` struct
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// async fn on_settings_changed(&mut self, settings: PluginSettings { api_key, another_setting: _ }) -> eyre::Result<()> {
+    ///     tracing::info!(?settings, "settings updated by user");
+    ///
+    ///     // Update your plugin's internal state based on new settings
+    ///     self.api_client.update_credentials(&api_key)?;
+    ///     self.reconnect_if_needed().await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    async fn on_settings_changed(
+        &mut self,
+        settings: PluginSettings,
+    ) -> eyre::Result<()>;
 }
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[allow(non_camel_case_types)]
@@ -272,6 +320,7 @@ impl protocol::TouchPortalFromStr for ChoicesForChoiceData {
         ::std::str::FromStr::from_str(s)
     }
 }
+#[allow(private_bounds)]
 impl Plugin
 where
     Self: PluginCallbacks,
@@ -418,6 +467,13 @@ where
                 self.on_notification_clicked(event)
                     .await
                     .context("handle notification click")?;
+            }
+            TouchPortalOutput::Settings(settings_msg) => {
+                let settings = PluginSettings::from_settings_message(settings_msg)
+                    .context("parse settings from message")?;
+                self.on_settings_changed(settings)
+                    .await
+                    .context("handle settings change")?;
             }
             _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
         }

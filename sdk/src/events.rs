@@ -1,4 +1,3 @@
-use super::PluginCategory;
 use derive_builder::Builder;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
@@ -191,11 +190,6 @@ pub struct LocalState {
     /// This name of the local state.
     #[builder(setter(into))]
     pub(crate) name: String,
-
-    /// The parent category the local state belongs to.
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_category: Option<PluginCategory>,
 }
 
 impl LocalState {

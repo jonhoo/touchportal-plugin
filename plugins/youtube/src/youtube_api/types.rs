@@ -7,7 +7,7 @@ use std::task::{Context as TaskContext, Poll};
 use tokio_stream::Stream;
 
 type OneFuturePage<'a, F, T> =
-    Pin<Box<dyn Future<Output = eyre::Result<(F, (VecDeque<T>, Option<String>))>> + 'a>>;
+    Pin<Box<dyn Future<Output = eyre::Result<(F, (VecDeque<T>, Option<String>))>> + 'a + Send>>;
 
 /// A paginated stream that automatically fetches subsequent pages from a YouTube API list endpoint.
 ///
@@ -24,9 +24,11 @@ pub struct PagedStream<'a, T, F> {
 
 impl<'a, T, F> PagedStream<'a, T, F> {
     /// Create a new PagedStream from the first page of results.
-    pub fn new(fetcher: F) -> Self
+    pub fn new<Fut>(fetcher: F) -> Self
     where
-        F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
+        F: Fn(Option<String>) -> Fut,
+        F: Send + 'a,
+        Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'a,
     {
         let first_page = async move {
             let results = fetcher(None).await?;
@@ -42,9 +44,11 @@ impl<'a, T, F> PagedStream<'a, T, F> {
 
 impl<'a, T: Unpin, F> Unpin for PagedStream<'a, T, F> {}
 
-impl<'a, T: Unpin, F> Stream for PagedStream<'a, T, F>
+impl<'a, T: Unpin, F, Fut> Stream for PagedStream<'a, T, F>
 where
-    F: AsyncFn(Option<String>) -> eyre::Result<(VecDeque<T>, Option<String>)> + 'a,
+    F: Fn(Option<String>) -> Fut,
+    F: Send + 'a,
+    Fut: Future<Output = eyre::Result<(VecDeque<T>, Option<String>)>> + Send + 'a,
 {
     type Item = eyre::Result<T>;
 

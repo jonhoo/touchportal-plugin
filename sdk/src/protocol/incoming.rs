@@ -16,6 +16,7 @@ pub enum TouchPortalOutput {
     ClosePlugin(ClosePluginMessage),
     Broadcast(BroadcastEvent),
     NotificationOptionClicked(NotificationClickedMessage),
+    Settings(SettingsMessage),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -240,4 +241,50 @@ pub struct BroadcastPageChangeEvent {
 pub struct NotificationClickedMessage {
     pub notification_id: String,
     pub option_id: String,
+}
+
+/// Touch Portal sends this message when the user modifies and saves plugin settings.
+///
+/// This message contains the entire current state of all settings, both changed and unchanged.
+/// Plugins can use this message to synchronize their internal configuration with user-modified
+/// settings.
+///
+/// The message format matches the settings structure from InfoMessage, but is sent specifically
+/// when settings are updated rather than during initial plugin pairing.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct SettingsMessage {
+    /// Currently set settings for this plugin.
+    ///
+    /// Each setting is represented as a key-value pair where the key is the setting name
+    /// and the value is the current setting value.
+    pub values: Vec<HashMap<String, serde_json::Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_settings_message_deserialization() {
+        let json = r#"
+        {
+            "type": "settings",
+            "values": [
+                {"setting1": "value1"},
+                {"setting2": "value2"}
+            ]
+        }"#;
+
+        let parsed: TouchPortalOutput = serde_json::from_str(json).unwrap();
+
+        if let TouchPortalOutput::Settings(settings) = parsed {
+            assert_eq!(settings.values.len(), 2);
+            assert_eq!(settings.values[0]["setting1"], "value1");
+            assert_eq!(settings.values[1]["setting2"], "value2");
+        } else {
+            panic!("Expected Settings message, got {:?}", parsed);
+        }
+    }
 }

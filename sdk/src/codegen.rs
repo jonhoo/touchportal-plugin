@@ -294,6 +294,12 @@ fn gen_settings(plugin: &PluginDescription) -> TokenStream {
                 let value = info.into_iter().flatten().collect();
                 serde_json::from_value(value).context("parse settings")
             }
+
+            pub fn from_settings_message(settings: protocol::SettingsMessage) -> ::eyre::Result<Self> {
+                use ::eyre::Context as _;
+                let value = settings.values.into_iter().flatten().collect();
+                serde_json::from_value(value).context("parse settings message")
+            }
         }
     }
 }
@@ -776,10 +782,41 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                 tracing::debug!(?event, "on_notification_clicked noop");
                 Ok(())
             }
+            /// Called when the user modifies and saves plugin settings in TouchPortal.
+            ///
+            /// This method is triggered when TouchPortal sends a settings update message containing
+            /// the complete current state of all plugin settings. Use this to synchronize your
+            /// plugin's internal configuration with user-modified settings.
+            ///
+            /// You will generally want to take the `settings` argument using exhaustive
+            /// struct-destructure syntax (i.e., `PluginSettings { field1, field2: _ }`) so that the
+            /// compiler will remind you to update the method if new settings are added.
+            ///
+            /// Remember that this will also be triggered when read-only settings are updated, even
+            /// though they're updated _by the plugin_. You'll probably want to ignore updates to
+            /// such settings.
+            ///
+            /// # Arguments
+            /// * `settings` - The complete current plugin settings parsed into the generated `PluginSettings` struct
+            ///
+            /// # Example
+            /// ```rust,ignore
+            /// async fn on_settings_changed(&mut self, settings: PluginSettings { api_key, another_setting: _ }) -> eyre::Result<()> {
+            ///     tracing::info!(?settings, "settings updated by user");
+            ///
+            ///     // Update your plugin's internal state based on new settings
+            ///     self.api_client.update_credentials(&api_key)?;
+            ///     self.reconnect_if_needed().await?;
+            ///
+            ///     Ok(())
+            /// }
+            /// ```
+            async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()>;
         }
 
         #action_data_choices
 
+        #[allow(private_bounds)]
         impl Plugin where Self: PluginCallbacks {
             async fn handle_incoming(&mut self, msg: protocol::TouchPortalOutput) -> eyre::Result<bool> {
                 use protocol::TouchPortalOutput;
@@ -833,6 +870,10 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
                     TouchPortalOutput::NotificationOptionClicked(event) => {
                         self.on_notification_clicked(event).await.context("handle notification click")?;
                     }
+                    TouchPortalOutput::Settings(settings_msg) => {
+                        let settings = PluginSettings::from_settings_message(settings_msg).context("parse settings from message")?;
+                        self.on_settings_changed(settings).await.context("handle settings change")?;
+                    }
                     _ => unimplemented!("codegen macro must be updated to handle {msg:?}"),
                 }
 
@@ -844,15 +885,20 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
 
 fn gen_connect(plugin_id: &str) -> TokenStream {
     quote! {
+        #[allow(private_bounds)]
         impl Plugin where Self: PluginCallbacks {
-            pub async fn run_dynamic(addr: impl tokio::net::ToSocketAddrs) -> eyre::Result<()> {
-                Self::run_dynamic_with_setup(addr, std::convert::identity).await
-            }
-
-            pub async fn run_dynamic_with_setup(
-                addr: impl tokio::net::ToSocketAddrs,
-                mutate: impl FnOnce(Plugin) -> Plugin,
-            ) -> eyre::Result<()> {
+            /// Run a dynamic plugin against TouchPortal running at the given `addr`.
+            ///
+            /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
+            /// callers to make last-minute adjustments to `Plugin` before we start using it for
+            /// real. Handy for injecting references to things like mock expectations.
+            pub async fn run_dynamic_with<C>(addr: impl tokio::net::ToSocketAddrs, constructor: C) -> eyre::Result<()>
+            where C: AsyncFnOnce(
+                PluginSettings,
+                TouchPortalHandle,
+                InfoMessage,
+            ) -> eyre::Result<Self>
+            {
                 use protocol::*;
                 use ::eyre::Context as _;
                 use ::tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -910,13 +956,9 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
 
                 ::tracing::debug!("construct Plugin proper");
                 let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
-                let plugin = Self::new(settings, TouchPortalHandle(send_outgoing), info)
+                let mut plugin = constructor(settings, TouchPortalHandle(send_outgoing), info)
                     .await
-                    .context("Plugin::new")?;
-
-                // Allow caller to make last-minute adjustments to `Plugin` before we start using
-                // it for real. Handy for injecting references to things like mock expectations.
-                let mut plugin = mutate(plugin);
+                    .context("run Plugin constructor")?;
 
                 // Set up re-use buffers
                 let mut line = String::new();
@@ -1230,7 +1272,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1239,7 +1282,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1248,7 +1292,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1257,7 +1302,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1424,7 +1470,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1449,7 +1496,8 @@ mod tests {
         let generated = generate(&plugin);
 
         assert_valid_rust_syntax(&generated);
-        assert_snapshot!(generated);
+        let formatted = prettyplease::unparse(&syn::parse_file(&generated).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1458,7 +1506,8 @@ mod tests {
         let settings_code = gen_settings(&plugin).to_string();
 
         assert_valid_rust_syntax(&settings_code);
-        assert_snapshot!(settings_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&settings_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1467,7 +1516,8 @@ mod tests {
         let outgoing_code = gen_outgoing(&plugin).to_string();
 
         assert_valid_rust_syntax(&outgoing_code);
-        assert_snapshot!(outgoing_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&outgoing_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1476,7 +1526,8 @@ mod tests {
         let incoming_code = gen_incoming(&plugin).to_string();
 
         assert_valid_rust_syntax(&incoming_code);
-        assert_snapshot!(incoming_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&incoming_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]
@@ -1484,7 +1535,8 @@ mod tests {
         let connect_code = gen_connect("com.test.connect").to_string();
 
         assert_valid_rust_syntax(&connect_code);
-        assert_snapshot!(connect_code);
+        let formatted = prettyplease::unparse(&syn::parse_file(&connect_code).unwrap());
+        assert_snapshot!(formatted);
     }
 
     #[test]

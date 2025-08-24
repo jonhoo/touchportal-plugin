@@ -24,8 +24,10 @@ async fn main() -> eyre::Result<()> {
     }
 
     // Use shared token setup logic (no notifications needed for CLI)
+    // CLI uses default OAuth credentials (no custom client ID/secret)
+    let shared_http_client = reqwest::Client::new();
     let (client_by_channel, refreshed_tokens) =
-        setup_youtube_clients(&tokens, async |_, _, _| {}).await?;
+        setup_youtube_clients(&tokens, None, None, async |_, _, _| {}, shared_http_client).await?;
 
     // for testing
     for (id, Channel { name, yt }) in &client_by_channel {
@@ -53,7 +55,7 @@ async fn main() -> eyre::Result<()> {
     // Demo video statistics API
     if let Some((_, Channel { yt, .. })) = client_by_channel.iter().next() {
         eprintln!("==> Testing video statistics API");
-        match yt.get_video_statistics("dQw4w9WgXcQ").await {
+        match yt.get_video_metadata("dQw4w9WgXcQ").await {
             Ok(video) => {
                 let stats = &video.statistics;
                 eprintln!("Video {} statistics:", video.id);

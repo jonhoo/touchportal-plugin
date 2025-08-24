@@ -127,14 +127,14 @@ impl TimeBoundAccessToken {
 pub struct YouTubeClient {
     /// The current OAuth2 token.
     token: Arc<Mutex<TimeBoundAccessToken>>,
-    /// OAuth manager for refreshing tokens
-    oauth_manager: OAuthManager,
+    /// OAuth manager for refreshing tokens (shared across clients)
+    oauth_manager: Arc<OAuthManager>,
     /// HTTP client for API requests
     client: reqwest::Client,
 }
 
 impl YouTubeClient {
-    /// Creates a new YouTube API client with the provided OAuth2 token and OAuth manager.
+    /// Creates a new YouTube API client with the provided OAuth2 token, OAuth manager, and HTTP client.
     ///
     /// The token expiry time is calculated from when the token was created plus the `expires_in`
     /// duration minus a 5-minute safety buffer to prevent edge-case failures.
@@ -143,9 +143,12 @@ impl YouTubeClient {
     ///
     /// * `token` - A valid [`BasicTokenResponse`] containing the OAuth2 access token
     /// * `oauth_manager` - Shared OAuth manager for token refresh operations
-    pub fn new(token: TimeBoundAccessToken, oauth_manager: OAuthManager) -> Self {
-        let client = reqwest::Client::new();
-
+    /// * `client` - Shared HTTP client for making API requests
+    pub fn new(
+        token: TimeBoundAccessToken,
+        oauth_manager: Arc<OAuthManager>,
+        client: reqwest::Client,
+    ) -> Self {
         Self {
             token: Arc::new(Mutex::new(token)),
             oauth_manager,
@@ -482,6 +485,38 @@ impl YouTubeClient {
         Ok(())
     }
 
+    /// Get a specific live broadcast by ID.
+    ///
+    /// Uses the `liveBroadcasts.list` API with a specific broadcast ID to fetch
+    /// detailed information about a single broadcast, including statistics.
+    /// This is more efficient than listing all broadcasts when you only need
+    /// information about a specific one.
+    ///
+    /// # Arguments
+    ///
+    /// * `broadcast_id` - The ID of the broadcast to retrieve
+    ///
+    /// # Returns
+    ///
+    /// The [`LiveBroadcast`] resource if found, or an error if the broadcast
+    /// doesn't exist or cannot be accessed.
+    ///
+    /// # API Cost
+    ///
+    /// This operation costs 1 quota unit per call.
+    ///
+    /// See: <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
+    pub async fn get_live_broadcast(&self, broadcast_id: &str) -> eyre::Result<LiveBroadcast> {
+        let response = self.get_live_broadcast_internal(broadcast_id).await?;
+
+        // Extract the first (and should be only) broadcast from the response
+        if let Some(broadcast) = response.items.into_iter().next() {
+            Ok(broadcast)
+        } else {
+            Err(eyre::eyre!("broadcast not found: {}", broadcast_id))
+        }
+    }
+
     /// Returns a paginated stream of live streams for the authenticated user.
     ///
     /// **Broadcasts vs Streams**: A stream represents the technical video pipeline that sends
@@ -571,9 +606,12 @@ impl YouTubeClient {
     ///
     /// <https://developers.google.com/youtube/v3/docs/videos/list>
     #[instrument(skip(self), ret)]
-    pub async fn get_video_statistics(&self, video_id: &str) -> eyre::Result<Video> {
+    pub async fn get_video_metadata(&self, video_id: &str) -> eyre::Result<Video> {
         let url = "https://www.googleapis.com/youtube/v3/videos";
-        let query_params = [("part", "statistics,liveStreamingDetails"), ("id", video_id)];
+        let query_params = [
+            ("part", "statistics,liveStreamingDetails,snippet"),
+            ("id", video_id),
+        ];
 
         let response = self
             .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
@@ -642,6 +680,52 @@ impl YouTubeClient {
     ///
     /// * `max_results` - Maximum number of broadcasts to return (1-50)
     /// * `page_token` - Optional page token for pagination
+    ///
+    /// # Returns
+    ///
+    /// A [`LiveBroadcastListResponse`] containing the API response data.
+    ///
+    /// # API Reference
+    ///
+    /// <https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list>
+    async fn get_live_broadcast_internal(
+        &self,
+        broadcast_id: &str,
+    ) -> eyre::Result<LiveBroadcastListResponse> {
+        let url = "https://www.googleapis.com/youtube/v3/liveBroadcasts";
+
+        let query_params = vec![
+            ("part", "id,snippet,status,statistics"),
+            ("id", broadcast_id),
+        ];
+
+        let response = self
+            .make_authenticated_request(Method::GET, url, Some(&query_params), None::<&()>)
+            .await?;
+
+        let live_broadcasts: LiveBroadcastListResponse = response
+            .json()
+            .await
+            .context("parse YouTube API response as JSON")?;
+
+        tracing::debug!(
+            broadcast_id = broadcast_id,
+            total_results = live_broadcasts.page_info.total_results,
+            "fetched broadcast by ID"
+        );
+
+        Ok(live_broadcasts)
+    }
+
+    /// Internal method to call the `liveBroadcasts.list` API with configurable parameters.
+    ///
+    /// This method lists broadcasts owned by the authenticated user using the `mine=true` parameter.
+    /// Used internally by [`Self::list_my_live_broadcasts`] to handle pagination.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_results` - Maximum number of broadcasts to return per page (1-50)
+    /// * `page_token` - Token for retrieving a specific page of results
     ///
     /// # Returns
     ///

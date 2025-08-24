@@ -38,16 +38,18 @@
 //! use touchportal_youtube_live::youtube_api::client::{YouTubeClient, TimeBoundAccessToken};
 //! use touchportal_youtube_live::oauth::OAuthManager;
 //! use tokio_stream::StreamExt;
+//! use std::sync::Arc;
 //!
 //! # async fn example() -> eyre::Result<()> {
-//! // Set up client with OAuth token
-//! let oauth_manager = OAuthManager::new(/* ... */);
+//! // Set up client with OAuth token and shared HTTP client
+//! let http_client = reqwest::Client::new();
+//! let oauth_manager = OAuthManager::new();
 //! # /*
 //! let oauth_token = /* ... */;
 //! let token = TimeBoundAccessToken::new(/* oauth token */);
 //! # */
 //! # let token = TimeBoundAccessToken::new(todo!());
-//! let client = YouTubeClient::new(token, oauth_manager);
+//! let client = YouTubeClient::new(token, Arc::new(oauth_manager), http_client);
 //!
 //! // List all broadcasts for the authenticated user
 //! let mut broadcasts = client.list_my_live_broadcasts();

@@ -1,36 +1,84 @@
 #![allow(dead_code)]
 
+// Include build-generated constants
+// Contains: MIN_POLLING_INTERVAL_SECONDS
+include!(concat!(env!("OUT_DIR"), "/constants.rs"));
+
 use crate::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
 use eyre::Context;
 use oauth2::basic::BasicTokenResponse;
 use std::collections::HashMap;
 use std::ops::AsyncFnMut;
+use std::sync::Arc;
 use tokio_stream::StreamExt;
+pub mod actions;
+pub mod activity;
+pub mod background;
+pub mod notifications;
 pub mod oauth;
+pub mod plugin;
 pub mod youtube_api;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Channel {
     pub name: String,
-    pub yt: YouTubeClient,
+    pub yt: Arc<YouTubeClient>,
 }
 
 /// Complete token setup for both plugin and CLI
 /// Handles token acquisition, refresh, validation, and channel mapping
 /// Returns (channel_mapping, refreshed_tokens)
+///
+/// TODO(jon): Add quota usage tracking and user education system
+/// The YouTube Data API v3 has a daily quota limit of 10,000 units per project.
+/// Current plugin usage patterns and costs (as of 2025):
+/// - liveChatMessages.list: ~1 unit (but needs polling every 1-2 seconds during active chat)
+/// - videos.list for metrics: ~1 unit (polled every 30-600 seconds based on adaptive algorithm)
+/// - liveChatMessages.insert (send message): 50 units each (expensive!)
+/// - liveChatBans.insert (ban user): 50 units each (expensive!)
+/// - liveBroadcasts operations: 50 units each (title/description updates)
+///
+/// QUOTA EXHAUSTION SCENARIOS:
+/// - 150-minute stream with 2-second chat polling = ~4,500 units just for chat monitoring
+/// - Add metrics polling every 60 seconds = ~150 units
+/// - A few chat messages or bans can easily push over daily limit
+///
+/// RECOMMENDED IMPROVEMENTS:
+/// - Add quota usage estimation and display in TouchPortal states
+/// - Show daily usage tracking: "Used 2,847 / 10,000 quota units today"
+/// - Warn users when approaching limits: "90% quota used - consider reducing polling frequency"
+/// - Implement quota-aware features: disable expensive actions when quota is low
+/// - Add user education about quota sharing across all plugin users
+/// - Consider implementing quota donation/sharing system for heavy users
 pub async fn setup_youtube_clients<F>(
     stored_tokens: &str,
+    custom_client_id: Option<String>,
+    custom_client_secret: Option<String>,
     mut notify_callback: F,
+    shared_http_client: reqwest::Client,
 ) -> eyre::Result<(HashMap<String, Channel>, Vec<BasicTokenResponse>)>
 where
     F: AsyncFnMut(&str, &str, &str),
 {
     // ==============================================================================
+    // Shared HTTP Client Usage
+    // ==============================================================================
+    // The HTTP client is provided by the caller and shared across all YouTube API operations.
+    // This reduces memory usage and improves connection reuse across different channels.
+    // YouTube API may require redirects, so caller should use default redirect policy.
+    // OAuth operations use their own secure client with redirect protection.
+
+    // ==============================================================================
     // OAuth Manager Setup
     // ==============================================================================
     // We centralize all OAuth operations through a single manager to maintain
     // consistency in client configuration and error handling across token flows.
-    let oauth_manager = oauth::OAuthManager::new();
+    // Custom OAuth credentials are used if provided, otherwise fallback to defaults.
+    // Use Arc to share the manager across multiple YouTube clients efficiently.
+    let oauth_manager = Arc::new(oauth::OAuthManager::with_custom_credentials(
+        custom_client_id,
+        custom_client_secret,
+    ));
 
     // ==============================================================================
     // Token Acquisition Strategy
@@ -61,16 +109,15 @@ where
     // ==============================================================================
     // Token Refresh Strategy for Long-Running Plugin
     // ==============================================================================
-    // For long-running plugins, we proactively refresh all old tokens to ensure
-    // they have maximum lifetime. Fresh tokens are validated after refresh to
-    // confirm they work correctly.
+    // We proactively refresh all old tokens to ensure they have maximum lifetime.
+    // All tokens are validated after refresh to confirm they work correctly.
     let mut yt_clients = Vec::new();
     let mut refreshed_tokens = Vec::new();
 
     for token in tokens {
         let final_token = if is_old {
-            // Always refresh old tokens proactively for long-running plugin
-            tracing::info!("proactively refreshing old token for maximum lifetime");
+            // Always refresh old tokens proactively since they may already have expired.
+            tracing::info!("proactively refreshing old token");
 
             let mut token = TimeBoundAccessToken::expired(token);
 
@@ -104,9 +151,13 @@ where
             TimeBoundAccessToken::new(token)
         };
 
-        // Create client with refreshed/fresh token and shared OAuth manager
+        // Create client with refreshed/fresh token, shared OAuth manager, and shared HTTP client
         refreshed_tokens.push(final_token.raw_token().clone());
-        let client = YouTubeClient::new(final_token, oauth_manager);
+        let client = YouTubeClient::new(
+            final_token,
+            Arc::clone(&oauth_manager),
+            shared_http_client.clone(),
+        );
         yt_clients.push(client);
     }
 
@@ -114,7 +165,6 @@ where
     // Token Validation After Refresh
     // ==============================================================================
     // Now that all tokens are fresh, validate them to ensure they work correctly.
-    // Any validation failures at this point indicate serious issues.
     for client in &yt_clients {
         let is_valid = client
             .validate_token()
@@ -135,7 +185,8 @@ where
     // TouchPortal plugin instance.
     let mut client_by_channel = HashMap::new();
     for client in yt_clients {
-        let channels_stream = client.list_my_channels();
+        let client_arc = Arc::new(client);
+        let channels_stream = client_arc.list_my_channels();
         let mut channels_stream = std::pin::pin!(channels_stream);
         while let Some(channel) = channels_stream.next().await {
             let channel = channel.context("fetch channel")?;
@@ -143,7 +194,7 @@ where
                 channel.id.clone(),
                 Channel {
                     name: channel.snippet.title,
-                    yt: client.clone(),
+                    yt: Arc::clone(&client_arc),
                 },
             );
         }

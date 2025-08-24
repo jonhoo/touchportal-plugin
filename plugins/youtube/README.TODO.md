@@ -18,6 +18,10 @@ Write a README for the YouTube plugin that explains:
 - How to set up the plugin (authenticate an account, select a channel + broadcast, go live, wait for an event).
 - How the plugin works for multi-channel streamers.
 - The actions and events of the plugin. Make use of collapsible boxes to avoid a very long rendered page.
+  - Highlight the fact that choosing "latest" as the broadcast will
+    auto-attach to the newest non-completed broadcast, and will only
+    disconnect again when that broadcast ends or when the plugin is
+    restarted.
 - A note on YouTube API quotas and limits, how the quota is shared by all users of the plugin, and why as a result users should contribute back to the plugin author according to their means and usage.
 - A brief section on how this plugin differs from the Twitch one in a significant or surprising way.
 - What is not supported (yet).

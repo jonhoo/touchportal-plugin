@@ -147,7 +147,7 @@ jobs:
           toolchain: stable
           components: llvm-tools-preview
       - name: cargo install cargo-llvm-cov
-        uses: taiki-e/install-action@5f6f3e0538d249cb0b47f8d5b636c120babeb082 # tag=v2.58.6
+        uses: taiki-e/install-action@c0dee14250395ae6b1754a99f67c1d693138b102 # tag=v2.58.30
         with:
           tool: cargo-llvm-cov
       - name: Setup shared target directory for all workspaces

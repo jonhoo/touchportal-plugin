@@ -1,0 +1,16 @@
+---
+source: sdk/src/protocol/outgoing.rs
+expression: json
+---
+{
+  "type": "showNotification",
+  "notificationId": "test_notification",
+  "title": "Test Title",
+  "msg": "Test message",
+  "options": [
+    {
+      "id": "ok",
+      "title": "OK"
+    }
+  ]
+}

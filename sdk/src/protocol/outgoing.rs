@@ -10,6 +10,7 @@ use std::collections::HashMap;
 pub enum TouchPortalCommand {
     Pair(PairCommand),
     CreateState(CreateStateCommand),
+    #[serde(rename = "showNotification")]
     CreateNotification(CreateNotificationCommand),
     StateUpdate(UpdateStateCommand),
     SettingUpdate(UpdateSettingCommand),
@@ -291,5 +292,27 @@ mod tests {
             result.is_ok(),
             "building a notification with an option should succeed"
         );
+    }
+
+    #[test]
+    fn notification_serialization() {
+        let cmd = TouchPortalCommand::CreateNotification(
+            CreateNotificationCommand::builder()
+                .notification_id("test_notification")
+                .title("Test Title")
+                .message("Test message")
+                .option(
+                    NotificationOption::builder()
+                        .id("ok")
+                        .title("OK")
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        );
+
+        let json = serde_json::to_string_pretty(&cmd).unwrap();
+        assert_snapshot!(json);
     }
 }

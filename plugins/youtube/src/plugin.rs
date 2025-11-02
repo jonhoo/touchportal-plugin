@@ -49,6 +49,8 @@ pub struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
+    type SelfTriggered = ();
+
     #[tracing::instrument(skip(self), ret)]
     async fn on_settings_changed(
         &mut self,
@@ -551,6 +553,7 @@ impl Plugin {
             tracing_subscriber::EnvFilter,
             tracing_subscriber::Registry,
         >,
+        _self_trigger: tokio::sync::mpsc::Sender<()>,
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");

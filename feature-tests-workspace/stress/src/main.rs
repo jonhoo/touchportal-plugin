@@ -16,6 +16,8 @@ include!(concat!(env!("OUT_DIR"), "/entry.rs"));
 struct Plugin(TouchPortalHandle);
 
 impl PluginCallbacks for Plugin {
+    type SelfTriggered = ();
+
     #[tracing::instrument(skip(self), ret)]
     async fn on_tp_pl_action_002(
         &mut self,

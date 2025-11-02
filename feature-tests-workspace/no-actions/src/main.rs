@@ -12,6 +12,8 @@ struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
+    type SelfTriggered = ();
+
     #[tracing::instrument(skip(self), ret)]
     async fn on_settings_changed(&mut self, settings: PluginSettings) -> eyre::Result<()> {
         tracing::info!(?settings, "plugin settings changed");
@@ -127,5 +129,8 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    Plugin::run_dynamic_with(addr, Plugin::new).await
+    Plugin::run_dynamic_with(addr, async move |settings, outgoing, info, _self_trigger| {
+        Plugin::new(settings, outgoing, info).await
+    })
+    .await
 }

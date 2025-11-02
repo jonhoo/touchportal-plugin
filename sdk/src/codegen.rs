@@ -768,6 +768,26 @@ fn gen_incoming(plugin: &PluginDescription) -> TokenStream {
             note = "This trait has methods for all possible \"incoming\" messages based on your plugin description in `build.rs`.",
         )]
         trait PluginCallbacks {
+            /// Type for self-triggered events.
+            ///
+            /// This allows self-triggered events to convey additional information about what event
+            /// occurred.
+            ///
+            /// If you're not using this feature, set this type to `()`.
+            // TODO: this should really default to (), but that's not stable yet:
+            // https://github.com/rust-lang/rust/issues/29661
+            type SelfTriggered: ::std::fmt::Debug;
+
+            /// Handler for when a self-triggered event occurs.
+            ///
+            /// Self-triggered events can be used to trigger processing on the `&mut
+            /// TouchPortalHandle` from event sources that are _not_ TouchPortal itself, such as a
+            /// spawned background task.
+            async fn on_self_triggered(&mut self, event: Self::SelfTriggered) -> eyre::Result<()> {
+                tracing::warn!(?event, "on_self_triggered noop");
+                Ok(())
+            }
+
             #( #action_signatures )*
             #( #list_signatures )*
             async fn on_broadcast(&mut self, event: protocol::BroadcastEvent) -> eyre::Result<()> {
@@ -892,12 +912,24 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
             /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
             /// callers to make last-minute adjustments to `Plugin` before we start using it for
             /// real. Handy for injecting references to things like mock expectations.
+            ///
+            /// `constructor` will block all I/O with TouchPortal, so until that future resolves,
+            /// any I/O events sent to TouchPortal will not be sent, and any I/O events received
+            /// from TouchPortal will not be relayed (since there's nowhere to relay them _to_).
+            ///
+            /// The last argument to `constructor` is a handle for sending self-triggered events to
+            /// the plugin (i.e., ones that originate from outside of TouchPortal).
             pub async fn run_dynamic_with<C>(addr: impl ::tokio::net::ToSocketAddrs, constructor: C) -> eyre::Result<()>
-            where C: AsyncFnOnce(
-                PluginSettings,
-                TouchPortalHandle,
-                InfoMessage,
-            ) -> eyre::Result<Self>
+                // TODO: it'd be nice allow taking any `AsyncFnOnce` that has a subset of these
+                // arguments, but that won't work since an impl of any such helper trait would be
+                // considered as overlapping when targeting `F: AsyncFnOnce(Arg1)` and
+                // `F: AsyncFnOnce(Arg1, Arg2)`.
+                where C: AsyncFnOnce(
+                    PluginSettings,
+                    TouchPortalHandle,
+                    InfoMessage,
+                    ::tokio::sync::mpsc::Sender<<Self as PluginCallbacks>::SelfTriggered>,
+                ) -> eyre::Result<Self>
             {
                 use protocol::*;
                 use ::eyre::Context as _;
@@ -912,6 +944,8 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 let (read, write) = connection.split();
                 let mut writer = ::tokio::io::BufWriter::new(write);
                 let mut reader = ::tokio::io::BufReader::new(read);
+
+                let (self_trigger, mut self_triggered) = ::tokio::sync::mpsc::channel(32);
 
                 ::tracing::debug!("connected to TouchPortal");
                 let mut json = serde_json::to_string(
@@ -956,7 +990,12 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
 
                 ::tracing::debug!("construct Plugin proper");
                 let (send_outgoing, mut outgoing) = ::tokio::sync::mpsc::channel(32);
-                let mut plugin = constructor(settings, TouchPortalHandle(send_outgoing), info)
+                let mut plugin = constructor(
+                    settings,
+                    TouchPortalHandle(send_outgoing),
+                    info,
+                    self_trigger,
+                )
                     .await
                     .context("run Plugin constructor")?;
 
@@ -1011,6 +1050,13 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                                 .await
                                 .context("flush outgoing command")?;
                             out_buf.clear();
+                        }
+                        event = self_triggered.recv(), if !self_triggered.is_closed() => {
+                            if let Some(event) = event {
+                                plugin.on_self_triggered(event)
+                                    .await
+                                    .context("process self-triggered event")?;
+                            }
                         }
                     };
                 }

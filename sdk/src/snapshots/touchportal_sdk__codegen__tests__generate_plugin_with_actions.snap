@@ -1,6 +1,6 @@
 ---
 source: sdk/src/codegen.rs
-expression: generated
+expression: formatted
 ---
 use ::touchportal_sdk::protocol;
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -37,6 +37,13 @@ where
     /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
     /// callers to make last-minute adjustments to `Plugin` before we start using it for
     /// real. Handy for injecting references to things like mock expectations.
+    ///
+    /// `constructor` will block all I/O with TouchPortal, so until that future resolves,
+    /// any I/O events sent to TouchPortal will not be sent, and any I/O events received
+    /// from TouchPortal will not be relayed (since there's nowhere to relay them _to_).
+    ///
+    /// The last argument to `constructor` is a handle for sending self-triggered events to
+    /// the plugin (i.e., ones that originate from outside of TouchPortal).
     pub async fn run_dynamic_with<C>(
         addr: impl ::tokio::net::ToSocketAddrs,
         constructor: C,
@@ -46,6 +53,7 @@ where
             PluginSettings,
             TouchPortalHandle,
             InfoMessage,
+            ::tokio::sync::mpsc::Sender<<Self as PluginCallbacks>::SelfTriggered>,
         ) -> eyre::Result<Self>,
     {
         use protocol::*;
@@ -59,6 +67,7 @@ where
         let (read, write) = connection.split();
         let mut writer = ::tokio::io::BufWriter::new(write);
         let mut reader = ::tokio::io::BufReader::new(read);
+        let (self_trigger, mut self_triggered) = ::tokio::sync::mpsc::channel(32);
         ::tracing::debug!("connected to TouchPortal");
         let mut json = serde_json::to_string(
                 &TouchPortalCommand::Pair(PairCommand {
@@ -129,7 +138,10 @@ where
                 ::tracing::trace!(? json, "send"); out_buf.push(b'\n'); writer
                 .write_all(& out_buf). await
                 .context("send outgoing command to TouchPortal") ?; writer.flush(). await
-                .context("flush outgoing command") ?; out_buf.clear(); }
+                .context("flush outgoing command") ?; out_buf.clear(); } event =
+                self_triggered.recv(), if ! self_triggered.is_closed() => { if let
+                Some(event) = event { plugin.on_self_triggered(event). await
+                .context("process self-triggered event") ?; } }
             };
         }
         Ok(())
@@ -221,6 +233,25 @@ impl TouchPortalHandle {
     note = "This trait has methods for all possible \"incoming\" messages based on your plugin description in `build.rs`.",
 )]
 trait PluginCallbacks {
+    /// Type for self-triggered events.
+    ///
+    /// This allows self-triggered events to convey additional information about what event
+    /// occurred.
+    ///
+    /// If you're not using this feature, set this type to `()`.
+    type SelfTriggered: ::std::fmt::Debug;
+    /// Handler for when a self-triggered event occurs.
+    ///
+    /// Self-triggered events can be used to trigger processing on the `&mut
+    /// TouchPortalHandle` from event sources that are _not_ TouchPortal itself, such as a
+    /// spawned background task.
+    async fn on_self_triggered(
+        &mut self,
+        event: Self::SelfTriggered,
+    ) -> eyre::Result<()> {
+        tracing::warn!(? event, "on_self_triggered noop");
+        Ok(())
+    }
     async fn on_test_action(
         &mut self,
         mode: protocol::ActionInteractionMode,

@@ -16,6 +16,8 @@ struct Plugin {
 }
 
 impl PluginCallbacks for Plugin {
+    type SelfTriggered = ();
+
     #[tracing::instrument(skip(self), ret)]
     async fn on_simple_action(
         &mut self,
@@ -226,7 +228,7 @@ async fn main() -> eyre::Result<()> {
     });
 
     let expectations_for_verification = expectations.clone();
-    Plugin::run_dynamic_with(addr, async move |settings, outgoing, info| {
+    Plugin::run_dynamic_with(addr, async move |settings, outgoing, info, _self_trigger| {
         Plugin::new(settings, outgoing, info, expectations).await
     })
     .await?;

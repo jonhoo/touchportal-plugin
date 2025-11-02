@@ -9,6 +9,25 @@ expression: formatted
     note = "This trait has methods for all possible \"incoming\" messages based on your plugin description in `build.rs`.",
 )]
 trait PluginCallbacks {
+    /// Type for self-triggered events.
+    ///
+    /// This allows self-triggered events to convey additional information about what event
+    /// occurred.
+    ///
+    /// If you're not using this feature, set this type to `()`.
+    type SelfTriggered: ::std::fmt::Debug;
+    /// Handler for when a self-triggered event occurs.
+    ///
+    /// Self-triggered events can be used to trigger processing on the `&mut
+    /// TouchPortalHandle` from event sources that are _not_ TouchPortal itself, such as a
+    /// spawned background task.
+    async fn on_self_triggered(
+        &mut self,
+        event: Self::SelfTriggered,
+    ) -> eyre::Result<()> {
+        tracing::warn!(? event, "on_self_triggered noop");
+        Ok(())
+    }
     async fn on_test_action(
         &mut self,
         mode: protocol::ActionInteractionMode,

@@ -10,8 +10,8 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, body};
 use oauth2::basic::{BasicClient, BasicTokenResponse};
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
-    TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
+    RedirectUrl, Scope, TokenUrl,
 };
 use oauth2::{ClientSecret, RevocationUrl, TokenResponse, reqwest};
 use std::future::Future;
@@ -30,6 +30,23 @@ const CLIENT_SECRET: &str = "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";
 
 /// HTML content to display after successful OAuth authorization
 const OAUTH_DONE_HTML: &str = include_str!("../oauth_success.html");
+
+/// Continuation token for completing an OAuth flow.
+///
+/// This type represents the state needed to complete an OAuth flow after the user
+/// has been directed to their browser. It must be passed to
+/// [`OAuthManager::complete_authentication`] to wait for the user's authorization
+/// and exchange the code for a token.
+///
+/// The continuation holds the PKCE verifier, redirect URL (required for token exchange),
+/// and the server task handle which will deliver the authorization code when the user
+/// completes OAuth.
+#[must_use = "OAuthContinuation must be completed by calling complete_authentication()"]
+pub struct OAuthContinuation {
+    pkce_verifier: PkceCodeVerifier,
+    redirect_url: RedirectUrl,
+    server_task: tokio::task::JoinHandle<eyre::Result<AuthorizationCode>>,
+}
 
 /// Manages OAuth 2.0 authentication flows for YouTube API access.
 ///
@@ -91,18 +108,21 @@ impl OAuthManager {
             .unwrap_or(CLIENT_SECRET)
     }
 
-    /// Performs a complete OAuth 2.0 authorization flow to obtain a new access token.
+    /// Starts an OAuth 2.0 authorization flow, returning the auth URL and a continuation.
     ///
-    /// This method initiates the full OAuth flow, including:
-    /// 1. Opening the user's browser for authorization
-    /// 2. Setting up a local HTTP server to receive the authorization callback
-    /// 3. Exchanging the authorization code for an access token
+    /// This method performs the first stage of the OAuth flow:
+    /// 1. Setting up a local HTTP server to receive the authorization callback
+    /// 2. Generating the authorization URL
+    ///
+    /// The returned authorization URL should be opened in the user's browser.
+    /// The returned continuation must be passed to [`Self::complete_authentication`]
+    /// to wait for the user's authorization and complete the token exchange.
     ///
     /// # Panics
     ///
     /// Panics if hardcoded OAuth endpoint URLs are malformed (this should never happen
     /// in practice as the URLs are static and validated).
-    pub async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
+    pub async fn start_authentication(&self) -> eyre::Result<(String, OAuthContinuation)> {
         let csrf = CsrfToken::new_random();
         let (redirect_url, eventually_authorization_code) = self
             .setup_redirect(csrf.clone())
@@ -118,7 +138,7 @@ impl OAuthManager {
             .set_client_secret(ClientSecret::new(self.client_secret().to_string()))
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
-            .set_redirect_uri(redirect_url)
+            .set_redirect_uri(redirect_url.clone())
             .set_revocation_url(revocation_url);
 
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -131,11 +151,55 @@ impl OAuthManager {
             .set_pkce_challenge(pkce_challenge)
             .url();
 
-        tracing::info!(url = %auth_url, "asking user to follow OAuth flow");
-        webbrowser::open(auth_url.as_ref()).context("open user's browser")?;
-        let authorization_code = eventually_authorization_code
+        tracing::info!(url = %auth_url, "OAuth authorization URL generated");
+
+        // Spawn a task to wait for the OAuth callback
+        // The JoinHandle will be awaited in complete_authentication
+        let server_task = tokio::spawn(eventually_authorization_code);
+
+        let continuation = OAuthContinuation {
+            pkce_verifier,
+            redirect_url,
+            server_task,
+        };
+
+        Ok((auth_url.to_string(), continuation))
+    }
+
+    /// Completes an OAuth 2.0 authorization flow by waiting for user authorization.
+    ///
+    /// This method performs the second stage of the OAuth flow:
+    /// 1. Waiting for the user to complete authorization in their browser
+    /// 2. Exchanging the authorization code for an access token
+    ///
+    /// This method will block until the user completes the OAuth flow in their browser
+    /// or an error occurs.
+    ///
+    /// # Arguments
+    ///
+    /// * `continuation` - The continuation returned by [`Self::start_authentication`]
+    pub async fn complete_authentication(
+        &self,
+        continuation: OAuthContinuation,
+    ) -> eyre::Result<BasicTokenResponse> {
+        let OAuthContinuation {
+            pkce_verifier,
+            redirect_url,
+            server_task,
+        } = continuation;
+
+        // Await the server task to get the authorization code
+        let authorization_code = server_task
             .await
-            .context("await user authorization code")?;
+            .context("await OAuth server task")?
+            .context("receive authorization code from redirect server")?;
+
+        // Recreate the OAuth client for token exchange
+        let token_url = TokenUrl::new(TOKEN_URL.to_string()).expect("Invalid token endpoint URL");
+        let client = BasicClient::new(ClientId::new(self.client_id().to_string()))
+            .set_client_secret(ClientSecret::new(self.client_secret().to_string()))
+            .set_token_uri(token_url)
+            .set_redirect_uri(redirect_url);
 
         let token_result = client
             .exchange_code(authorization_code)
@@ -145,6 +209,26 @@ impl OAuthManager {
             .context("exchange authorization code with access token")?;
 
         Ok(token_result)
+    }
+
+    /// Performs a complete OAuth 2.0 authorization flow to obtain a new access token.
+    ///
+    /// This is a convenience method that combines [`Self::start_authentication`] and
+    /// [`Self::complete_authentication`] into a single call, opening the user's browser
+    /// and waiting for the full flow to complete.
+    ///
+    /// For non-blocking flows, use the two-stage approach with `start_authentication`
+    /// and `complete_authentication` separately.
+    ///
+    /// # Panics
+    ///
+    /// Panics if hardcoded OAuth endpoint URLs are malformed (this should never happen
+    /// in practice as the URLs are static and validated).
+    pub async fn authenticate(&self) -> eyre::Result<BasicTokenResponse> {
+        let (auth_url, continuation) = self.start_authentication().await?;
+        tracing::info!(url = %auth_url, "asking user to follow OAuth flow");
+        webbrowser::open(&auth_url).context("open user's browser")?;
+        self.complete_authentication(continuation).await
     }
 
     /// Attempts to refresh an existing OAuth token using its refresh token.
@@ -233,7 +317,7 @@ impl OAuthManager {
         csrf: CsrfToken,
     ) -> eyre::Result<(
         RedirectUrl,
-        impl Future<Output = eyre::Result<AuthorizationCode>>,
+        impl Future<Output = eyre::Result<AuthorizationCode>> + Send + 'static,
     )> {
         // Once the user has been redirected to the redirect URL, you'll have access to the
         // authorization code. For security reasons, your code should verify that the `state`

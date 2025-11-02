@@ -2,17 +2,20 @@ use crate::youtube_api::broadcasts::{
     BroadcastStatus, LiveBroadcastUpdateRequest, LiveBroadcastUpdateSnippet,
 };
 use eyre::Context;
+use oauth2::TokenResponse as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage, NotificationOption};
 
-use crate::actions::{oauth, stream_selection};
+use crate::actions::stream_selection;
 use crate::activity::AdaptivePollingState;
 use crate::background::video_metrics::StreamSelection;
 use crate::background::{broadcast_metrics, broadcast_monitor, chat, video_metrics};
-use crate::{Channel, notifications, setup_youtube_clients};
+use crate::oauth::OAuthManager;
+use crate::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
+use crate::{Channel, notifications};
 
 // You can look at the generated code for a plugin using this command:
 //
@@ -20,6 +23,25 @@ use crate::{Channel, notifications, setup_youtube_clients};
 // cat "$(dirname "$(cargo check --message-format=json | jq -r 'select(.reason == "build-script-executed") | select(.package_id | contains("#touchportal-")).out_dir')")/out/entry.rs"
 // ```
 include!(concat!(env!("OUT_DIR"), "/entry.rs"));
+
+/// Source of an OAuth flow, used to determine notification behavior.
+#[derive(Debug, Clone, Copy)]
+pub enum OAuthSource {
+    /// OAuth flow initiated during plugin startup
+    Startup,
+    /// OAuth flow initiated by user action (add YouTube channel)
+    UserInitiated,
+}
+
+/// Self-triggered events for background OAuth flows.
+#[derive(Debug)]
+pub enum OAuthEvent {
+    /// OAuth flow completed successfully with tokens
+    TokensAcquired {
+        tokens: Vec<oauth2::basic::BasicTokenResponse>,
+        source: OAuthSource,
+    },
+}
 
 #[derive(Debug)]
 pub struct Plugin {
@@ -46,10 +68,12 @@ pub struct Plugin {
     >,
     // Shared HTTP client for all YouTube API operations
     http_client: reqwest::Client,
+    // Self-trigger channel for background OAuth flows
+    self_trigger: tokio::sync::mpsc::Sender<OAuthEvent>,
 }
 
 impl PluginCallbacks for Plugin {
-    type SelfTriggered = ();
+    type SelfTriggered = OAuthEvent;
 
     #[tracing::instrument(skip(self), ret)]
     async fn on_settings_changed(
@@ -96,14 +120,14 @@ impl PluginCallbacks for Plugin {
         &mut self,
         _mode: protocol::ActionInteractionMode,
     ) -> eyre::Result<()> {
-        oauth::handle_add_youtube_channel(
-            &mut self.tp,
-            &self.yt,
+        // Create OAuth manager and spawn non-blocking OAuth flow
+        let oauth_manager = Arc::new(OAuthManager::with_custom_credentials(
             self.current_custom_client_id.clone(),
             self.current_custom_client_secret.clone(),
-            self.http_client.clone(),
-        )
-        .await
+        ));
+
+        self.spawn_oauth_flow(oauth_manager, OAuthSource::UserInitiated)
+            .await
     }
 
     #[tracing::instrument(skip(self), ret)]
@@ -542,6 +566,146 @@ impl PluginCallbacks for Plugin {
         notifications::remind_to_save_selection(&mut self.tp).await?;
         Ok(())
     }
+
+    #[tracing::instrument(skip(self), ret)]
+    async fn on_self_triggered(&mut self, event: OAuthEvent) -> eyre::Result<()> {
+        match event {
+            OAuthEvent::TokensAcquired { tokens, source } => {
+                tracing::info!(
+                    token_count = tokens.len(),
+                    source = ?source,
+                    "processing OAuth tokens from self-triggered event"
+                );
+
+                // ==============================================================================
+                // Unified Token Adoption Logic
+                // ==============================================================================
+                // This is the single place where we handle newly acquired OAuth tokens,
+                // whether from startup or user-initiated flows.
+
+                // Create OAuth manager with current custom credentials
+                let oauth_manager = Arc::new(OAuthManager::with_custom_credentials(
+                    self.current_custom_client_id.clone(),
+                    self.current_custom_client_secret.clone(),
+                ));
+
+                // Create YouTube clients from fresh tokens
+                let mut yt_clients = Vec::new();
+                for token in &tokens {
+                    let time_bound_token = TimeBoundAccessToken::new(token.clone());
+                    let client = YouTubeClient::new(
+                        time_bound_token,
+                        Arc::clone(&oauth_manager),
+                        self.http_client.clone(),
+                    );
+                    yt_clients.push(client);
+                }
+
+                // Validate all tokens
+                for client in &yt_clients {
+                    let is_valid = client
+                        .validate_token()
+                        .await
+                        .context("validate fresh YouTube token")?;
+
+                    if !is_valid {
+                        eyre::bail!("freshly acquired YouTube token failed validation");
+                    }
+                }
+
+                // Enumerate channels for all clients
+                let mut new_channels = HashMap::new();
+                for client in yt_clients {
+                    let client_arc = Arc::new(client);
+                    let channels_stream = client_arc.list_my_channels();
+                    let mut channels_stream = std::pin::pin!(channels_stream);
+                    while let Some(channel) = channels_stream.next().await {
+                        let channel = channel.context("fetch channel")?;
+                        new_channels.insert(
+                            channel.id.clone(),
+                            Channel {
+                                name: channel.snippet.title,
+                                yt: Arc::clone(&client_arc),
+                            },
+                        );
+                    }
+                }
+
+                tracing::info!(
+                    channel_count = new_channels.len(),
+                    "enumerated channels from new tokens"
+                );
+
+                // Update the plugin's channel map
+                let mut yt = self.yt.lock().await;
+                yt.extend(new_channels.clone());
+
+                // Collect all unique tokens from all channels (deduplicated by refresh token)
+                use oauth2::RefreshToken;
+                use std::collections::HashSet;
+
+                let mut seen_refresh_tokens = HashSet::new();
+                let mut all_tokens = Vec::new();
+
+                for channel in yt.values() {
+                    let token = channel.yt.token().await;
+
+                    if let Some(refresh_token) = token.refresh_token().map(RefreshToken::secret) {
+                        if seen_refresh_tokens.insert(refresh_token.clone()) {
+                            all_tokens.push(token);
+                        }
+                    } else {
+                        // Token without refresh token - always include it
+                        all_tokens.push(token);
+                    }
+                }
+
+                drop(yt); // Release lock before async operations
+
+                // Store all tokens
+                self.tp
+                    .set_you_tube_api_access_tokens(
+                        serde_json::to_string(&all_tokens)
+                            .expect("OAuth tokens always serialize"),
+                    )
+                    .await;
+
+                // Update UI with all available channels
+                let yt = self.yt.lock().await;
+                self.tp
+                    .update_choices_in_ytl_channel(
+                        yt.iter().map(|(id, c)| format!("{} - {id}", c.name)),
+                    )
+                    .await;
+                drop(yt);
+
+                // Send notification if user-initiated
+                if matches!(source, OAuthSource::UserInitiated) {
+                    self.tp
+                        .notify(
+                            CreateNotificationCommand::builder()
+                                .notification_id("ytl_channel_added")
+                                .title("YouTube Channel Added")
+                                .message("Your YouTube channel has been successfully added!")
+                                .option(
+                                    NotificationOption::builder()
+                                        .id("ok")
+                                        .title("OK")
+                                        .build()
+                                        .expect("notification option build should succeed"),
+                                )
+                                .build()
+                                .expect("notification command build should succeed"),
+                        )
+                        .await;
+                }
+
+                tracing::info!("successfully adopted new OAuth tokens");
+
+                Ok(())
+            }
+        }
+    }
 }
 
 impl Plugin {
@@ -553,7 +717,7 @@ impl Plugin {
             tracing_subscriber::EnvFilter,
             tracing_subscriber::Registry,
         >,
-        _self_trigger: tokio::sync::mpsc::Sender<()>,
+        self_trigger: tokio::sync::mpsc::Sender<OAuthEvent>,
     ) -> eyre::Result<Self> {
         tracing::info!(version = info.tp_version_string, "paired with TouchPortal");
         tracing::debug!(settings = ?settings, "got settings");
@@ -573,108 +737,37 @@ impl Plugin {
             Some(settings.custom_o_auth_client_secret.clone())
         };
 
-        // Use shared token setup logic with notification callback
-        let notify_callback = async |id: &str, title: &str, message: &str| {
-            let _ = outgoing
-                .notify(
-                    CreateNotificationCommand::builder()
-                        .notification_id(id)
-                        .title(title)
-                        .message(message)
-                        .option(
-                            NotificationOption::builder()
-                                .id("ok")
-                                .title("OK")
-                                .build()
-                                .unwrap(),
-                        )
-                        .build()
-                        .unwrap(),
-                )
-                .await;
-        };
-
         // Create shared HTTP client for all YouTube API operations
         let shared_http_client = reqwest::Client::new();
 
-        let (client_by_channel, refreshed_tokens) = setup_youtube_clients(
-            &settings.you_tube_api_access_tokens,
-            custom_client_id.clone(),
-            custom_client_secret.clone(),
-            notify_callback,
-            shared_http_client.clone(),
-        )
-        .await?;
-
-        // Update stored tokens with the refreshed ones
-        outgoing
-            .set_you_tube_api_access_tokens(
-                serde_json::to_string(&refreshed_tokens).expect("OAuth tokens always serialize"),
-            )
-            .await;
-
         // ==============================================================================
-        // TouchPortal UI Initialization
+        // Parse Stored Tokens (If Any)
         // ==============================================================================
-        // Now that we know what channels are available, update the TouchPortal UI
-        // with channel choices that users can select from in their actions.
-        outgoing
-            .update_choices_in_ytl_channel(
-                client_by_channel
-                    .iter()
-                    .map(|(id, c)| format!("{} - {id}", c.name)),
-            )
-            .await;
-
-        // Restore previous selections from settings
-        let current_channel = if settings.selected_channel_id.is_empty() {
-            None
-        } else {
-            Some(settings.selected_channel_id.clone())
-        };
-
-        let current_broadcast =
-            stream_selection::BroadcastSelection::from_saved_id(&settings.selected_broadcast_id);
-
-        // Update channel name state and initialize broadcast choices if we have a current channel
-        if let Some(channel_id) = &current_channel
-            && let Some(channel) = client_by_channel.get(channel_id)
-        {
-            outgoing
-                .update_ytl_selected_channel_name(format!("{} - {}", channel.name, channel_id))
-                .await;
-
-            // Fetch broadcasts for the current channel and update the choices
-            let broadcasts = channel.yt.list_my_live_broadcasts();
-            let mut broadcast_choices =
-                vec![ChoicesForYtlBroadcast::LatestNonCompletedBroadcast.to_string()];
-            let mut stream = std::pin::pin!(broadcasts);
-            while let Some(broadcast) = stream.next().await {
-                match broadcast {
-                    Ok(broadcast) => {
-                        broadcast_choices
-                            .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            channel = %channel_id,
-                            "failed to fetch broadcast during initialization"
-                        );
-                        break;
-                    }
+        // Check if we have stored tokens that we can immediately adopt.
+        // Token adoption will happen via on_self_triggered after plugin construction.
+        let stored_tokens = &settings.you_tube_api_access_tokens;
+        let parsed_tokens = if !stored_tokens.is_empty() && stored_tokens != "[]" {
+            match serde_json::from_str::<Vec<oauth2::basic::BasicTokenResponse>>(stored_tokens) {
+                Ok(tokens) => {
+                    tracing::info!(token_count = tokens.len(), "found stored tokens");
+                    Some(tokens)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to parse stored tokens");
+                    None
                 }
             }
+        } else {
+            tracing::info!("no stored tokens found");
+            None
+        };
 
-            outgoing
-                .update_choices_in_ytl_broadcast(broadcast_choices.into_iter())
-                .await;
+        // Start with empty channels - they'll be populated via on_self_triggered
+        let shared_channels = Arc::new(Mutex::new(HashMap::new()));
 
-            tracing::debug!(
-                channel = %channel_id,
-                "initialized broadcast choices on startup"
-            );
-        }
+        // Restore previous selections from settings (will be relevant when tokens are adopted)
+        let _current_broadcast =
+            stream_selection::BroadcastSelection::from_saved_id(&settings.selected_broadcast_id);
 
         // ==============================================================================
         // Background Task Coordination
@@ -690,82 +783,11 @@ impl Plugin {
             adaptive_enabled,
         )));
 
-        // Create shared channel state for background tasks
-        let shared_channels = Arc::new(Mutex::new(client_by_channel));
         let (polling_interval_tx, polling_interval_rx) = watch::channel(base_interval);
 
         // Create tokio::watch channels for coordinating between action handlers and background tasks
-        let initial_stream = match (&current_channel, &current_broadcast) {
-            (Some(channel_id), Some(stream_selection::BroadcastSelection::Latest)) => {
-                // Special case: "latest" means WaitForActiveBroadcast mode
-                StreamSelection::WaitForActiveBroadcast {
-                    channel_id: channel_id.clone(),
-                }
-            }
-            (
-                Some(channel_id),
-                Some(stream_selection::BroadcastSelection::Specific(broadcast_id)),
-            ) => {
-                // We have both channel and broadcast - get the live_chat_id
-                let yt_guard = shared_channels.lock().await;
-                let channel = yt_guard.get(channel_id);
-                match channel {
-                    Some(channel) => {
-                        match channel.yt.get_video_metadata(broadcast_id).await {
-                            Ok(video) => {
-                                match video
-                                    .live_streaming_details
-                                    .and_then(|details| details.active_live_chat_id)
-                                {
-                                    Some(live_chat_id) => StreamSelection::ChannelAndBroadcast {
-                                        channel_id: channel_id.clone(),
-                                        broadcast_id: broadcast_id.clone(),
-                                        live_chat_id,
-                                        return_to_latest_on_completion: false,
-                                    },
-                                    None => {
-                                        tracing::warn!(
-                                            channel = %channel_id,
-                                            broadcast = %broadcast_id,
-                                            "at startup, selected broadcast has no active live chat; it may have ended"
-                                        );
-                                        // Clear the broadcast setting since it's not usable for chat
-                                        outgoing.set_selected_broadcast_id(String::new()).await;
-                                        StreamSelection::ChannelOnly {
-                                            channel_id: channel_id.clone(),
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    channel = %channel_id,
-                                    broadcast = %broadcast_id,
-                                    error = %e,
-                                    "failed to get video metadata for selected broadcast at startup; it may have been deleted"
-                                );
-                                // Clear the broadcast setting since it's not accessible
-                                outgoing.set_selected_broadcast_id(String::new()).await;
-                                StreamSelection::ChannelOnly {
-                                    channel_id: channel_id.clone(),
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        tracing::warn!(
-                            channel = %channel_id,
-                            "selected channel not found at startup"
-                        );
-                        StreamSelection::None
-                    }
-                }
-            }
-            (Some(channel_id), None) => StreamSelection::ChannelOnly {
-                channel_id: channel_id.clone(),
-            },
-            _ => StreamSelection::None,
-        };
+        // Start with no stream selected - will be updated when tokens are adopted
+        let initial_stream = StreamSelection::None;
         let (stream_selection_tx, stream_selection_rx) = watch::channel(initial_stream);
 
         // ==============================================================================
@@ -834,8 +856,8 @@ impl Plugin {
             tp: outgoing,
             stream_selection_tx,
             polling_interval_tx,
-            current_custom_client_id: custom_client_id,
-            current_custom_client_secret: custom_client_secret,
+            current_custom_client_id: custom_client_id.clone(),
+            current_custom_client_secret: custom_client_secret.clone(),
             video_metrics_task_handle: Some(video_metrics_task_handle),
             broadcast_metrics_task_handle: Some(broadcast_metrics_task_handle),
             chat_task_handle: Some(chat_task_handle),
@@ -845,11 +867,46 @@ impl Plugin {
             polling_interval_rx,
             log_level_reload_handle,
             http_client: shared_http_client,
+            self_trigger,
         };
 
         // Apply the initial logging level from plugin settings
         if let Err(e) = plugin.update_logging_level(settings.logging_verbosity) {
             tracing::warn!(error = %e, "failed to apply initial logging level");
+        }
+
+        // ==============================================================================
+        // Initial Authentication: Adopt Stored Tokens or Trigger OAuth
+        // ==============================================================================
+        // Try to adopt stored tokens if available; fall back to OAuth flow on any failure.
+        let needs_oauth = if let Some(tokens) = parsed_tokens {
+            tracing::info!("adopting stored tokens via on_self_triggered");
+            match plugin
+                .on_self_triggered(OAuthEvent::TokensAcquired {
+                    tokens,
+                    source: OAuthSource::Startup,
+                })
+                .await
+            {
+                Ok(()) => false,
+                Err(e) => {
+                    tracing::error!(error = ?e, "failed to adopt stored tokens");
+                    true
+                }
+            }
+        } else {
+            tracing::info!("no stored tokens found");
+            true
+        };
+
+        if needs_oauth {
+            let oauth_manager = Arc::new(OAuthManager::with_custom_credentials(
+                custom_client_id,
+                custom_client_secret,
+            ));
+            if let Err(e) = plugin.spawn_oauth_flow(oauth_manager, OAuthSource::Startup).await {
+                tracing::error!(error = ?e, "failed to spawn OAuth flow at startup");
+            }
         }
 
         Ok(plugin)
@@ -1066,6 +1123,91 @@ impl Plugin {
         tracing::info!(
             "OAuth credentials changed - background tasks restarted, user must re-authenticate"
         );
+
+        Ok(())
+    }
+
+    /// Spawns a background OAuth flow that doesn't block the main task.
+    ///
+    /// This method initiates an OAuth flow in a background task:
+    /// 1. Starts authentication and gets the authorization URL
+    /// 2. Sends "Check your browser" notification to the user
+    /// 3. Opens the user's browser to the authorization URL
+    /// 4. Spawns a background task to wait for user authorization
+    /// 5. When complete, sends a self-triggered event with the token
+    ///
+    /// # Arguments
+    ///
+    /// * `oauth_manager` - The OAuth manager to use for authentication
+    /// * `source` - The source of this OAuth flow (Startup or UserInitiated)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Setting up the authentication fails
+    /// - Sending the notification fails
+    /// - Opening the browser fails
+    ///
+    /// Note: Errors in the background task (waiting for authorization, token exchange)
+    /// are logged but don't propagate - the plugin continues running.
+    async fn spawn_oauth_flow(
+        &mut self,
+        oauth_manager: Arc<OAuthManager>,
+        source: OAuthSource,
+    ) -> eyre::Result<()> {
+        // Stage 1: Start OAuth authentication (non-blocking)
+        let (auth_url, continuation) = oauth_manager
+            .start_authentication()
+            .await
+            .context("start OAuth authentication")?;
+
+        // Send "Check your browser" notification
+        self.tp
+            .notify(
+                CreateNotificationCommand::builder()
+                    .notification_id("ytl_oauth_check_browser")
+                    .title("YouTube Authentication")
+                    .message("Please check your browser to authorize access to your YouTube account.")
+                    .option(
+                        NotificationOption::builder()
+                            .id("ok")
+                            .title("OK")
+                            .build()
+                            .expect("notification option build should succeed"),
+                    )
+                    .build()
+                    .expect("notification command build should succeed"),
+            )
+            .await;
+
+        // Open the user's browser
+        tracing::info!(url = %auth_url, "opening user's browser for OAuth flow");
+        webbrowser::open(&auth_url).context("open user's browser")?;
+
+        // Stage 2: Spawn background task to wait for authorization
+        let self_trigger = self.self_trigger.clone();
+        tokio::spawn(async move {
+            match oauth_manager.complete_authentication(continuation).await {
+                Ok(token) => {
+                    tracing::info!("OAuth flow completed successfully");
+                    if let Err(e) = self_trigger
+                        .send(OAuthEvent::TokensAcquired {
+                            tokens: vec![token],
+                            source,
+                        })
+                        .await
+                    {
+                        tracing::error!(
+                            error = %e,
+                            "failed to send OAuth completion event to plugin"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = ?e, "OAuth flow failed in background task");
+                }
+            }
+        });
 
         Ok(())
     }

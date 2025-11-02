@@ -892,7 +892,7 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
             /// `constructor` is used to construct the [`Plugin`] type. This is generic to allow
             /// callers to make last-minute adjustments to `Plugin` before we start using it for
             /// real. Handy for injecting references to things like mock expectations.
-            pub async fn run_dynamic_with<C>(addr: impl tokio::net::ToSocketAddrs, constructor: C) -> eyre::Result<()>
+            pub async fn run_dynamic_with<C>(addr: impl ::tokio::net::ToSocketAddrs, constructor: C) -> eyre::Result<()>
             where C: AsyncFnOnce(
                 PluginSettings,
                 TouchPortalHandle,
@@ -910,8 +910,8 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 ::tracing::info!("connected to TouchPortal");
 
                 let (read, write) = connection.split();
-                let mut writer = tokio::io::BufWriter::new(write);
-                let mut reader = tokio::io::BufReader::new(read);
+                let mut writer = ::tokio::io::BufWriter::new(write);
+                let mut reader = ::tokio::io::BufReader::new(read);
 
                 ::tracing::debug!("connected to TouchPortal");
                 let mut json = serde_json::to_string(
@@ -955,7 +955,7 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 };
 
                 ::tracing::debug!("construct Plugin proper");
-                let (send_outgoing, mut outgoing) = tokio::sync::mpsc::channel(32);
+                let (send_outgoing, mut outgoing) = ::tokio::sync::mpsc::channel(32);
                 let mut plugin = constructor(settings, TouchPortalHandle(send_outgoing), info)
                     .await
                     .context("run Plugin constructor")?;
@@ -965,7 +965,7 @@ fn gen_connect(plugin_id: &str) -> TokenStream {
                 let mut out_buf = Vec::new();
 
                 loop {
-                    tokio::select! {
+                    ::tokio::select! {
                         n = reader.read_line(&mut line) => {
                             let n = n.context("read incoming message from TouchPortal")?;
                             if n == 0 {

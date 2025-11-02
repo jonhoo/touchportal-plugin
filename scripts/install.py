@@ -31,6 +31,24 @@ from plugin_common import (
 )
 
 
+# Python's zipfile.extractall() doesn't preserve Unix file permissions by default.
+# This is a known issue: https://github.com/python/cpython/issues/59999
+# Workaround based on: https://stackoverflow.com/questions/39296101
+class ZipFileWithPermissions(zipfile.ZipFile):
+    """Custom ZipFile that preserves Unix file permissions during extraction."""
+    def _extract_member(self, member, targetpath, pwd):
+        if not isinstance(member, zipfile.ZipInfo):
+            member = self.getinfo(member)
+
+        targetpath = super()._extract_member(member, targetpath, pwd)
+
+        # Restore Unix file permissions from external_attr
+        attr = member.external_attr >> 16
+        if attr != 0:
+            os.chmod(targetpath, attr)
+        return targetpath
+
+
 def ensure_plugin_packaged() -> None:
     """
     Ensure the plugin is packaged by running package.py.
@@ -72,7 +90,7 @@ def install_plugin(plugin_name: str, tpp_file: str) -> None:
 
     try:
         # Extract the .tpp file (which is a ZIP archive) directly to the plugins directory
-        with zipfile.ZipFile(tpp_file, 'r') as zip_ref:
+        with ZipFileWithPermissions(tpp_file, 'r') as zip_ref:
             zip_ref.extractall(install_dir.parent)
 
         # Count installed files

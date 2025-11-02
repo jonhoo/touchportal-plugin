@@ -1,0 +1,5 @@
+---
+source: sdk/src/protocol/outgoing.rs
+expression: err
+---
+at least one notification option is required per TouchPortal API specification

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
-use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage};
+use touchportal_sdk::protocol::{CreateNotificationCommand, InfoMessage, NotificationOption};
 
 use crate::actions::{oauth, stream_selection};
 use crate::activity::AdaptivePollingState;
@@ -578,6 +578,13 @@ impl Plugin {
                         .notification_id(id)
                         .title(title)
                         .message(message)
+                        .option(
+                            NotificationOption::builder()
+                                .id("ok")
+                                .title("OK")
+                                .build()
+                                .unwrap(),
+                        )
                         .build()
                         .unwrap(),
                 )

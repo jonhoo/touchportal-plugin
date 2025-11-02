@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
-use touchportal_sdk::protocol::CreateNotificationCommand;
+use touchportal_sdk::protocol::{CreateNotificationCommand, NotificationOption};
 
 use crate::youtube_api::client::{TimeBoundAccessToken, YouTubeClient};
 use crate::{Channel, oauth};
@@ -29,6 +29,13 @@ pub async fn handle_add_youtube_channel(
             .message(
                 "You need to authenticate to YouTube \
                 in your browser to add another account.",
+            )
+            .option(
+                NotificationOption::builder()
+                    .id("ok")
+                    .title("OK")
+                    .build()
+                    .unwrap(),
             )
             .build()
             .unwrap(),
@@ -82,6 +89,13 @@ pub async fn handle_add_youtube_channel(
                 .notification_id("ytl_channel_added")
                 .title("YouTube channel added")
                 .message(format!("{channel_name} added"))
+                .option(
+                    NotificationOption::builder()
+                        .id("ok")
+                        .title("OK")
+                        .build()
+                        .unwrap(),
+                )
                 .build()
                 .unwrap(),
         )

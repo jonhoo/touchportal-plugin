@@ -68,6 +68,7 @@ impl CreateStateCommand {
 }
 
 #[derive(Debug, Clone, Builder, Deserialize, Serialize)]
+#[builder(build_fn(validate = "Self::validate"))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNotificationCommand {
     /// This is the id of this notification.
@@ -98,6 +99,19 @@ pub struct CreateNotificationCommand {
 impl CreateNotificationCommand {
     pub fn builder() -> CreateNotificationCommandBuilder {
         CreateNotificationCommandBuilder::default()
+    }
+}
+
+impl CreateNotificationCommandBuilder {
+    fn validate(&self) -> Result<(), String> {
+        if self.options.as_ref().is_none_or(|opts| opts.is_empty()) {
+            return Err(
+                "at least one notification option is required per TouchPortal API specification"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -233,5 +247,49 @@ pub struct RemoveStateCommand {
 impl RemoveStateCommand {
     pub fn builder() -> RemoveStateCommandBuilder {
         RemoveStateCommandBuilder::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+
+    #[test]
+    fn notification_without_options_fails() {
+        let result = CreateNotificationCommand::builder()
+            .notification_id("test_notification")
+            .title("Test Title")
+            .message("Test message")
+            .build();
+
+        assert!(
+            result.is_err(),
+            "building a notification without options should fail"
+        );
+
+        let err = result.unwrap_err();
+        assert_snapshot!(err);
+    }
+
+    #[test]
+    fn notification_with_option_succeeds() {
+        let result = CreateNotificationCommand::builder()
+            .notification_id("test_notification")
+            .title("Test Title")
+            .message("Test message")
+            .option(
+                NotificationOption::builder()
+                    .id("ok")
+                    .title("OK")
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+
+        assert!(
+            result.is_ok(),
+            "building a notification with an option should succeed"
+        );
     }
 }

@@ -22,11 +22,14 @@ async fn main() -> eyre::Result<()> {
         )
         .init();
 
-    Plugin::run_dynamic_with("127.0.0.1:12136", async move |setting, outgoing, info, self_trigger| {
-        Plugin::new(setting, outgoing, info, reload_handle, self_trigger)
-            .await
-            .context("Plugin::new")
-    })
+    Plugin::run_dynamic_with(
+        "127.0.0.1:12136",
+        async move |setting, outgoing, info, self_trigger| {
+            Plugin::new(setting, outgoing, info, reload_handle, self_trigger)
+                .await
+                .context("Plugin::new")
+        },
+    )
     .await?;
 
     Ok(())

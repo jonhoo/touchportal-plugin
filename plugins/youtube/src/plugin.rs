@@ -70,15 +70,19 @@ pub struct Plugin {
     http_client: reqwest::Client,
     // Self-trigger channel for background OAuth flows
     self_trigger: tokio::sync::mpsc::Sender<OAuthEvent>,
+    // Current settings for restoration logic
+    current_settings: PluginSettings,
 }
 
 impl PluginCallbacks for Plugin {
     type SelfTriggered = OAuthEvent;
 
     #[tracing::instrument(skip(self), ret)]
-    async fn on_settings_changed(
-        &mut self,
-        PluginSettings {
+    async fn on_settings_changed(&mut self, new_settings: PluginSettings) -> eyre::Result<()> {
+        // Store the new settings for restoration logic
+        self.current_settings = new_settings.clone();
+
+        let PluginSettings {
             smart_polling_adjustment,
             base_polling_interval_seconds,
             custom_o_auth_client_id,
@@ -88,8 +92,7 @@ impl PluginCallbacks for Plugin {
             you_tube_api_access_tokens: _,
             selected_channel_id: _,
             selected_broadcast_id: _,
-        }: PluginSettings,
-    ) -> eyre::Result<()> {
+        } = new_settings;
         self.handle_oauth_credential_change(&custom_o_auth_client_id, &custom_o_auth_client_secret)
             .await?;
 
@@ -534,15 +537,7 @@ impl PluginCallbacks for Plugin {
             return Ok(());
         };
 
-        let broadcasts = channel.yt.list_my_live_broadcasts();
-
-        let mut broadcast_choices =
-            vec![ChoicesForYtlBroadcast::LatestNonCompletedBroadcast.to_string()];
-        let mut stream = std::pin::pin!(broadcasts);
-        while let Some(broadcast) = stream.next().await {
-            let broadcast = broadcast.context("fetch broadcast")?;
-            broadcast_choices.push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
-        }
+        let broadcast_choices = self.fetch_broadcast_choices(&channel).await;
 
         self.tp
             .update_choices_in_specific_ytl_broadcast(instance, broadcast_choices.into_iter())
@@ -665,8 +660,7 @@ impl PluginCallbacks for Plugin {
                 // Store all tokens
                 self.tp
                     .set_you_tube_api_access_tokens(
-                        serde_json::to_string(&all_tokens)
-                            .expect("OAuth tokens always serialize"),
+                        serde_json::to_string(&all_tokens).expect("OAuth tokens always serialize"),
                     )
                     .await;
 
@@ -678,6 +672,9 @@ impl PluginCallbacks for Plugin {
                     )
                     .await;
                 drop(yt);
+
+                // Restore previous selections from settings (idempotent operation)
+                self.restore_selections_from_settings().await;
 
                 // Send notification if user-initiated
                 if matches!(source, OAuthSource::UserInitiated) {
@@ -709,9 +706,61 @@ impl PluginCallbacks for Plugin {
 }
 
 impl Plugin {
+    /// Fetch and filter broadcasts for a channel, returning only those with active live chat.
+    ///
+    /// This builds a list of broadcast choices suitable for populating dropdowns,
+    /// including the "Latest" option first, followed by specific broadcasts that
+    /// have active live chat.
+    async fn fetch_broadcast_choices(&self, channel: &Channel) -> Vec<String> {
+        let broadcasts = channel.yt.list_my_live_broadcasts();
+
+        let mut broadcast_choices =
+            vec![ChoicesForYtlBroadcast::LatestNonCompletedBroadcast.to_string()];
+        let mut stream = std::pin::pin!(broadcasts);
+
+        while let Some(broadcast_result) = stream.next().await {
+            let broadcast = match broadcast_result {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to fetch broadcast, skipping");
+                    continue;
+                }
+            };
+
+            // Only include broadcasts that have active live chat
+            match channel.yt.get_video_metadata(&broadcast.id).await {
+                Ok(video) => {
+                    if video
+                        .live_streaming_details
+                        .and_then(|d| d.active_live_chat_id)
+                        .is_some()
+                    {
+                        broadcast_choices
+                            .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
+                    } else {
+                        tracing::debug!(
+                            broadcast = %broadcast.id,
+                            title = %broadcast.snippet.title,
+                            "skipping broadcast without active live chat"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        broadcast = %broadcast.id,
+                        error = %e,
+                        "failed to fetch broadcast metadata, skipping"
+                    );
+                }
+            }
+        }
+
+        broadcast_choices
+    }
+
     pub async fn new(
         settings: PluginSettings,
-        mut outgoing: TouchPortalHandle,
+        outgoing: TouchPortalHandle,
         info: InfoMessage,
         log_level_reload_handle: tracing_subscriber::reload::Handle<
             tracing_subscriber::EnvFilter,
@@ -764,10 +813,6 @@ impl Plugin {
 
         // Start with empty channels - they'll be populated via on_self_triggered
         let shared_channels = Arc::new(Mutex::new(HashMap::new()));
-
-        // Restore previous selections from settings (will be relevant when tokens are adopted)
-        let _current_broadcast =
-            stream_selection::BroadcastSelection::from_saved_id(&settings.selected_broadcast_id);
 
         // ==============================================================================
         // Background Task Coordination
@@ -868,6 +913,7 @@ impl Plugin {
             log_level_reload_handle,
             http_client: shared_http_client,
             self_trigger,
+            current_settings: settings.clone(),
         };
 
         // Apply the initial logging level from plugin settings
@@ -904,12 +950,152 @@ impl Plugin {
                 custom_client_id,
                 custom_client_secret,
             ));
-            if let Err(e) = plugin.spawn_oauth_flow(oauth_manager, OAuthSource::Startup).await {
+            if let Err(e) = plugin
+                .spawn_oauth_flow(oauth_manager, OAuthSource::Startup)
+                .await
+            {
                 tracing::error!(error = ?e, "failed to spawn OAuth flow at startup");
             }
         }
 
         Ok(plugin)
+    }
+
+    /// Restore previous channel and broadcast selections from settings.
+    ///
+    /// This method is idempotent and can be safely called multiple times. It reads
+    /// the selected channel and broadcast IDs from settings and restores the UI state
+    /// and stream selection accordingly.
+    ///
+    /// The restoration process:
+    /// 1. Reads `selected_channel_id` from settings
+    /// 2. If a channel is selected and exists:
+    ///    - Updates the channel name UI state
+    ///    - Fetches and updates the broadcast choice list
+    ///    - Restores the broadcast selection if one was saved
+    ///
+    /// All operations handle errors gracefully with logging, never failing the overall
+    /// token adoption flow.
+    async fn restore_selections_from_settings(&mut self) {
+        let selected_channel_id = &self.current_settings.selected_channel_id;
+
+        if selected_channel_id.is_empty() {
+            tracing::debug!("no channel selection to restore");
+            return;
+        }
+
+        let yt = self.yt.lock().await;
+        let channel = match yt.get(selected_channel_id) {
+            Some(channel) => channel,
+            None => {
+                tracing::warn!(
+                    channel = %selected_channel_id,
+                    "previously selected channel no longer available"
+                );
+                drop(yt);
+                return;
+            }
+        };
+
+        // Update channel name state
+        self.tp
+            .update_ytl_selected_channel_name(format!("{} - {}", channel.name, selected_channel_id))
+            .await;
+
+        // Fetch broadcasts for the current channel and update the choices
+        let broadcast_choices = self.fetch_broadcast_choices(channel).await;
+
+        self.tp
+            .update_choices_in_ytl_broadcast(broadcast_choices.into_iter())
+            .await;
+
+        tracing::debug!(
+            channel = %selected_channel_id,
+            "restored broadcast choices for selected channel"
+        );
+
+        // Restore broadcast selection if one was saved
+        let selected_broadcast_id = &self.current_settings.selected_broadcast_id;
+        let broadcast_selection =
+            stream_selection::BroadcastSelection::from_saved_id(selected_broadcast_id);
+
+        match broadcast_selection {
+            Some(stream_selection::BroadcastSelection::Latest) => {
+                // User selected "latest" mode
+                let _ = self
+                    .stream_selection_tx
+                    .send(StreamSelection::WaitForActiveBroadcast {
+                        channel_id: selected_channel_id.clone(),
+                    });
+                tracing::info!(
+                    channel = %selected_channel_id,
+                    "restored selection with 'latest' broadcast mode"
+                );
+            }
+            Some(stream_selection::BroadcastSelection::Specific(broadcast_id)) => {
+                // User selected specific broadcast - validate it
+                match channel.yt.get_video_metadata(&broadcast_id).await {
+                    Ok(video) => {
+                        if let Some(live_chat_id) = video
+                            .live_streaming_details
+                            .and_then(|d| d.active_live_chat_id)
+                        {
+                            let _ = self.stream_selection_tx.send(
+                                StreamSelection::ChannelAndBroadcast {
+                                    channel_id: selected_channel_id.clone(),
+                                    broadcast_id: broadcast_id.clone(),
+                                    live_chat_id,
+                                    return_to_latest_on_completion: false,
+                                },
+                            );
+                            tracing::info!(
+                                channel = %selected_channel_id,
+                                broadcast = %broadcast_id,
+                                "restored selection with specific broadcast"
+                            );
+                        } else {
+                            tracing::warn!(
+                                broadcast = %broadcast_id,
+                                "saved broadcast has no active live chat; it may have ended"
+                            );
+                            self.tp.set_selected_broadcast_id(String::new()).await;
+                            let _ = self.stream_selection_tx.send(StreamSelection::ChannelOnly {
+                                channel_id: selected_channel_id.clone(),
+                            });
+                            tracing::info!(
+                                channel = %selected_channel_id,
+                                "restored selection with channel-only mode (broadcast ended)"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            broadcast = %broadcast_id,
+                            "failed to validate saved broadcast; it may have been deleted"
+                        );
+                        self.tp.set_selected_broadcast_id(String::new()).await;
+                        let _ = self.stream_selection_tx.send(StreamSelection::ChannelOnly {
+                            channel_id: selected_channel_id.clone(),
+                        });
+                        tracing::info!(
+                            channel = %selected_channel_id,
+                            "restored selection with channel-only mode (broadcast validation failed)"
+                        );
+                    }
+                }
+            }
+            None => {
+                // No broadcast selected, just channel
+                let _ = self.stream_selection_tx.send(StreamSelection::ChannelOnly {
+                    channel_id: selected_channel_id.clone(),
+                });
+                tracing::info!(
+                    channel = %selected_channel_id,
+                    "restored selection with channel-only mode"
+                );
+            }
+        }
     }
 
     /// Get the current broadcast ID from the stream selection watch receiver.
@@ -1167,7 +1353,9 @@ impl Plugin {
                 CreateNotificationCommand::builder()
                     .notification_id("ytl_oauth_check_browser")
                     .title("YouTube Authentication")
-                    .message("Please check your browser to authorize access to your YouTube account.")
+                    .message(
+                        "Please check your browser to authorize access to your YouTube account.",
+                    )
                     .option(
                         NotificationOption::builder()
                             .id("ok")

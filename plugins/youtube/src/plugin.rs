@@ -727,31 +727,16 @@ impl Plugin {
                 }
             };
 
-            // Only include broadcasts that have active live chat
-            match channel.yt.get_video_metadata(&broadcast.id).await {
-                Ok(video) => {
-                    if video
-                        .live_streaming_details
-                        .and_then(|d| d.active_live_chat_id)
-                        .is_some()
-                    {
-                        broadcast_choices
-                            .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
-                    } else {
-                        tracing::debug!(
-                            broadcast = %broadcast.id,
-                            title = %broadcast.snippet.title,
-                            "skipping broadcast without active live chat"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        broadcast = %broadcast.id,
-                        error = %e,
-                        "failed to fetch broadcast metadata, skipping"
-                    );
-                }
+            // Only include broadcasts that have a live chat ID
+            if broadcast.snippet.live_chat_id.is_some() {
+                broadcast_choices
+                    .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
+            } else {
+                tracing::debug!(
+                    broadcast = %broadcast.id,
+                    title = %broadcast.snippet.title,
+                    "skipping broadcast without live chat"
+                );
             }
         }
 
@@ -1034,12 +1019,9 @@ impl Plugin {
             }
             Some(stream_selection::BroadcastSelection::Specific(broadcast_id)) => {
                 // User selected specific broadcast - validate it
-                match channel.yt.get_video_metadata(&broadcast_id).await {
-                    Ok(video) => {
-                        if let Some(live_chat_id) = video
-                            .live_streaming_details
-                            .and_then(|d| d.active_live_chat_id)
-                        {
+                match channel.yt.get_live_broadcast(&broadcast_id).await {
+                    Ok(broadcast) => {
+                        if let Some(live_chat_id) = broadcast.snippet.live_chat_id {
                             let _ = self.stream_selection_tx.send(
                                 StreamSelection::ChannelAndBroadcast {
                                     channel_id: selected_channel_id.clone(),
@@ -1056,7 +1038,7 @@ impl Plugin {
                         } else {
                             tracing::warn!(
                                 broadcast = %broadcast_id,
-                                "saved broadcast has no active live chat; it may have ended"
+                                "saved broadcast has no live chat; it may have ended"
                             );
                             self.tp.set_selected_broadcast_id(String::new()).await;
                             let _ = self.stream_selection_tx.send(StreamSelection::ChannelOnly {

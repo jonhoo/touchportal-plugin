@@ -484,9 +484,26 @@ fn plugin() -> PluginDescription {
                         .unwrap(),
                 )
                 // ==============================================================================
-                // State-Based Chat Events - Analytics & Monitoring
+                // State-Based Events - Analytics & Monitoring
                 // ==============================================================================
                 // These events trigger automatically when global states change
+                .event(
+                    Event::builder()
+                        .id("ytl_broadcast_is_live_changed")
+                        .name("On broadcast live status changed")
+                        .format("When the broadcast transitions to $val")
+                        .sub_category_id("ytl_analytics_monitoring")
+                        .value(EventValueType::Choice(
+                            EventChoiceValue::builder()
+                                .choice("not live")
+                                .choice("live")
+                                .build()
+                                .unwrap(),
+                        ))
+                        .value_state_id("ytl_broadcast_is_live")
+                        .build()
+                        .unwrap(),
+                )
                 .event(
                     Event::builder()
                         .id("ytl_last_chat_message_changed")
@@ -825,6 +842,22 @@ fn plugin() -> PluginDescription {
                         .initial("Disabled")
                         .parent_group("System Status")
                         .kind(StateType::Text(TextState::builder().build().unwrap()))
+                        .build()
+                        .unwrap(),
+                )
+                .state(
+                    State::builder()
+                        .id("ytl_broadcast_is_live")
+                        .description("YouTube Live - broadcast live status")
+                        .initial("not live")
+                        .parent_group("System Status")
+                        .kind(StateType::Choice(
+                            ChoiceState::builder()
+                                .choice("not live")
+                                .choice("live")
+                                .build()
+                                .unwrap(),
+                        ))
                         .build()
                         .unwrap(),
                 )

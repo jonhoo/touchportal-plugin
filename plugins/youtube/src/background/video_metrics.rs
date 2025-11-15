@@ -104,6 +104,16 @@ pub async fn poll_and_update_metrics(
                 outgoing.update_ytl_live_viewers_count("-").await;
             }
 
+            // Update broadcast live status
+            use crate::youtube_api::videos::LiveBroadcastContent;
+            use crate::plugin::ValuesForStateYtlBroadcastIsLive;
+            let status = match stats.snippet.live_broadcast_content {
+                LiveBroadcastContent::Live => ValuesForStateYtlBroadcastIsLive::Live,
+                LiveBroadcastContent::Upcoming => ValuesForStateYtlBroadcastIsLive::NotLive,
+                LiveBroadcastContent::None => ValuesForStateYtlBroadcastIsLive::NotLive,
+            };
+            outgoing.update_ytl_broadcast_is_live(status).await;
+
             tracing::trace!(
                 broadcast_id = %broadcast_id,
                 views = ?stats.statistics.view_count,

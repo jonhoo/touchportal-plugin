@@ -170,6 +170,15 @@ pub async fn spawn_broadcast_monitor_task(
                         );
                     }
 
+                    // Update broadcast status for non-broadcast selections
+                    // ChannelAndBroadcast status is set after fetching broadcast info
+                    if !matches!(selection, StreamSelection::ChannelAndBroadcast { .. }) {
+                        tp.update_ytl_broadcast_is_live(
+                                crate::plugin::ValuesForStateYtlBroadcastIsLive::NotLive,
+                            )
+                            .await;
+                    }
+
                     // Get the channel we need to monitor
                     let channel_id = match &selection {
                         StreamSelection::WaitForActiveBroadcast { channel_id } => channel_id,
@@ -235,6 +244,15 @@ pub async fn spawn_broadcast_monitor_task(
                                     }
                                 }
                                 StreamSelection::ChannelAndBroadcast { channel_id, broadcast_id, return_to_latest_on_completion, .. } => {
+                                    // Update broadcast live status based on lifecycle status
+                                    let live_status = match result.current_broadcast_status {
+                                        Some(BroadcastLifeCycleStatus::Live) => {
+                                            crate::plugin::ValuesForStateYtlBroadcastIsLive::Live
+                                        }
+                                        _ => crate::plugin::ValuesForStateYtlBroadcastIsLive::NotLive,
+                                    };
+                                    tp.update_ytl_broadcast_is_live(live_status).await;
+
                                     // Check if current broadcast completed
                                     let current_completed = matches!(
                                         result.current_broadcast_status,

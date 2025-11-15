@@ -88,18 +88,15 @@ pub async fn handle_select_stream(
                     return Ok(None);
                 };
 
-                // Fetch video metadata to get live chat ID
-                match channel.yt.get_video_metadata(&id).await {
-                    Ok(video) => {
-                        match video
-                            .live_streaming_details
-                            .and_then(|details| details.active_live_chat_id)
-                        {
+                // Fetch broadcast details to get live chat ID
+                match channel.yt.get_live_broadcast(&id).await {
+                    Ok(broadcast) => {
+                        match broadcast.snippet.live_chat_id {
                             Some(live_chat_id) => (id, Some(live_chat_id)),
                             None => {
                                 tracing::warn!(
                                     broadcast = %id,
-                                    "selected broadcast has no active live chat; it may have ended"
+                                    "selected broadcast has no live chat; it may have ended"
                                 );
                                 // Clear the broadcast selection since it's not usable for chat
                                 tp.set_selected_broadcast_id(String::new()).await;
@@ -112,7 +109,7 @@ pub async fn handle_select_stream(
                         tracing::warn!(
                             broadcast = %id,
                             error = %e,
-                            "failed to get video metadata for selected broadcast; it may have been deleted"
+                            "failed to get broadcast details for selected broadcast; it may have been deleted"
                         );
                         // Clear the broadcast selection since it's not accessible
                         tp.set_selected_broadcast_id(String::new()).await;

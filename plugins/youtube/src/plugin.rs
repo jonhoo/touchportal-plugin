@@ -729,8 +729,7 @@ impl Plugin {
 
             // Only include broadcasts that have a live chat ID
             if broadcast.snippet.live_chat_id.is_some() {
-                broadcast_choices
-                    .push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
+                broadcast_choices.push(format!("{} - {}", broadcast.snippet.title, broadcast.id));
             } else {
                 tracing::debug!(
                     broadcast = %broadcast.id,

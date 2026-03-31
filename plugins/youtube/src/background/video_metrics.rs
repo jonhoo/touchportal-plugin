@@ -105,8 +105,8 @@ pub async fn poll_and_update_metrics(
             }
 
             // Update broadcast live status
-            use crate::youtube_api::videos::LiveBroadcastContent;
             use crate::plugin::ValuesForStateYtlBroadcastIsLive;
+            use crate::youtube_api::videos::LiveBroadcastContent;
             let status = match stats.snippet.live_broadcast_content {
                 LiveBroadcastContent::Live => ValuesForStateYtlBroadcastIsLive::Live,
                 LiveBroadcastContent::Upcoming => ValuesForStateYtlBroadcastIsLive::NotLive,

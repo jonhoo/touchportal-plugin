@@ -61,6 +61,12 @@ pub struct OAuthManager {
     http_client: reqwest::Client,
 }
 
+impl Default for OAuthManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OAuthManager {
     /// Creates a new OAuth manager instance with default hardcoded credentials.
     /// Uses a secure HTTP client with redirect protection for SSRF prevention.

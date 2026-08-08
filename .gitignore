@@ -1,5 +1,6 @@
-/target
+target/
 /target-coverage
 *.tpp
 __pycache__/
 *.lcov
+SESSION.md

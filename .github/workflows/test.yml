@@ -147,7 +147,7 @@ jobs:
           toolchain: stable
           components: llvm-tools-preview
       - name: cargo install cargo-llvm-cov
-        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # tag=v2.87.21
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # tag=v2.90.3
         with:
           tool: cargo-llvm-cov
       - name: Setup shared target directory for all workspaces
@@ -189,7 +189,7 @@ jobs:
           echo "$COVERAGE_FILE_LINES" >> "$GITHUB_ENV"
           echo "EOF" >> "$GITHUB_ENV"
       - name: Upload merged coverage report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # tag=v7.0.2
         with:
           name: merged-coverage-report
           path: ${{ env.COVERAGE_FILES_GLOB }}
